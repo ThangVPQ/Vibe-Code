@@ -119,7 +119,7 @@ export function ClaudePanel(): React.JSX.Element {
           </div>
           {tab === 'images' && <ChatImages images={images} />}
           <AttachmentTray chatId={active.id} />
-          <div className="quick-bar">
+          <div className={`quick-bar${active.status === 'working' || active.status === 'starting' ? ' busy' : ''}`}>
             <button
               className="chip"
               title="Attach files — they go with your next message (you can also paste pictures or drag files onto the chat)"
@@ -289,7 +289,6 @@ function ChatStatusBar({ chat }: { chat: Chat }): React.JSX.Element {
           onPick={(v) => setChatPermission(chat.id, v)}
         />
       )}
-      {(chat.status === 'working' || chat.status === 'starting') && <span className="sb-spinner" title="Working" />}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { app, Notification, safeStorage, type BrowserWindow } from 'electron'
+import { app, nativeImage, Notification, safeStorage, type BrowserWindow } from 'electron'
 import { promises as fsp, readFileSync } from 'fs'
 import { join } from 'path'
 import {
@@ -47,6 +47,9 @@ const friends = new Set<string>()
 /** stickerId → image url */
 const stickerUrls = new Map<number, string>()
 let prefs = { notify: true }
+/** when this app was last online with Zalo: replayed messages newer than that arrived while away (unread) */
+let syncedAt = 0
+let awayFrom = 0
 let cacheLoaded = false
 let saveTimer: NodeJS.Timeout | null = null
 let changedTimer: NodeJS.Timeout | null = null
@@ -66,6 +69,7 @@ function loadCache(): void {
       friends?: string[]
       stickers?: Record<string, string>
       prefs?: typeof prefs
+      syncedAt?: number
     }
     for (const t of c.threads ?? []) threads.set(t.id, t)
     for (const [k, v] of Object.entries(c.messages ?? {})) messages.set(k, v)
@@ -74,6 +78,7 @@ function loadCache(): void {
     for (const id of c.friends ?? []) friends.add(id)
     for (const [k, v] of Object.entries(c.stickers ?? {})) stickerUrls.set(Number(k), v)
     if (c.prefs) prefs = { ...prefs, ...c.prefs }
+    syncedAt = awayFrom = c.syncedAt ?? 0
   } catch {
     /* no cache yet */
   }
@@ -97,6 +102,7 @@ function changed(...ids: string[]): void {
 }
 
 async function writeCache(): Promise<void> {
+  if (state.status === 'online') syncedAt = Date.now()
   const data = {
     threads: [...threads.values()].filter((t) => !t.contact),
     messages: Object.fromEntries(messages),
@@ -104,7 +110,8 @@ async function writeCache(): Promise<void> {
     avatars: Object.fromEntries(avatars),
     friends: [...friends],
     stickers: Object.fromEntries(stickerUrls),
-    prefs
+    prefs,
+    syncedAt
   }
   await fsp.mkdir(dir(), { recursive: true })
   await fsp.writeFile(cacheFile(), JSON.stringify(data), 'utf8').catch(() => {})
@@ -262,12 +269,15 @@ function ingest(list: Message[], live = false): void {
     if (!t.avatar && avatars.has(m.threadId)) t.avatar = avatars.get(m.threadId)
     threads.set(m.threadId, t)
     if (msg.ts >= t.lastTs) refreshThreadLast(m.threadId)
-    if (live && !msg.self) {
+    // replayed history: unread if it came in while the app was away and I haven't replied since
+    const away = !live && awayFrom > 0 && msg.ts > awayFrom && !arr.some((x) => x.self && x.ts > msg.ts)
+    if (msg.self && msg.ts >= t.lastTs) t.unread = 0
+    else if ((live || away) && !msg.self) {
       const focused = getWin()?.isFocused() && activeThread === m.threadId
       if (focused) markSeen(m.threadId)
       else {
         t.unread = (t.unread ?? 0) + 1
-        notify(t, msg)
+        if (live) notify(t, msg)
       }
     }
     if (msg.att?.kind === 'sticker' && !msg.att.url) void resolveSticker(msg)
@@ -439,7 +449,15 @@ function readCreds(): Credentials | null {
   }
 }
 
-const newZalo = (): Zalo => new Zalo({ selfListen: true, checkUpdate: false, logging: false })
+/** zca-js needs an image's size before uploading it as a photo */
+async function imageMetadata(path: string): Promise<{ width: number; height: number; size: number } | null> {
+  const img = nativeImage.createFromPath(path)
+  if (img.isEmpty()) return null
+  const { width, height } = img.getSize()
+  return { width, height, size: (await fsp.stat(path)).size }
+}
+
+const newZalo = (): Zalo => new Zalo({ selfListen: true, checkUpdate: false, logging: false, imageMetadataGetter: imageMetadata })
 
 const OLD_PAGES = 15
 let retries = 0
@@ -449,6 +467,7 @@ async function afterLogin(a: API): Promise<void> {
   api = a
   retries = 0
   loadCache()
+  awayFrom = syncedAt
   const id = a.getOwnId()
   setState({ status: 'online', qr: undefined, error: undefined, self: { id, name: state.self?.name ?? '', avatar: state.self?.avatar ?? '' } })
   a.fetchAccountInfo()
@@ -458,20 +477,14 @@ async function afterLogin(a: API): Promise<void> {
   void loadPins(a)
 
   // recent history: Zalo replays it page by page over the socket, once the socket has its key
-  const pages = { [ThreadType.User]: 0, [ThreadType.Group]: 0 }
   const l = a.listener
   l.on('cipher_key', () => {
-    if (api !== a) return
-    pages[ThreadType.User] = pages[ThreadType.Group] = 0
-    l.requestOldMessages(ThreadType.User)
-    l.requestOldMessages(ThreadType.Group)
-    l.requestOldReactions(ThreadType.User)
-    l.requestOldReactions(ThreadType.Group)
+    if (api === a) requestReplay(a)
   })
   l.on('message', (m) => ingest([m], true))
   l.on('old_messages', (list, type) => {
     ingest(list)
-    if (list.length && ++pages[type] < OLD_PAGES) {
+    if (list.length && ++replayPages[type] < OLD_PAGES) {
       const oldest = list.reduce((x, y) => (Number(x.data.ts) <= Number(y.data.ts) ? x : y))
       l.requestOldMessages(type, oldest.data.msgId)
     }
@@ -506,6 +519,36 @@ async function afterLogin(a: API): Promise<void> {
   })
   l.on('error', () => {})
   l.start({ retryOnClose: true })
+}
+
+const replayPages = { [ThreadType.User]: 0, [ThreadType.Group]: 0 }
+function requestReplay(a: API): void {
+  const l = a.listener
+  replayPages[ThreadType.User] = replayPages[ThreadType.Group] = 0
+  l.requestOldMessages(ThreadType.User)
+  l.requestOldMessages(ThreadType.Group)
+  l.requestOldReactions(ThreadType.User)
+  l.requestOldReactions(ThreadType.Group)
+}
+
+/** "Đồng bộ tất cả": names, pins, the socket replay again, and the latest page of every group. Returns new messages. */
+export async function syncAll(): Promise<number> {
+  const a = need()
+  const total = (): number => [...messages.values()].reduce((s, m) => s + m.length, 0)
+  const before = total()
+  await Promise.all([loadNames(a), loadPins(a)])
+  requestReplay(a)
+  const groups = [...threads.values()].filter((t) => t.group).map((t) => t.id)
+  for (let i = 0; i < groups.length; i += 4)
+    await Promise.all(
+      groups.slice(i, i + 4).map((id) =>
+        a
+          .getCloudMessage(id)
+          .then((r) => ingest(r.groupMsgs))
+          .catch(() => {})
+      )
+    )
+  return total() - before
 }
 
 /** Friend and group names / avatars, so threads show who they are. */
@@ -793,7 +836,8 @@ export async function sendText(threadId: string, text: string, group?: boolean, 
 /** Files from disk (images are sent as photos), with an optional caption. */
 export async function sendFiles(threadId: string, paths: string[], caption = ''): Promise<void> {
   const a = need()
-  await a.sendMessage({ msg: caption, attachments: paths }, threadId, typeOf(threadId))
+  // forward slashes: zca-js takes an image's file name from after the last '/'
+  await a.sendMessage({ msg: caption, attachments: paths.map((p) => p.replace(/\\/g, '/')) }, threadId, typeOf(threadId))
 }
 
 export async function sendSticker(threadId: string, s: ZaloSticker): Promise<void> {

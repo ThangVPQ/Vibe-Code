@@ -1022,7 +1022,7 @@ function Composer({
 const STICKER_KEYS = ['hi', 'yêu', 'haha', 'ok', 'cảm ơn', 'buồn', 'giận', 'chúc mừng']
 
 function EmojiPanel({ onEmoji, onSticker }: { onEmoji: (e: string) => void; onSticker: (s: ZaloSticker) => void }): React.JSX.Element {
-  const [tab, setTab] = useState<'emoji' | 'sticker'>('emoji')
+  const [tab, setTab] = useState<'emoji' | 'sticker'>('sticker')
   const [group, setGroup] = useState(0)
   const [kw, setKw] = useState('hi')
   const [stickers, setStickers] = useState<ZaloSticker[] | null>(null)
@@ -1051,11 +1051,11 @@ function EmojiPanel({ onEmoji, onSticker }: { onEmoji: (e: string) => void; onSt
   return (
     <div className="zl-panel" onMouseDown={(e) => e.stopPropagation()}>
       <div className="zl-panel-tabs">
-        <button className={tab === 'emoji' ? 'on' : ''} onClick={() => setTab('emoji')}>
-          Emoji
-        </button>
         <button className={tab === 'sticker' ? 'on' : ''} onClick={() => setTab('sticker')}>
           Sticker
+        </button>
+        <button className={tab === 'emoji' ? 'on' : ''} onClick={() => setTab('emoji')}>
+          Emoji
         </button>
       </div>
       {tab === 'emoji' ? (

@@ -161,6 +161,7 @@ function registerIpc(): void {
   ipcMain.handle('zalo:logout', () => zalo.logout())
   ipcMain.handle('zalo:threads', (_e, q?: string) => zalo.listThreads(q))
   ipcMain.handle('zalo:messages', (_e, threadId: string, limit?: number, before?: number) => zalo.getMessages(threadId, limit, before))
+  ipcMain.handle('zalo:syncAll', () => zalo.syncAll())
   ipcMain.handle('zalo:loadOlder', (_e, threadId: string) => zalo.loadOlder(threadId))
   ipcMain.handle('zalo:send', (_e, threadId: string, text: string, replyTo?: string) => zalo.sendText(threadId, text, undefined, replyTo))
   ipcMain.handle('zalo:uiThreads', () => zalo.uiThreads())

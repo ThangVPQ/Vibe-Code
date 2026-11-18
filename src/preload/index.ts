@@ -69,6 +69,7 @@ const api = {
     threads: (query?: string): Promise<ZaloThread[]> => ipcRenderer.invoke('zalo:threads', query),
     messages: (threadId: string, limit?: number, before?: number): Promise<ZaloMessage[]> => ipcRenderer.invoke('zalo:messages', threadId, limit, before),
     /** groups: fetch older messages from Zalo; returns how many arrived */
+    syncAll: (): Promise<number> => ipcRenderer.invoke('zalo:syncAll'),
     loadOlder: (threadId: string): Promise<number> => ipcRenderer.invoke('zalo:loadOlder', threadId),
     send: (threadId: string, text: string, replyTo?: string): Promise<string> => ipcRenderer.invoke('zalo:send', threadId, text, replyTo),
     /** conversations for the tab: pinned first, then newest */

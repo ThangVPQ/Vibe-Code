@@ -858,8 +858,9 @@
 .zl-panel {
   position: absolute;
   z-index: 41;
-  right: 18px;
-  bottom: calc(100% - 6px);
+  /* line up with the composer's right edge (it is centered, max 724px wide) */
+  right: max(18px, calc((100% - 724px) / 2));
+  bottom: calc(100% + 6px);
   width: 340px;
   height: 380px;
   display: flex;

@@ -132,6 +132,7 @@ function ZaloMessenger({ state }: { state: ZaloState }): React.JSX.Element {
   const [changedIds, setChangedIds] = useState<{ ids: string[]; n: number }>({ ids: [], n: 0 })
   const [menu, setMenu] = useState(false)
   const [notify, setNotify] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -229,6 +230,17 @@ function ZaloMessenger({ state }: { state: ZaloState }): React.JSX.Element {
               </button>
             )}
           </label>
+          <button
+            className="zl-icon"
+            title="Đồng bộ tất cả cuộc trò chuyện"
+            disabled={offline || syncing}
+            onClick={() => {
+              setSyncing(true)
+              void window.api.zalo.syncAll().finally(() => setSyncing(false))
+            }}
+          >
+            <RefreshCw size={17} className={syncing ? 'zl-spin' : undefined} />
+          </button>
           {menu && (
             <>
               <div className="zl-scrim" onClick={() => setMenu(false)} />
