@@ -1,0 +1,520 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { SlidePill } from './motion'
+import {
+  ChevronDown,
+  CircleCheck,
+  CircleAlert,
+  Files,
+  FolderOpen,
+  GitBranch,
+  GitCompare,
+  Loader2,
+  MessagesSquare,
+  PanelLeft,
+  PanelBottom,
+  Search,
+  Clock,
+  ArrowDownToLine,
+  ChevronUp,
+  Minus,
+  Square,
+  Copy,
+  X,
+  Link2,
+  Check,
+  Droplet,
+  Globe,
+  Moon,
+  Sun
+} from 'lucide-react'
+import { basename, useStore, type SidebarView } from '../store'
+import { openBrowser, openFile, openFolder, openSession, toggleBottom, toggleTheme } from '../actions'
+import { languageFor } from '../monaco'
+import { FileIcon, Logo } from './icons'
+import type { UsageLimit } from '../../../shared/types'
+
+/* ================================ Title bar ================================ */
+
+export function TitleBar(): JSX.Element {
+  const root = useStore((s) => s.root)
+  const recent = useStore((s) => s.recent)
+  const [menu, setMenu] = useState(false)
+
+  useEffect(() => {
+    if (!menu) return
+    const close = (): void => setMenu(false)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [menu])
+
+  return (
+    <div className="titlebar">
+      <div className="titlebar-left">
+        <Logo size={18} />
+        <span className="app-name">VIBE <b>CODE</b></span>
+        {root && (
+          <div className="folder-switch" onMouseDown={(e) => e.stopPropagation()}>
+            <button className="folder-btn" onClick={() => setMenu(!menu)}>
+              <FolderOpen size={13} />
+              {basename(root)}
+              <ChevronDown size={12} />
+            </button>
+            {menu && (
+              <div className="menu">
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenu(false)
+                    openFolder()
+                  }}
+                >
+                  <FolderOpen size={14} /> Open folder…
+                </button>
+                {recent.length > 1 && <div className="menu-sep">Recent</div>}
+                {recent
+                  .filter((r) => r !== root)
+                  .map((r) => (
+                    <button
+                      key={r}
+                      className="menu-item"
+                      onClick={() => {
+                        setMenu(false)
+                        openFolder(r)
+                      }}
+                    >
+                      <Clock size={14} />
+                      <span className="menu-item-main">{basename(r)}</span>
+                      <span className="menu-item-sub">{r}</span>
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {root && (
+        <button className="search-box" onClick={() => useStore.setState({ quickOpen: true })}>
+          <Search size={13} />
+          <span>Search files in {basename(root)}</span>
+          <kbd>Ctrl+P</kbd>
+        </button>
+      )}
+      <div className="titlebar-right">
+        <button className="icon-btn" title="Toggle sidebar (Ctrl+B)" onClick={() => useStore.setState((s) => ({ sidebarOpen: !s.sidebarOpen }))}>
+          <PanelLeft size={15} />
+        </button>
+        <button className="icon-btn" title="Toggle terminal (Ctrl+`)" onClick={() => toggleBottom()}>
+          <PanelBottom size={15} />
+        </button>
+        <button className="icon-btn" title="Open browser" onClick={() => openBrowser()}>
+          <Globe size={15} />
+        </button>
+        <ThemeToggle />
+        <OpacityControl />
+        <ModeSwitch />
+      </div>
+      <WindowControls />
+    </div>
+  )
+}
+
+/** Light ↔ dark. */
+function ThemeToggle(): JSX.Element {
+  const light = useStore((s) => s.themeResolved === 'light')
+  return (
+    <button className="icon-btn" title={light ? 'Switch to dark theme' : 'Switch to light theme'} onClick={() => toggleTheme()}>
+      {light ? <Moon size={15} /> : <Sun size={15} />}
+    </button>
+  )
+}
+
+/** Window opacity: a button that opens a slider (20–100%). */
+function OpacityControl(): JSX.Element {
+  const saved = useStore((s) => s.settings?.dropOpacity ?? 1)
+  const seeThrough = useStore((s) => !!s.settings?.seeThrough)
+  const [pending, setPending] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [val, setVal] = useState(saved)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => setVal(saved), [saved])
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [open])
+  const save = async (v: number): Promise<void> => {
+    setVal(v)
+    const settings = await window.api.app.setSettings({ dropOpacity: v }).catch(() => null)
+    if (settings) useStore.setState({ settings })
+  }
+  return (
+    <div className="opacity-ctl" ref={ref}>
+      <button className={`icon-btn${open ? ' active' : ''}`} title={`Window opacity: ${Math.round(val * 100)}%`} onClick={() => setOpen(!open)}>
+        <Droplet size={15} />
+      </button>
+      {open && (
+        <div className="menu opacity-pop">
+          <button
+            className={`see-through${seeThrough ? ' on' : ''}`}
+            onClick={async () => {
+              const next = !seeThrough
+              const msg = next
+                ? 'See-through: the background turns transparent and text stays sharp, like a Linux overlay terminal.\n\nVIBE CODE has to restart. Open chats close; reopen them from Chats.'
+                : 'Turn off see-through? VIBE CODE has to restart. Open chats close; reopen them from Chats.'
+              if (!window.confirm(msg)) return
+              const settings = await window.api.app.setSettings({ seeThrough: next }).catch(() => null)
+              if (settings) useStore.setState({ settings })
+              if (!(await window.api.app.relaunch())) setPending(true)
+            }}
+          >
+            <span className="see-through-box">{seeThrough && <Check size={11} />}</span>
+            See-through (Linux overlay)
+          </button>
+          {pending && <div className="opacity-note">Dev mode: stop and rerun npm run dev to apply.</div>}
+          <div className="opacity-row">
+            <span>{seeThrough ? 'Background' : 'Opacity'}</span>
+            <b>{Math.round(val * 100)}%</b>
+          </div>
+          <input type="range" min={seeThrough ? 5 : 20} max={100} step={1} value={Math.round(val * 100)} onChange={(e) => save(Number(e.target.value) / 100)} />
+          <div className="opacity-presets">
+            {[0.3, 0.5, 0.75, 1].map((p) => (
+              <button key={p} className={`chip${Math.abs(val - p) < 0.005 ? ' on' : ''}`} onClick={() => save(p)}>
+                {Math.round(p * 100)}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ModeSwitch(): JSX.Element | null {
+  const win = useStore((s) => s.win)
+  if (!win) return null
+  const drop = win.mode === 'dropdown'
+  return (
+    <button
+      className={`mode-switch${drop ? ' on' : ''}`}
+      title={drop ? 'Switch to a normal window' : `Drop-down mode: ${win.hotkey} slides VIBE CODE over any app`}
+      onClick={() => window.api.win.setMode(drop ? 'window' : 'dropdown')}
+    >
+      <ArrowDownToLine size={13} />
+      <span>{drop ? 'Drop-down' : 'Guake'}</span>
+      {win.hotkeyOk && <kbd>{win.hotkey}</kbd>}
+    </button>
+  )
+}
+
+function WindowControls(): JSX.Element | null {
+  const win = useStore((s) => s.win)
+  if (!win) return null
+  if (win.mode === 'dropdown') {
+    return (
+      <div className="win-controls">
+        <button className="win-btn" title={`Hide (${win.hotkey})`} onClick={() => window.api.win.hide()}>
+          <ChevronUp size={16} />
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="win-controls">
+      <button className="win-btn" title="Minimize" onClick={() => window.api.win.minimize()}>
+        <Minus size={15} />
+      </button>
+      <button className="win-btn" title={win.maximized ? 'Restore' : 'Maximize'} onClick={() => window.api.win.toggleMaximize()}>
+        {win.maximized ? <Copy size={12} style={{ transform: 'scaleX(-1)' }} /> : <Square size={12} />}
+      </button>
+      <button className="win-btn close" title="Close" onClick={() => window.api.win.close()}>
+        <X size={16} />
+      </button>
+    </div>
+  )
+}
+
+/* ================================ Activity bar ================================ */
+
+export function ActivityBar(): JSX.Element {
+  const view = useStore((s) => s.sidebarView)
+  const open = useStore((s) => s.sidebarOpen)
+  const attention = useStore((s) => s.chats.filter((c) => c.attention).length)
+  const working = useStore((s) => s.chats.some((c) => c.status === 'working'))
+  const changes = useStore((s) => s.git.files.length)
+
+  const item = (v: SidebarView, icon: React.ReactNode, title: string, badge?: React.ReactNode): JSX.Element => (
+    <button
+      className={`activity-item${view === v && open ? ' active' : ''}`}
+      title={title}
+      onClick={() => useStore.setState((s) => (s.sidebarView === v && s.sidebarOpen ? { sidebarOpen: false } : { sidebarView: v, sidebarOpen: true }))}
+    >
+      {icon}
+      {badge}
+    </button>
+  )
+
+  return (
+    <div className="activity-bar">
+      <SlidePill />
+      {item(
+        'chats',
+        <MessagesSquare size={20} strokeWidth={1.7} />,
+        'Chats',
+        attention > 0 ? <span className="badge accent">{attention}</span> : working ? <span className="badge-pulse" /> : null
+      )}
+      {item('explorer', <Files size={20} strokeWidth={1.7} />, 'Explorer (Ctrl+Shift+E)')}
+      {item('changes', <GitCompare size={20} strokeWidth={1.7} />, 'Changes (Ctrl+Shift+G)', changes > 0 ? <span className="badge">{changes > 99 ? '99+' : changes}</span> : null)}
+    </div>
+  )
+}
+
+/* ================================ Status bar ================================ */
+
+/** "1:00 PM" today, "Fri 3:00 AM" later in the week. */
+function resetLabel(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`
+}
+
+/** Plan usage limits (same as Claude's "Plan usage limits" panel), refreshed every 2 minutes. */
+function UsageMeters(): JSX.Element | null {
+  const [limits, setLimits] = useState<UsageLimit[] | null>(null)
+  useEffect(() => {
+    let live = true
+    const load = (): void => {
+      // optional call: an app started before this feature has no `usage` bridge until it restarts
+      window.api.claude.usage?.().then((l) => live && l && setLimits(l)).catch(() => {})
+    }
+    load()
+    const t = setInterval(load, 120000)
+    return () => {
+      live = false
+      clearInterval(t)
+    }
+  }, [])
+  if (!limits?.length) return null
+  return (
+    <div className="usage-meters" title="Plan usage limits">
+      {limits.map((l) => (
+        <div key={l.kind + l.label} className={`usage-meter sev-${l.severity}`} title={`${l.label}: ${l.percent}% used · resets ${resetLabel(l.resetsAt)}`}>
+          <span className="usage-label">{l.label}</span>
+          <span className="usage-bar">
+            <span style={{ width: `${Math.min(100, l.percent)}%` }} />
+          </span>
+          <span className="usage-pct">{l.percent}%</span>
+          {l.resetsAt && <span className="usage-reset">↻ {resetLabel(l.resetsAt)}</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function StatusBar(): JSX.Element {
+  const git = useStore((s) => s.git)
+  const claude = useStore((s) => s.claude)
+  const working = useStore((s) => s.chats.filter((c) => c.status === 'working').length)
+  const total = useStore((s) => s.chats.length)
+  const tab = useStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
+
+  return (
+    <div className="statusbar">
+      <div className="statusbar-left">
+        {git.isRepo && (
+          <button className="sb-item" onClick={() => useStore.setState({ centerView: 'code' })}>
+            <GitBranch size={12} /> {git.branch}
+            {git.files.length > 0 && <span className="sb-muted">· {git.files.length} changed</span>}
+          </button>
+        )}
+        {total > 0 && (
+          <button className="sb-item" onClick={() => useStore.setState({ sidebarView: 'chats', sidebarOpen: true })}>
+            {working > 0 ? <Loader2 size={12} className="spin" /> : <MessagesSquare size={12} />}
+            {working > 0 ? `${working} working` : `${total} chat${total > 1 ? 's' : ''}`}
+          </button>
+        )}
+      </div>
+      <UsageMeters />
+      <div className="statusbar-right">
+        {tab && <span className="sb-item">{languageFor(tab.path)}</span>}
+        {tab && <span className="sb-item">UTF-8</span>}
+        {claude && (
+          <span className={`sb-item ${claude.found ? 'ok' : 'warn'}`} title={claude.path ?? ''}>
+            {claude.found ? <CircleCheck size={12} /> : <CircleAlert size={12} />}
+            {claude.found ? 'Claude Code' : 'Claude Code not found'}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ================================ Quick open ================================ */
+
+function fuzzy(query: string, text: string): number {
+  if (!query) return 1
+  const q = query.toLowerCase()
+  const t = text.toLowerCase()
+  const name = t.slice(t.lastIndexOf('/') + 1)
+  if (name.startsWith(q)) return 1000 - name.length
+  if (name.includes(q)) return 800 - name.length
+  if (t.includes(q)) return 500 - t.length
+  let ti = 0
+  let score = 0
+  for (const ch of q) {
+    const idx = t.indexOf(ch, ti)
+    if (idx < 0) return -1
+    score += idx === ti ? 3 : 1
+    ti = idx + 1
+  }
+  return score
+}
+
+export function QuickOpen(): JSX.Element {
+  const root = useStore((s) => s.root)!
+  const [files, setFiles] = useState<string[]>([])
+  const [q, setQ] = useState('')
+  const [sel, setSel] = useState(0)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    window.api.fs.listFiles(root).then(setFiles)
+  }, [root])
+
+  const results = useMemo(() => {
+    return files
+      .map((f) => ({ f, s: fuzzy(q, f) }))
+      .filter((x) => x.s >= 0)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 60)
+      .map((x) => x.f)
+  }, [files, q])
+
+  useEffect(() => setSel(0), [q])
+  useEffect(() => {
+    listRef.current?.children[sel]?.scrollIntoView({ block: 'nearest' })
+  }, [sel])
+
+  const close = (): void => useStore.setState({ quickOpen: false })
+  const pick = (rel: string): void => {
+    openFile(root.replace(/[\\/]$/, '') + '\\' + rel.replace(/\//g, '\\'))
+    close()
+  }
+
+  return (
+    <div className="overlay" onMouseDown={close}>
+      <div className="palette" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="palette-input">
+          <Search size={15} />
+          <input
+            autoFocus
+            placeholder="Search files by name…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') close()
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setSel((s) => Math.min(s + 1, results.length - 1))
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setSel((s) => Math.max(s - 1, 0))
+              }
+              if (e.key === 'Enter' && results[sel]) pick(results[sel])
+            }}
+          />
+        </div>
+        <div className="palette-list" ref={listRef}>
+          {results.map((r, i) => {
+            const name = r.split('/').pop()!
+            return (
+              <div key={r} className={`palette-row${i === sel ? ' sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => pick(r)}>
+                <FileIcon name={name} />
+                <span className="palette-name">{name}</span>
+                <span className="palette-dir">{r.slice(0, -name.length - 1)}</span>
+              </div>
+            )
+          })}
+          {results.length === 0 && <div className="palette-empty">{files.length ? 'No matching files' : 'Indexing…'}</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ================================ Welcome (no folder) ================================ */
+
+export function Welcome(): JSX.Element {
+  const claude = useStore((s) => s.claude)
+  const projects = useStore((s) => s.projects)
+  const byRecent = [...projects].sort((a, b) => b.updated - a.updated)
+  const totalChats = projects.reduce((n, g) => n + g.sessions.length, 0)
+  return (
+    <div className="welcome">
+      <div className="welcome-bg" />
+      <div className="welcome-grid">
+        <div className="welcome-inner">
+          <div className="glow-orb big">
+            <Logo size={84} />
+          </div>
+          <h1>
+            VIBE <span className="h1-accent">CODE</span>
+          </h1>
+          <p className="welcome-sub">A home for Claude Code. Parallel chats, a real editor, and every change one click away.</p>
+          <button className="btn btn-primary btn-lg" onClick={() => openFolder()}>
+            <FolderOpen size={17} /> Open a project folder
+          </button>
+          {claude && !claude.found && (
+            <p className="welcome-warn">
+              <CircleAlert size={14} /> Claude Code CLI was not found on this machine. You'll get install steps after opening a folder.
+            </p>
+          )}
+        </div>
+
+        {projects.length > 0 && (
+          <div className="claude-projects">
+            <div className="cp-head">
+              <span className="cp-title">
+                <Link2 size={13} /> From Claude
+              </span>
+              <span className="cp-sub">
+                {projects.length} projects · {totalChats} chats
+              </span>
+            </div>
+            <div className="cp-list">
+              {byRecent.map((g) => (
+                <div key={g.key} className="cp-proj">
+                  <button className="cp-proj-row" onClick={() => openFolder(g.cwd, { autoChat: false })} title={g.cwd}>
+                    <FolderOpen size={15} />
+                    <span className="cp-name">{g.name}</span>
+                    <span className="cp-count">{g.sessions.length}</span>
+                    <span className="cp-path">{g.cwd}</span>
+                  </button>
+                  {g.sessions.slice(0, 2).map((s) => (
+                    <button key={s.id} className="cp-sess" onClick={() => openSession(s)} title={`Resume: ${s.title}`}>
+                      <MessagesSquare size={12} />
+                      <span className="cp-sess-title">{s.title}</span>
+                      <span className="cp-sess-time">{ago(s.updated)}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ago(t: number): string {
+  const m = Math.floor((Date.now() - t) / 60000)
+  if (m < 60) return `${Math.max(1, m)}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h`
+  return `${Math.floor(h / 24)}d`
+}
