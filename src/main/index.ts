@@ -58,6 +58,7 @@ import { listSessions, sessionImages, sessionContext, watchSessions } from './se
 import { attachView, startBrowserMcp } from './browserMcp'
 import * as db from './mssql'
 import * as zalo from './zalo'
+import * as webData from './webData'
 import type { AppSettings, DbConnectionInput, PtySpawnOptions, UsageLimit, WindowMode, ZaloSticker } from '../shared/types'
 
 let win: BrowserWindow | null = null
@@ -137,6 +138,12 @@ function registerIpc(): void {
   ipcMain.handle('agents:detect', () => detectAgents())
   // each chat's Web tab tells us its <webview>, so that chat's browser tools can reach it
   ipcMain.on('browser:attach', (_e, chatId: string, wcId: number) => attachView(chatId, wcId))
+  // Web tab bookmarks + history, shared by every tab (imported once from Chrome)
+  ipcMain.handle('web:data', () => webData.getWebData())
+  ipcMain.handle('web:importChrome', () => webData.importChrome())
+  ipcMain.handle('web:suggest', (_e, q: string) => webData.suggest(q))
+  ipcMain.on('web:visit', (_e, url: string, title?: string) => webData.recordVisit(url, title))
+  ipcMain.on('web:title', (_e, url: string, title: string) => webData.setVisitTitle(url, title))
   // SQL Server: saved connections, queries, finding existing connections (project files, SSMS)
   ipcMain.handle('db:list', () => db.listConnections())
   ipcMain.handle('db:get', (_e, id: string) => db.getConnection(id))

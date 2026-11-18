@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
-import type { AgentInfo, AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloSticker, ZaloThread, ZaloThreadInfo, ZaloTyping } from '../shared/types'
+import type { AgentInfo, AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloSticker, ZaloThread, WebData, WebSuggestion, ZaloThreadInfo, ZaloTyping } from '../shared/types'
 
 function on<T extends unknown[]>(channel: string, cb: (...args: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, ...args: unknown[]): void => cb(...(args as T))
@@ -28,7 +28,14 @@ const api = {
     /** a chat's <webview> is ready: its browser tools can now drive it */
     attach: (chatId: string, webContentsId: number): void => ipcRenderer.send('browser:attach', chatId, webContentsId),
     /** a chat's browser tools were used: make sure its Web tab exists (and show it) */
-    onOpen: (cb: (chatId: string) => void) => on('browser:open', cb)
+    onOpen: (cb: (chatId: string) => void) => on('browser:open', cb),
+    /** bookmarks (and whether Chrome was imported yet), shared by every Web tab */
+    data: (): Promise<WebData> => ipcRenderer.invoke('web:data'),
+    /** one time: bookmarks + history of all Chrome profiles */
+    importChrome: (): Promise<WebData> => ipcRenderer.invoke('web:importChrome'),
+    suggest: (query: string): Promise<WebSuggestion[]> => ipcRenderer.invoke('web:suggest', query),
+    visit: (url: string, title?: string): void => ipcRenderer.send('web:visit', url, title),
+    title: (url: string, title: string): void => ipcRenderer.send('web:title', url, title)
   },
   sessions: {
     list: (): Promise<ProjectGroup[]> => ipcRenderer.invoke('sessions:list'),

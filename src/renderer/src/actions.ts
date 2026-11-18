@@ -333,8 +333,8 @@ export function newChat(opts: NewChatOpts = {}): void {
     sessionId = crypto.randomUUID()
     args = [...args, '--session-id', sessionId]
   }
-  // New chats always start the same way, whatever an earlier chat picked.
-  const model = NEW_CHAT_DEFAULTS.model
+  // New chats start the same way, except the model: the last one picked in any chat is kept.
+  const model = rememberedModel()
   const effort = NEW_CHAT_DEFAULTS.effort
   const permissionMode = NEW_CHAT_DEFAULTS.permissionMode
   args = [...args, ...launchFlags({ model, effort, permissionMode })]
@@ -385,8 +385,20 @@ function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts): void {
 const agentFlags = (agentId: AgentId | undefined, permissionMode?: string): string[] =>
   permissionMode === 'bypassPermissions' ? agentDef(agentId).yolo : []
 
-/** What every new chat starts with: Opus 5.5, medium effort, bypass permissions. */
+/** What every new chat starts with: Opus 5.5 (or the model last picked), medium effort, bypass permissions. */
 const NEW_CHAT_DEFAULTS = { model: 'claude-opus-5-5', effort: 'medium', permissionMode: 'bypassPermissions' }
+
+const MODEL_KEY = 'vibe.newChatModel'
+/** The model last picked in a chat's model menu ('' = Claude Code's default), else Opus 5.5. */
+function rememberedModel(): string | undefined {
+  try {
+    const m = localStorage.getItem(MODEL_KEY)
+    if (m !== null) return m || undefined
+  } catch {
+    /* storage unavailable */
+  }
+  return NEW_CHAT_DEFAULTS.model
+}
 
 /** CLI flags that carry a chat's model, effort and permission mode across (re)starts. */
 function launchFlags(c: { model?: string; effort?: string; permissionMode?: string }): string[] {
@@ -401,6 +413,12 @@ function launchFlags(c: { model?: string; effort?: string; permissionMode?: stri
 export function setChatModel(id: string, model: string): void {
   writeToTerm(id, `/model ${model || 'default'}\r`)
   st().patchChat(id, { model: model || undefined })
+  // new chats start with it too
+  try {
+    localStorage.setItem(MODEL_KEY, model)
+  } catch {
+    /* they keep the default */
+  }
   focusTerm(id)
 }
 

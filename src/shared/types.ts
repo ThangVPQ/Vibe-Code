@@ -299,3 +299,24 @@ export interface ZaloTyping {
   uid: string
   name: string
 }
+
+/** Web tab bookmark: a link, or a folder of them */
+export interface WebBookmark {
+  title: string
+  url?: string
+  children?: WebBookmark[]
+}
+
+export interface WebData {
+  /** when bookmarks and history were imported from Chrome (0 = not yet) */
+  importedAt: number
+  bookmarks: WebBookmark[]
+  /** Chrome is installed, so there is something to import */
+  chromeFound: boolean
+}
+
+export interface WebSuggestion {
+  url: string
+  title: string
+  bookmark?: boolean
+}

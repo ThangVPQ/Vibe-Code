@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ExternalLink, Laptop, Maximize, Monitor, RotateCw, Eraser, Smartphone, Tablet, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, Laptop, Maximize, Monitor, RotateCw, Eraser, Smartphone, Star, Tablet, X } from 'lucide-react'
+import type { WebSuggestion } from '../../../shared/types'
+import { BookmarkBar } from './BrowserBookmarks'
 import { useStore } from '../store'
 import { HOME_URL, setBrowserUrl } from '../actions'
 import { SlidePill } from './motion'
@@ -86,8 +88,9 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
   useEffect(() => {
     const wv = ref.current
     if (!wv) return
-    const sync = (): void => {
+    const sync = (e?: Event): void => {
       const url = wv.getURL()
+      if (e?.type === 'did-navigate') window.api.browser.visit(url)
       setAddress(display(url))
       setNav({ back: wv.canGoBack(), fwd: wv.canGoForward() })
       shown.current = url
@@ -95,6 +98,7 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
     }
     const onTitle = (e: Event): void => {
       const title = (e as Event & { title?: string }).title ?? ''
+      window.api.browser.title(wv.getURL(), title)
       setBrowserUrl(chatKey, wv.getURL(), tabId, title)
     }
     const start = (): void => setLoading(true)
@@ -201,10 +205,24 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
     }
   }
 
-  const go = (): void => {
-    const url = toUrl(address)
-    setAddress(url)
-    ref.current?.loadURL(url).catch(() => {})
+  const go = (to = toUrl(address)): void => {
+    setAddress(to)
+    setSugg([])
+    ref.current?.loadURL(to).catch(() => {})
+  }
+
+  // address-bar suggestions from bookmarks + history
+  const [sugg, setSugg] = useState<WebSuggestion[]>([])
+  const [pick, setPick] = useState(-1)
+  const typed = useRef('')
+  const onType = (v: string): void => {
+    setAddress(v)
+    setPick(-1)
+    typed.current = v
+    if (!v.trim()) return setSugg([])
+    void window.api.browser.suggest(v).then((list) => {
+      if (typed.current === v) setSugg(list)
+    })
   }
 
   return (
@@ -219,18 +237,42 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
         <button className="icon-btn" title={loading ? 'Stop' : 'Reload'} onClick={() => (loading ? ref.current?.stop() : ref.current?.reload())}>
           {loading ? <X size={15} /> : <RotateCw size={14} />}
         </button>
-        <input
-          className="browser-address"
-          value={address}
-          spellCheck={false}
-          placeholder="Search or type a URL"
-          autoFocus={!address}
-          onChange={(e) => setAddress(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') go()
-          }}
-        />
+        <div className="browser-address-wrap">
+          <input
+            className="browser-address"
+            value={address}
+            spellCheck={false}
+            placeholder="Search or type a URL"
+            autoFocus={!address}
+            onChange={(e) => onType(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={() => setTimeout(() => setSugg([]), 120)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') go(pick >= 0 && sugg[pick] ? sugg[pick].url : undefined)
+              else if (e.key === 'Escape') setSugg([])
+              else if (e.key === 'ArrowDown' && sugg.length) {
+                e.preventDefault()
+                setPick((i) => (i + 1) % sugg.length)
+              } else if (e.key === 'ArrowUp' && sugg.length) {
+                e.preventDefault()
+                setPick((i) => (i <= 0 ? sugg.length - 1 : i - 1))
+              }
+            }}
+          />
+          {sugg.length > 0 && (
+            <div className="browser-sugg">
+              {sugg.map((x, i) => (
+                <button key={x.url} className={i === pick ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => go(x.url)}>
+                  <span className="bs-title">
+                    {x.bookmark && <Star size={11} />}
+                    {x.title || x.url}
+                  </span>
+                  <span className="bs-url">{x.url}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="device-seg" role="radiogroup" aria-label="Screen size">
           <SlidePill />
           {DEVICES.map((d) => (
@@ -247,6 +289,7 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
           <ExternalLink size={14} />
         </button>
       </div>
+      <BookmarkBar onOpen={(u) => go(u)} />
       {loading && <div className="browser-progress" />}
       <div className={`browser-stage${box ? ' emulated' : ''}`} ref={stageRef}>
         <webview

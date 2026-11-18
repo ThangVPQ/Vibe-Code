@@ -227,6 +227,14 @@ const ACTIONS = [
     confirm: ''
   },
   {
+    key: 'resume',
+    label: 'Resume',
+    icon: <History size={12} />,
+    title: 'Tell Claude to resume the task that was interrupted',
+    prompt: 'resume',
+    confirm: ''
+  },
+  {
     key: 'run',
     label: 'Run App',
     icon: <Play size={12} />,
