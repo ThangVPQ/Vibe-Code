@@ -72,6 +72,8 @@ const api = {
     rememberFolder: (f: string): Promise<AppSettings> => ipcRenderer.invoke('app:rememberFolder', f),
     setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke('app:setSettings', patch),
     pickFolder: (): Promise<string | null> => ipcRenderer.invoke('app:pickFolder'),
+    /** OS file picker (multi-select); [] when cancelled */
+    pickFiles: (defaultPath?: string): Promise<string[]> => ipcRenderer.invoke('app:pickFiles', defaultPath),
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:openExternal', url),
     clearBrowserCache: (): Promise<void> => ipcRenderer.invoke('app:clearBrowserCache'),
     relaunch: (): Promise<boolean> => ipcRenderer.invoke('app:relaunch'),

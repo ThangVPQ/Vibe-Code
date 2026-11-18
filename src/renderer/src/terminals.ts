@@ -409,7 +409,16 @@ export function focusTerm(id: string): void {
   entries.get(id)?.term.focus()
 }
 
-const quotePath = (p: string): string => (/s/.test(p) ? `"${p}"` : p)
+const quotePath = (p: string): string => (/\s/.test(p) ? `"${p}"` : p)
+
+/** Attach button: pick files from disk → their paths go into the prompt (Claude reads them by path). */
+export async function attachFiles(id: string, cwd?: string): Promise<void> {
+  // (missing until the app restarts after an update)
+  if (typeof window.api.app.pickFiles !== 'function') return
+  const paths = await window.api.app.pickFiles(cwd).catch(() => [] as string[])
+  if (paths.length) writeToTerm(id, paths.map(quotePath).join(' ') + ' ')
+  focusTerm(id)
+}
 
 async function sendImage(id: string, file: Blob): Promise<void> {
   const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')

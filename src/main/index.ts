@@ -183,6 +183,15 @@ function registerIpc(): void {
     const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] })
     return r.canceled ? null : r.filePaths[0]
   })
+  // Chat "Attach files": Claude Code reads files by path, so we only hand back the chosen paths.
+  ipcMain.handle('app:pickFiles', async (_e, defaultPath?: string): Promise<string[]> => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: 'Attach files to the chat',
+      defaultPath: defaultPath || undefined,
+      properties: ['openFile', 'multiSelections']
+    })
+    return r.canceled ? [] : r.filePaths
+  })
   // Under `electron-vite dev` a relaunched app would lose its dev server, so the user restarts by hand.
   ipcMain.handle('app:relaunch', (): boolean => {
     if (process.env.ELECTRON_RENDERER_URL) return false

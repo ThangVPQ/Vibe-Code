@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Image as ImageIcon, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
+import { Check, ChevronDown, Image as ImageIcon, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -17,7 +17,7 @@ import {
   loadProjectBypass,
   toggleProjectBypass
 } from '../actions'
-import { attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../terminals'
+import { attachFiles, attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../terminals'
 import { Logo, StatusDot, statusLabel } from './icons'
 import { ChatImages, useChatImages } from './ChatImages'
 
@@ -116,6 +116,18 @@ export function ClaudePanel(): JSX.Element {
           </div>
           {tab === 'images' && <ChatImages images={images} />}
           <div className="quick-bar">
+            <button
+              className="chip"
+              title="Choose files from disk; their paths are added to your prompt (you can also drag files onto the chat)"
+              disabled={active.status === 'exited'}
+              onClick={() => {
+                setTab('chat')
+                attachFiles(active.id, active.cwd)
+              }}
+            >
+              <Paperclip size={12} />
+              Attach files
+            </button>
             <button
               className="chip"
               title="Ask Claude to commit all changes (English subject line, no description, no co-author) and push"
