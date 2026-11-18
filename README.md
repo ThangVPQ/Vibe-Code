@@ -2,6 +2,8 @@
 
 Desktop workspace for **Claude Code**: several parallel chats, a Monaco editor (the VS Code editor core), a live Git *Changes* panel with diff view, and an integrated terminal.
 
+![VIBE CODE demo: open a project, go to file, ask Claude for a change, review the diff, run git in the terminal, switch theme](docs/demo.gif)
+
 Stack: Electron · React · TypeScript · Vite (electron-vite) · Monaco · xterm.js (WebGL) · node-pty (ConPTY)
 
 ## Run
