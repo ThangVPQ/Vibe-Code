@@ -1,7 +1,7 @@
 {
   "name": "tinjs-studio",
   "productName": "VIBE CODE",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A desktop workspace for Claude Code: multi-chat, editor, diffs, terminal.",
   "main": "out/main/index.js",
   "private": true,

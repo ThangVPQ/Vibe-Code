@@ -91,12 +91,27 @@ export async function spawnPty(wc: WebContents, opts: PtySpawnOptions): Promise<
   if (dbg) console.log('[pty] spawn', opts.id, shell, JSON.stringify(args), opts.cols, opts.rows, 'pid', proc.pid)
   let logged = 0
 
+  // Claude Code redraws in many tiny chunks; one IPC message per chunk floods the renderer and
+  // makes the chat stutter. Gather what arrives within a few ms and send it as one piece.
+  let pending = ''
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const flush = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = null
+    if (!pending) return
+    const out = pending
+    pending = ''
+    if (!wc.isDestroyed()) wc.send('pty:data', opts.id, out)
+  }
   proc.onData((data) => {
     if (dbg && logged++ < 3) console.log('[pty] data', opts.id, JSON.stringify(data.slice(0, 160)))
-    if (!wc.isDestroyed()) wc.send('pty:data', opts.id, data)
+    pending += data
+    if (pending.length > 256 * 1024) flush()
+    else if (!timer) timer = setTimeout(flush, 5)
   })
   proc.onExit(({ exitCode }) => {
     if (dbg) console.log('[pty] exit', opts.id, exitCode)
+    flush()
     // A process we killed or replaced (restart) must not report "exited": the chat id already
     // belongs to a new, live process, and marking it ended would block typing into it.
     if (sessions.get(opts.id) !== proc) return

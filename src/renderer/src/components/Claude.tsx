@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Image as ImageIcon, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, Upload, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
+import { Check, ChevronDown, Image as ImageIcon, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -201,6 +201,14 @@ const MODES: Opt[] = [
 
 /** One-click prompts for the chat's project. */
 const ACTIONS = [
+  {
+    key: 'continue',
+    label: 'Continue',
+    icon: <FastForward size={12} />,
+    title: 'Tell Claude to continue where it stopped',
+    prompt: 'continue',
+    confirm: ''
+  },
   {
     key: 'run',
     label: 'Run App',

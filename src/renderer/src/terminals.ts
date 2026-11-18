@@ -126,6 +126,9 @@ interface Entry {
   spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>
   spawned: boolean
   webgl?: WebglAddon
+  /** size last sent to the process, so a fit that changes nothing doesn't make Claude redraw */
+  sent?: string
+  resizeTimer?: ReturnType<typeof setTimeout>
 }
 
 type ActivityFn = (id: string) => void
@@ -204,7 +207,15 @@ export function onTerminalEvents(h: { activity?: ActivityFn; title?: TitleFn; ex
 export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void {
   wire()
   if (entries.has(spawn.id)) return
+  const openLink = (url: string): void => {
+    if (!/^https?:\/\//i.test(url)) return
+    if (handlers.link) handlers.link(spawn.id, url)
+    else window.api.app.openExternal(url)
+  }
   const term = new Terminal({
+    // OSC 8 hyperlinks (Claude Code underlines URLs this way): same route as plain-text links,
+    // instead of xterm's default confirm() + window.open, which ended up in the external browser
+    linkHandler: { activate: (_e, url) => openLink(url), allowNonHttpProtocols: false },
     fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, monospace',
     fontSize,
     lineHeight: 1.1,
@@ -222,7 +233,7 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
   const fit = new FitAddon()
   term.loadAddon(fit)
   // clicked links go to the app (a chat's own Web tab); external browser only as a fallback
-  term.loadAddon(new WebLinksAddon((_e, url) => (handlers.link ? handlers.link(spawn.id, url) : window.api.app.openExternal(url))))
+  term.loadAddon(new WebLinksAddon((_e, url) => openLink(url)))
   const uni = new Unicode11Addon()
   term.loadAddon(uni)
   term.unicode.activeVersion = '11'
@@ -322,32 +333,59 @@ function doFit(e: Entry): void {
   } catch {
     return
   }
-  if (e.spawned) window.api.pty.resize(e.spawn.id, e.term.cols, e.term.rows)
+  if (e.spawned) sendSize(e)
+}
+
+/**
+ * Every resize makes Claude Code repaint its whole screen (and ConPTY reflow it), so while a panel
+ * is being dragged or animated, only the final size goes to the process.
+ */
+function sendSize(e: Entry): void {
+  clearTimeout(e.resizeTimer)
+  e.resizeTimer = setTimeout(() => {
+    const size = `${e.term.cols}x${e.term.rows}`
+    if (size === e.sent) return
+    e.sent = size
+    window.api.pty.resize(e.spawn.id, e.term.cols, e.term.rows)
+  }, 120)
+}
+
+/**
+ * Chromium allows only a handful of live WebGL contexts per page (the Web tab uses some too).
+ * When one runs out, the oldest terminal's canvas is lost and it freezes or goes blank mid-output,
+ * so a terminal holds its context only while it is on screen.
+ */
+function loadWebgl(e: Entry): void {
+  if (e.webgl) return
+  try {
+    const gl = new WebglAddon()
+    gl.onContextLoss(() => {
+      gl.dispose()
+      if (e.webgl === gl) e.webgl = undefined
+      // still showing: get a fresh context instead of staying on the slow fallback renderer
+      setTimeout(() => {
+        if (e.el.parentElement && e.el.parentElement !== parking) loadWebgl(e)
+      }, 500)
+    })
+    e.term.loadAddon(gl)
+    e.webgl = gl
+  } catch {
+    /* falls back to DOM renderer */
+  }
 }
 
 export function attachTerm(id: string, container: HTMLElement, focus = true): void {
   const e = entries.get(id)
   if (!e) return
   container.appendChild(e.el)
-  if (!e.webgl) {
-    try {
-      const gl = new WebglAddon()
-      gl.onContextLoss(() => {
-        gl.dispose()
-        e.webgl = undefined
-      })
-      e.term.loadAddon(gl)
-      e.webgl = gl
-    } catch {
-      /* falls back to DOM renderer */
-    }
-  }
+  loadWebgl(e)
   // setTimeout, not requestAnimationFrame: rAF is paused while the window is hidden or
   // minimized, which would leave a new chat stuck at "Starting…" with no process.
   setTimeout(() => {
     doFit(e)
     if (!e.spawned) {
       e.spawned = true
+      e.sent = `${e.term.cols}x${e.term.rows}`
       window.api.pty.spawn({ ...e.spawn, cols: e.term.cols, rows: e.term.rows })
     }
     if (focus) e.term.focus()
@@ -356,7 +394,10 @@ export function attachTerm(id: string, container: HTMLElement, focus = true): vo
 
 export function detachTerm(id: string): void {
   const e = entries.get(id)
-  if (e && e.el.parentElement !== parking) parkingLot().appendChild(e.el)
+  if (!e || e.el.parentElement === parking) return
+  parkingLot().appendChild(e.el)
+  e.webgl?.dispose()
+  e.webgl = undefined
 }
 
 export function fitTerm(id: string): void {
@@ -412,6 +453,7 @@ export function restartTerm(id: string, spawn?: Partial<Omit<PtySpawnOptions, 'c
   if (!e) return
   e.spawn = { ...e.spawn, ...spawn }
   e.term.reset()
+  e.sent = `${e.term.cols}x${e.term.rows}`
   window.api.pty.spawn({ ...e.spawn, cols: e.term.cols, rows: e.term.rows })
 }
 
@@ -419,6 +461,7 @@ export function disposeTerm(id: string): void {
   const e = entries.get(id)
   if (!e) return
   window.api.pty.kill(id)
+  clearTimeout(e.resizeTimer)
   e.webgl?.dispose()
   e.term.dispose()
   e.el.remove()
