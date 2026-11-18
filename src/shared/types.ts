@@ -320,3 +320,17 @@ export interface WebSuggestion {
   title: string
   bookmark?: boolean
 }
+
+/** A background task Claude started in a chat */
+export interface ChatTask {
+  id: string
+  command: string
+  description: string
+  /** running, completed, failed, killed… (as Claude Code reports it) */
+  status: string
+  startedAt: number
+  endedAt?: number
+  outputFile?: string
+  /** the end of its output */
+  output?: string
+}

@@ -54,7 +54,7 @@ import { gitCommitFiles, gitInit, gitLog, gitOriginal, gitShow, gitState } from 
 import { getSettings, rememberFolder, updateSettings } from './settings'
 import { runDebugScript } from './debug'
 import { applyDropPrefs, hideDropdown, iconPath, initWindowing, setMode, toggleWindow, windowState } from './windowing'
-import { listSessions, sessionImages, sessionContext, watchSessions } from './sessions'
+import { listSessions, sessionImages, sessionContext, sessionTasks, watchSessions } from './sessions'
 import { attachView, startBrowserMcp } from './browserMcp'
 import * as db from './mssql'
 import * as zalo from './zalo'
@@ -193,6 +193,7 @@ function registerIpc(): void {
 
   ipcMain.handle('sessions:images', (_e, sessionId: string) => sessionImages(sessionId))
   ipcMain.handle('sessions:context', (_e, sessionId: string) => sessionContext(sessionId))
+  ipcMain.handle('sessions:tasks', (_e, sessionId: string) => sessionTasks(sessionId))
 
   // Files
   ipcMain.handle('fs:readDir', (_e, dir: string) => readDir(dir))

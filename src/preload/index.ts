@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
-import type { AgentInfo, AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloSticker, ZaloThread, WebData, WebSuggestion, ZaloThreadInfo, ZaloTyping } from '../shared/types'
+import type { AgentInfo, ChatTask, AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloSticker, ZaloThread, WebData, WebSuggestion, ZaloThreadInfo, ZaloTyping } from '../shared/types'
 
 function on<T extends unknown[]>(channel: string, cb: (...args: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, ...args: unknown[]): void => cb(...(args as T))
@@ -43,6 +43,8 @@ const api = {
     images: (sessionId: string): Promise<string[]> => ipcRenderer.invoke('sessions:images', sessionId),
     /** tokens in the chat's context window right now (last API call), or null before the first reply */
     context: (sessionId: string): Promise<{ used: number; model: string } | null> => ipcRenderer.invoke('sessions:context', sessionId),
+    /** background tasks Claude started in this chat, newest first */
+    tasks: (sessionId: string): Promise<ChatTask[]> => ipcRenderer.invoke('sessions:tasks', sessionId),
     onChanged: (cb: () => void) => on('sessions:changed', cb)
   },
   db: {

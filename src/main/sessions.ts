@@ -3,7 +3,7 @@ import { homedir } from 'os'
 import { basename, dirname, join } from 'path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type { WebContents } from 'electron'
-import type { ProjectGroup, SessionInfo } from '../shared/types'
+import type { ChatTask, ProjectGroup, SessionInfo } from '../shared/types'
 
 /**
  * Reads the Claude Code session store (~/.claude/projects/<encoded-cwd>/<session>.jsonl),
@@ -316,4 +316,70 @@ export async function sessionContext(sessionId: string): Promise<{ used: number;
     if (start === 0) break
   }
   return null
+}
+
+/**
+ * Background tasks Claude started in a chat (Bash/PowerShell with run_in_background), with their
+ * status from the task notifications and the last part of their output file.
+ */
+export async function sessionTasks(sessionId: string): Promise<ChatTask[]> {
+  if (!/^[\w-]+$/.test(sessionId)) return []
+  const file = await findSessionFile(sessionId)
+  if (!file) return []
+  let text: string
+  try {
+    text = await fsp.readFile(file, 'utf8')
+  } catch {
+    return []
+  }
+  const calls = new Map<string, { command: string; description: string }>()
+  const tasks = new Map<string, ChatTask>()
+  const ended = new Map<string, { status: string; at: number }>()
+  for (const line of text.split('\n')) {
+    if (!line.includes('run_in_background') && !line.includes('backgroundTaskId') && !line.includes('<task-notification>')) continue
+    let row: Record<string, unknown>
+    try {
+      row = JSON.parse(line) as Record<string, unknown>
+    } catch {
+      continue
+    }
+    const at = Date.parse(String(row.timestamp ?? '')) || 0
+    const content = (row.message as { content?: unknown } | undefined)?.content
+    if (row.type === 'assistant' && Array.isArray(content)) {
+      for (const b of content as Array<{ type?: string; id?: string; input?: Record<string, unknown> }>)
+        if (b.type === 'tool_use' && b.id && b.input?.run_in_background)
+          calls.set(b.id, { command: String(b.input.command ?? b.input.prompt ?? ''), description: String(b.input.description ?? '') })
+    }
+    const taskId = (row.toolUseResult as { backgroundTaskId?: string } | undefined)?.backgroundTaskId
+    if (taskId && Array.isArray(content)) {
+      const r = (content as Array<{ type?: string; tool_use_id?: string; content?: unknown }>).find((b) => b.type === 'tool_result')
+      const msg = typeof r?.content === 'string' ? r.content : JSON.stringify(r?.content ?? '')
+      const call = calls.get(r?.tool_use_id ?? '')
+      tasks.set(taskId, {
+        id: taskId,
+        command: call?.command ?? '',
+        description: call?.description ?? '',
+        status: 'running',
+        startedAt: at,
+        outputFile: /Output is being written to: (.+?\.output)/.exec(msg)?.[1]
+      })
+    }
+    // the notification shows up several times (queued, delivered): the first one is when it ended
+    const note = typeof row.content === 'string' ? row.content : line
+    for (const m of note.matchAll(/<task-id>([^<]+)<\/task-id>[\s\S]*?<status>([^<]+)<\/status>/g))
+      if (!ended.has(m[1])) ended.set(m[1], { status: m[2], at })
+  }
+  const out = [...tasks.values()].reverse()
+  for (const t of out) {
+    const e = ended.get(t.id)
+    if (e) Object.assign(t, { status: e.status, endedAt: e.at })
+    if (!t.outputFile) continue
+    try {
+      const size = (await fsp.stat(t.outputFile)).size
+      t.output = (await readSlice(t.outputFile, Math.max(0, size - 6000), 6000)).replace(/\x1b\[[0-9;]*m/g, '')
+    } catch {
+      /* output file cleaned up */
+    }
+  }
+  return out
 }

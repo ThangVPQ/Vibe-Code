@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Image as ImageIcon, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
+import { Check, ChevronDown, Image as ImageIcon, ListChecks, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -20,6 +20,7 @@ import {
 import { attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../terminals'
 import { Logo, StatusDot, statusLabel } from './icons'
 import { ChatImages, useChatImages } from './ChatImages'
+import { ChatTasks, useChatTasks } from './ChatTasks'
 import { AttachmentTray } from './AttachmentTray'
 import { pickAttachments } from '../attachments'
 import { NewChatMenu } from './AgentMenu'
@@ -62,12 +63,28 @@ export function ClaudePanel(): React.JSX.Element {
   const claude = useStore((s) => s.claude)
   const active = chats.find((c) => c.id === activeId) ?? null
   const images = useChatImages(active?.sessionId)
-  const [tab, setTab] = useState<'chat' | 'images'>('chat')
+  const tasks = useChatTasks(active?.sessionId)
+  const runningTasks = tasks.filter((t) => t.status === 'running').length
+  const [tab, setTab] = useState<'chat' | 'images' | 'tasks'>('chat')
   // another chat opens on its Chat tab
   useEffect(() => setTab('chat'), [activeId])
   // switching chats: the new conversation eases in
   const termFrame = useRef<HTMLDivElement>(null)
   useEnterAnimation(termFrame, activeId)
+
+  // the bar over the quick actions: moving while the chat works, green once that run has finished
+  const busy = active?.status === 'working' || active?.status === 'starting'
+  const [done, setDone] = useState(false)
+  const wasBusy = useRef(false)
+  useEffect(() => {
+    wasBusy.current = false
+    setDone(false)
+  }, [activeId])
+  useEffect(() => {
+    if (busy) setDone(false)
+    else if (wasBusy.current && active?.status === 'idle') setDone(true)
+    wasBusy.current = busy
+  }, [busy, active?.status])
 
   // Chats are picked from the sidebar, so there is no tab strip here — just the open chat's title row.
   return (
@@ -112,14 +129,19 @@ export function ClaudePanel(): React.JSX.Element {
               <ImageIcon size={13} /> Images
               {images.length > 0 && <span className="center-count">{images.length}</span>}
             </button>
+            <button className={tab === 'tasks' ? 'on' : ''} title="Background tasks Claude started in this chat" onClick={() => setTab('tasks')}>
+              <ListChecks size={13} /> Tasks
+              {runningTasks > 0 ? <span className="center-count running">{runningTasks}</span> : tasks.length > 0 && <span className="center-count">{tasks.length}</span>}
+            </button>
           </div>
           {/* the terminal stays mounted (just hidden) so Claude keeps running and nothing redraws */}
           <div className="term-frame" ref={termFrame} style={tab === 'chat' ? undefined : { display: 'none' }}>
             <TerminalView id={active.id} />
           </div>
           {tab === 'images' && <ChatImages images={images} />}
+          {tab === 'tasks' && <ChatTasks tasks={tasks} />}
           <AttachmentTray chatId={active.id} />
-          <div className={`quick-bar${active.status === 'working' || active.status === 'starting' ? ' busy' : ''}`}>
+          <div className={`quick-bar${busy ? ' busy' : done ? ' done' : ''}`}>
             <button
               className="chip"
               title="Attach files — they go with your next message (you can also paste pictures or drag files onto the chat)"

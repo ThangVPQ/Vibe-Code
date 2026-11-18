@@ -1310,8 +1310,124 @@ kbd {
   from { transform: translateX(-100%); }
   to { transform: translateX(340%); }
 }
+/* that run finished: the bar fills green and stays until the next one starts */
+.quick-bar.done::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--green);
+  transform-origin: left;
+  animation: quick-done 0.35s ease-out;
+  pointer-events: none;
+}
+@keyframes quick-done {
+  from { transform: scaleX(0.3); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   .quick-bar.busy::before { animation: none; width: 100%; opacity: 0.6; }
+  .quick-bar.done::before { animation: none; }
+}
+
+/* Tasks tab: the chat's background tasks */
+.chat-tasks {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-1);
+}
+.task-card {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+.task-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.task-chev {
+  flex: none;
+  color: var(--text-faint);
+  transition: transform 0.15s;
+}
+.task-chev.open {
+  transform: rotate(90deg);
+}
+.task-card.s-running .task-head > svg:nth-child(2) {
+  color: var(--blue);
+}
+.task-card.s-ok .task-head > svg:nth-child(2) {
+  color: var(--green);
+}
+.task-card.s-fail .task-head > svg:nth-child(2) {
+  color: var(--red, #f87171);
+}
+.task-spin {
+  animation: sb-spin 1s linear infinite;
+}
+.task-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.task-time {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.task-body {
+  padding: 0 9px 9px;
+}
+.task-cmd {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.task-out {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg-term);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+.task-meta {
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.chat-tabs .center-count.running {
+  background: var(--blue);
+  color: #fff;
 }
 .quick-bar::-webkit-scrollbar {
   height: 0;
