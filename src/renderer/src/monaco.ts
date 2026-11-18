@@ -1,10 +1,10 @@
 import * as monaco from 'monaco-editor'
 import { loader } from '@monaco-editor/react'
-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
-import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
+import JsonWorker from 'monaco-editor/languages/features/json/json.worker?worker'
+import CssWorker from 'monaco-editor/languages/features/css/css.worker?worker'
+import HtmlWorker from 'monaco-editor/languages/features/html/html.worker?worker'
+import TsWorker from 'monaco-editor/languages/features/typescript/ts.worker?worker'
 
 self.MonacoEnvironment = {
   getWorker(_id: string, label: string) {
@@ -17,11 +17,11 @@ self.MonacoEnvironment = {
 }
 
 // We only want to *view and edit* files, not type-check a whole project we can't see.
-monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false })
-monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false })
-monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-  jsx: monaco.languages.typescript.JsxEmit.Preserve,
-  target: monaco.languages.typescript.ScriptTarget.ESNext,
+monaco.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false })
+monaco.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false })
+monaco.typescript.typescriptDefaults.setCompilerOptions({
+  jsx: monaco.typescript.JsxEmit.Preserve,
+  target: monaco.typescript.ScriptTarget.ESNext,
   allowNonTsExtensions: true
 })
 

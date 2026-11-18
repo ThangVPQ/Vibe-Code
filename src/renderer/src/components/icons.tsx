@@ -64,7 +64,7 @@ const byExt: Record<string, [LucideIcon, string]> = {
   env: [Settings2, '#f5d76b']
 }
 
-export function FileIcon({ name, size = 15 }: { name: string; size?: number }): JSX.Element {
+export function FileIcon({ name, size = 15 }: { name: string; size?: number }): React.JSX.Element {
   const lower = name.toLowerCase()
   let entry: [LucideIcon, string] | undefined
   if (lower === 'package.json') entry = [Package, '#5fd38d']
@@ -75,16 +75,16 @@ export function FileIcon({ name, size = 15 }: { name: string; size?: number }): 
   return <Icon size={size} color={color} strokeWidth={1.8} className="file-icon" />
 }
 
-export function FolderIcon({ open, size = 15 }: { open: boolean; size?: number }): JSX.Element {
+export function FolderIcon({ open, size = 15 }: { open: boolean; size?: number }): React.JSX.Element {
   const Icon = open ? FolderOpen : Folder
   return <Icon size={size} color={open ? '#8aa5ee' : '#8f8fa8'} strokeWidth={1.8} className="file-icon" />
 }
 
-export function StatusDot({ status, attention }: { status: ChatStatus; attention?: boolean }): JSX.Element {
+export function StatusDot({ status, attention }: { status: ChatStatus; attention?: boolean }): React.JSX.Element {
   return <span className={`status-dot s-${status}${attention ? ' attention' : ''}`} />
 }
 
-export function Logo({ size = 22 }: { size?: number }): JSX.Element {
+export function Logo({ size = 22 }: { size?: number }): React.JSX.Element {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" className="logo">
       <defs>

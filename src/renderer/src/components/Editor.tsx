@@ -13,7 +13,7 @@ import { EditorFontButton, useEditorFont } from './EditorFont'
 import { DatabasePane } from './Database'
 
 /** Middle area: two fixed tabs — Source code (files, diffs) and Web (built-in browser). */
-export function EditorArea(): JSX.Element {
+export function EditorArea(): React.JSX.Element {
   const view = useStore((s) => s.centerView)
   const fileCount = useStore((s) => s.tabs.length)
   const key = useStore((s) => browserKey(s.activeChatId))
@@ -63,7 +63,7 @@ export function EditorArea(): JSX.Element {
 }
 
 /** A chat's browser: its tab strip and one page per tab. */
-function WebTabs({ chatKey }: { chatKey: string }): JSX.Element | null {
+function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
   const b = useStore((s) => s.browsers[chatKey])
   const stripRef = useRef<HTMLDivElement>(null)
   // tabs on their way out: they shrink away first, then really close
@@ -136,7 +136,7 @@ function WebTabs({ chatKey }: { chatKey: string }): JSX.Element | null {
 }
 
 /** Left column of Source code: the project's files, or its Git changes (click one for the diff). */
-function CodeSide(): JSX.Element {
+function CodeSide(): React.JSX.Element {
   const [side, setSide] = useState<'files' | 'changes'>('files')
   const changed = useStore((s) => s.git.files.length)
   const hasRoot = useStore((s) => !!s.root)
@@ -157,7 +157,7 @@ function CodeSide(): JSX.Element {
   )
 }
 
-function CodeArea(): JSX.Element {
+function CodeArea(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const activeId = useStore((s) => s.activeTabId)
   const active = tabs.find((t) => t.id === activeId) ?? null
@@ -214,7 +214,7 @@ function CodeArea(): JSX.Element {
   )
 }
 
-function Breadcrumbs({ path }: { path: string }): JSX.Element {
+function Breadcrumbs({ path }: { path: string }): React.JSX.Element {
   const root = useStore((s) => s.root) ?? ''
   const rel = path.toLowerCase().startsWith(root.toLowerCase()) ? path.slice(root.length).replace(/^[\\/]/, '') : path
   const parts = rel.split(/[\\/]/)
@@ -235,7 +235,7 @@ function Breadcrumbs({ path }: { path: string }): JSX.Element {
 
 const useMonacoTheme = (): string => useStore((s) => (s.themeResolved === 'light' ? 'studio-light' : 'studio-dark'))
 
-function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): JSX.Element {
+function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): React.JSX.Element {
   const theme = useMonacoTheme()
   const font = useEditorFont()
   const [ready, setReady] = useState(false)
@@ -283,7 +283,7 @@ function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): JSX
 
 /* ================================ Diff view ================================ */
 
-function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> }): JSX.Element {
+function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> }): React.JSX.Element {
   const theme = useMonacoTheme()
   const font = useEditorFont()
   const gitRoot = useStore((s) => s.git.root)
@@ -393,7 +393,7 @@ function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> }): JSX.E
 
 /* ================================ Empty state ================================ */
 
-function EmptyEditor(): JSX.Element {
+function EmptyEditor(): React.JSX.Element {
   const rows: [React.ReactNode, string, string][] = [
     [<Search size={14} key="s" />, 'Go to file', 'Ctrl+P'],
     [<MessageSquarePlus size={14} key="n" />, 'New chat', 'Ctrl+Shift+N'],

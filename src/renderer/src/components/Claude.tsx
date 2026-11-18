@@ -23,7 +23,7 @@ import { ChatImages, useChatImages } from './ChatImages'
 import { AttachmentTray } from './AttachmentTray'
 import { pickAttachments } from '../attachments'
 
-export function TerminalView({ id, autoFocus = true }: { id: string; autoFocus?: boolean }): JSX.Element {
+export function TerminalView({ id, autoFocus = true }: { id: string; autoFocus?: boolean }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = ref.current!
@@ -54,7 +54,7 @@ const PULL =
   'Pull the latest code from the remote for the current branch (git pull). If there are local changes or conflicts, ' +
   'keep my work safe and tell me what happened.\r'
 
-export function ClaudePanel(): JSX.Element {
+export function ClaudePanel(): React.JSX.Element {
   const chats = useStore((s) => s.chats)
   const activeId = useStore((s) => s.activeChatId)
   const claude = useStore((s) => s.claude)
@@ -166,7 +166,7 @@ export function ClaudePanel(): JSX.Element {
 }
 
 /** One click: Claude never asks for permission anywhere in this chat's project. */
-function BypassProjectButton({ chat }: { chat: Chat }): JSX.Element {
+function BypassProjectButton({ chat }: { chat: Chat }): React.JSX.Element {
   const on = useStore((s) => !!s.projectBypass[folderKey(chat.cwd)])
   useEffect(() => {
     loadProjectBypass(chat.cwd)
@@ -252,7 +252,7 @@ function sendPrompt(id: string, text: string): void {
   focusTerm(id)
 }
 
-function ChatStatusBar({ chat }: { chat: Chat }): JSX.Element {
+function ChatStatusBar({ chat }: { chat: Chat }): React.JSX.Element {
   const exited = chat.status === 'exited'
   return (
     <div className="chat-statusbar">
@@ -288,7 +288,7 @@ function ChatStatusBar({ chat }: { chat: Chat }): JSX.Element {
 }
 
 /** How full this chat's context window is, from the last reply in its session file. */
-function ContextBar({ chat }: { chat: Chat }): JSX.Element {
+function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
   const sessionId = chat.sessionId
   const [ctx, setCtx] = useState<{ used: number; model: string } | null>(null)
   useEffect(() => {
@@ -334,7 +334,7 @@ function ContextBar({ chat }: { chat: Chat }): JSX.Element {
   )
 }
 
-function Picker(props: { title: string; options: Opt[]; value: string; warn?: boolean; onPick: (v: string) => void }): JSX.Element {
+function Picker(props: { title: string; options: Opt[]; value: string; warn?: boolean; onPick: (v: string) => void }): React.JSX.Element {
   const { title, options, value, warn, onPick } = props
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -384,7 +384,7 @@ function Picker(props: { title: string; options: Opt[]; value: string; warn?: bo
   )
 }
 
-function NoChat(): JSX.Element {
+function NoChat(): React.JSX.Element {
   return (
     <div className="no-chat">
       <div className="glow-orb">
@@ -407,7 +407,7 @@ function NoChat(): JSX.Element {
   )
 }
 
-function InstallCard(): JSX.Element {
+function InstallCard(): React.JSX.Element {
   const cmd = 'npm install -g @anthropic-ai/claude-code'
   return (
     <div className="no-chat">
@@ -448,7 +448,7 @@ function InstallCard(): JSX.Element {
 
 /* ================================ Bottom terminal panel ================================ */
 
-export function BottomPanel(): JSX.Element {
+export function BottomPanel(): React.JSX.Element {
   const shells = useStore((s) => s.shells)
   const activeId = useStore((s) => s.activeShellId)
   return (

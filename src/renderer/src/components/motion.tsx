@@ -9,7 +9,7 @@ const reducedMotion = (): boolean => window.matchMedia?.('(prefers-reduced-motio
  * A highlight that glides to the selected item of its parent (a tab strip, a segmented switch, a list).
  * Drop it in as a child; the parent gets `has-pill` and its selected item's own background is turned off in CSS.
  */
-export function SlidePill({ selector = ':scope > .on, :scope > .active', className = '' }: { selector?: string; className?: string }): JSX.Element {
+export function SlidePill({ selector = ':scope > .on, :scope > .active', className = '' }: { selector?: string; className?: string }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
@@ -96,7 +96,7 @@ export function SlidePill({ selector = ':scope > .on, :scope > .active', classNa
 }
 
 /** Plays a soft fade-and-rise on `ref` whenever `key` changes (for content that swaps in place). */
-export function useEnterAnimation(ref: React.RefObject<HTMLElement>, key: unknown): void {
+export function useEnterAnimation(ref: React.RefObject<HTMLElement | null>, key: unknown): void {
   const first = useRef(true)
   useEffect(() => {
     if (first.current) {
@@ -115,7 +115,7 @@ export function useEnterAnimation(ref: React.RefObject<HTMLElement>, key: unknow
 }
 
 /** Height-animated show/hide (keeps the children mounted until the closing animation is done). */
-export function Collapse({ open, children }: { open: boolean; children: ReactNode }): JSX.Element | null {
+export function Collapse({ open, children }: { open: boolean; children: ReactNode }): React.JSX.Element | null {
   const [mounted, setMounted] = useState(open)
   const [expanded, setExpanded] = useState(open)
   useEffect(() => {

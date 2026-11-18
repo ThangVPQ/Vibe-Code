@@ -5,7 +5,7 @@ import { focusTerm } from '../terminals'
 
 const EMPTY: Attachment[] = []
 
-function iconFor(a: Attachment): JSX.Element {
+function iconFor(a: Attachment): React.JSX.Element {
   if (a.dir) return <Folder size={16} />
   const ext = (a.name.split('.').pop() ?? '').toLowerCase()
   if (/^(zip|rar|7z|tar|gz|tgz|bz2|xz)$/.test(ext)) return <FileArchive size={16} />
@@ -17,7 +17,7 @@ function iconFor(a: Attachment): JSX.Element {
 }
 
 /** Files waiting to go out with the next message: thumbnails / file cards, each removable. */
-export function AttachmentTray({ chatId }: { chatId: string }): JSX.Element | null {
+export function AttachmentTray({ chatId }: { chatId: string }): React.JSX.Element | null {
   const items = useAttachments((s) => s.byChat[chatId] ?? EMPTY)
   const [zoom, setZoom] = useState<string | null>(null)
 

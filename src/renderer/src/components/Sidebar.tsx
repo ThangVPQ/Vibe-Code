@@ -24,7 +24,7 @@ import { closeChat, loadSessions, openFolder, newChat, newChatIn, openCommitDiff
 import { FileIcon, FolderIcon, StatusDot, statusLabel } from './icons'
 import type { DirEntry, GitCommit, GitCommitFile, GitFile } from '../../../shared/types'
 
-export function Sidebar(): JSX.Element {
+export function Sidebar(): React.JSX.Element {
   // files and git changes live in the Source code tab; the sidebar is just the chats
   return (
     <div className="sidebar">
@@ -33,7 +33,7 @@ export function Sidebar(): JSX.Element {
   )
 }
 
-function SectionHeader({ title, children }: { title: string; children?: React.ReactNode }): JSX.Element {
+function SectionHeader({ title, children }: { title: string; children?: React.ReactNode }): React.JSX.Element {
   return (
     <div className="section-header">
       <span>{title}</span>
@@ -54,7 +54,7 @@ function useTick(ms: number): void {
 
 const normKey = (p: string): string => p.toLowerCase().replace(/[\\/]+$/, '')
 
-function ChatsView(): JSX.Element {
+function ChatsView(): React.JSX.Element {
   useTick(30000)
   // New chat lives on the + of each project (and Ctrl+Shift+N), so the list starts right away
   const disabled = !useStore((s) => s.claude?.found)
@@ -89,7 +89,7 @@ function loadExpanded(): Set<string> {
 const PAGE = 8
 
 /** Every project + conversation from Claude Code's store — the same list the Claude app shows. */
-function ProjectsTree(): JSX.Element {
+function ProjectsTree(): React.JSX.Element {
   const projects = useStore((s) => s.projects)
   const root = useStore((s) => s.root)
   const chats = useStore((s) => s.chats)
@@ -238,7 +238,7 @@ function useGitDecorations(): Map<string, GitFile['status']> {
   }, [files])
 }
 
-export function ExplorerView(): JSX.Element | null {
+export function ExplorerView(): React.JSX.Element | null {
   const root = useStore((s) => s.root)
   const [collapseKey, setCollapseKey] = useState(0)
   const deco = useGitDecorations()
@@ -254,7 +254,7 @@ interface CtxTarget {
 }
 type OpenCtx = (e: React.MouseEvent, path: string, isDir: boolean) => void
 
-function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey: (f: (k: number) => number) => void; deco: Map<string, string> }): JSX.Element {
+function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey: (f: (k: number) => number) => void; deco: Map<string, string> }): React.JSX.Element {
   const { root, collapseKey, setCollapseKey, deco } = props
   const [ctx, setCtx] = useState<CtxTarget | null>(null)
   const openCtx: OpenCtx = (e, path, isDir) => {
@@ -284,7 +284,7 @@ function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey
 }
 
 /** Right-click menu on a file or folder in the explorer. */
-function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: string; onClose: () => void }): JSX.Element {
+function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: string; onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: target.x, top: target.y })
 
@@ -324,7 +324,7 @@ function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: stri
     onClose()
     void f()
   }
-  const items: [JSX.Element, string, () => void][] = [
+  const items: [React.JSX.Element, string, () => void][] = [
     target.isDir
       ? [<FolderOpen size={14} key="o" />, 'Open folder in File Explorer', run(() => window.api.fs.openPath(target.path))]
       : [<FolderOpen size={14} key="o" />, 'Reveal in File Explorer', run(() => window.api.fs.reveal(target.path))],
@@ -346,7 +346,7 @@ function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: stri
   )
 }
 
-function DirChildren({ dir, depth, deco, openCtx }: { dir: string; depth: number; deco: Map<string, string>; openCtx: OpenCtx }): JSX.Element {
+function DirChildren({ dir, depth, deco, openCtx }: { dir: string; depth: number; deco: Map<string, string>; openCtx: OpenCtx }): React.JSX.Element {
   const [items, setItems] = useState<DirEntry[] | null>(null)
   const tick = useStore((s) => s.fsTick)
   useEffect(() => {
@@ -369,7 +369,7 @@ function DirChildren({ dir, depth, deco, openCtx }: { dir: string; depth: number
   )
 }
 
-function TreeNode({ item, depth, deco, openCtx }: { item: DirEntry; depth: number; deco: Map<string, string>; openCtx: OpenCtx }): JSX.Element {
+function TreeNode({ item, depth, deco, openCtx }: { item: DirEntry; depth: number; deco: Map<string, string>; openCtx: OpenCtx }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const activeTab = useStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
   const isActive = activeTab?.kind === 'file' && activeTab.path.toLowerCase() === item.path.toLowerCase()
@@ -410,7 +410,7 @@ const statusName: Record<string, string> = {
   C: 'Copied'
 }
 
-export function ChangesView(): JSX.Element {
+export function ChangesView(): React.JSX.Element {
   const git = useStore((s) => s.git)
   const root = useStore((s) => s.root)!
   const activeTabId = useStore((s) => s.activeTabId)
@@ -501,7 +501,7 @@ export function ChangesView(): JSX.Element {
 /* ================================ History ================================ */
 
 /** Commits on the current branch, newest first; click one to see the files it touched. */
-function HistoryList(): JSX.Element | null {
+function HistoryList(): React.JSX.Element | null {
   const git = useStore((s) => s.git)
   const gitRoot = git.root
   const [commits, setCommits] = useState<GitCommit[] | null>(null)
@@ -529,7 +529,7 @@ function HistoryList(): JSX.Element | null {
   )
 }
 
-function CommitRow({ commit, gitRoot, open, toggle }: { commit: GitCommit; gitRoot: string; open: boolean; toggle: () => void }): JSX.Element {
+function CommitRow({ commit, gitRoot, open, toggle }: { commit: GitCommit; gitRoot: string; open: boolean; toggle: () => void }): React.JSX.Element {
   const [files, setFiles] = useState<GitCommitFile[] | null>(null)
   const activeTabId = useStore((s) => s.activeTabId)
   useEffect(() => {

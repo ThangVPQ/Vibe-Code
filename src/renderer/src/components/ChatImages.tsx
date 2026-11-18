@@ -37,7 +37,7 @@ export function useChatImages(sessionId: string | undefined): string[] {
 }
 
 /** The Images tab of a chat: a grid, newest first. Click one to see it full size (← → to step, Esc to close). */
-export function ChatImages({ images }: { images: string[] }): JSX.Element {
+export function ChatImages({ images }: { images: string[] }): React.JSX.Element {
   const [open, setOpen] = useState<number | null>(null)
   const grid = useRef<HTMLDivElement>(null)
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
 import {
   Check,
   ChevronDown,
@@ -100,7 +100,7 @@ interface ObjNode {
   objects?: DbObject[]
 }
 
-export function DatabasePane(): JSX.Element {
+export function DatabasePane(): React.JSX.Element {
   const [conns, setConns] = useState<DbConnection[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => LS.get('vibe.db.active'))
   const [database, setDatabase] = useState<string>(() => LS.get('vibe.db.database') ?? '')
@@ -113,6 +113,8 @@ export function DatabasePane(): JSX.Element {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<DbQueryResult | null>(null)
   const [maxRows, setMaxRows] = useState(() => Number(LS.get('vibe.db.maxRows')) || 1000)
+  const sideLayout = useDefaultLayout({ id: 'vibe-db-side', storage: localStorage })
+  const splitLayout = useDefaultLayout({ id: 'vibe-db-split', storage: localStorage })
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null)
   const font = useEditorFont()
   const theme = useStore((s) => (s.themeResolved === 'light' ? 'studio-light' : 'studio-dark'))
@@ -227,8 +229,9 @@ export function DatabasePane(): JSX.Element {
   }
 
   return (
-    <PanelGroup direction="horizontal" autoSaveId="vibe-db-side" className="db-pane">
-      <Panel defaultSize={30} minSize={16} maxSize={60} className="db-side">
+    <>
+    <Group orientation="horizontal" className="db-pane" defaultLayout={sideLayout.defaultLayout} onLayoutChanged={sideLayout.onLayoutChanged}>
+      <Panel id="side" defaultSize="30%" minSize="16%" maxSize="60%" className="db-side">
         <div className="db-side-head">
           <span>Connections</span>
           <button className="icon-btn" title="Import from SSMS or project files" onClick={() => setImporting(true)}>
@@ -283,9 +286,9 @@ export function DatabasePane(): JSX.Element {
           ))}
         </div>
       </Panel>
-      <PanelResizeHandle className="db-resize-v" />
+      <Separator className="db-resize-v" />
 
-      <Panel minSize={30} className="db-main">
+      <Panel id="main" minSize="30%" className="db-main">
         {!active ? (
           <div className="db-placeholder">
             <Server size={28} />
@@ -340,8 +343,8 @@ export function DatabasePane(): JSX.Element {
                 </span>
               )}
             </div>
-            <PanelGroup direction="vertical" autoSaveId="vibe-db-split" className="db-split">
-              <Panel defaultSize={42} minSize={15}>
+            <Group orientation="vertical" className="db-split" defaultLayout={splitLayout.defaultLayout} onLayoutChanged={splitLayout.onLayoutChanged}>
+              <Panel id="sql" defaultSize="42%" minSize="15%">
                 <div className="db-editor">
                   <Editor
                     language="sql"
@@ -353,14 +356,15 @@ export function DatabasePane(): JSX.Element {
                   />
                 </div>
               </Panel>
-              <PanelResizeHandle className="db-resize" />
-              <Panel minSize={15}>
+              <Separator className="db-resize" />
+              <Panel id="results" minSize="15%">
                 <Results result={result} running={running} />
               </Panel>
-            </PanelGroup>
+            </Group>
           </>
         )}
       </Panel>
+    </Group>
 
       {editing && (
         <ConnectionDialog
@@ -385,13 +389,13 @@ export function DatabasePane(): JSX.Element {
           }}
         />
       )}
-    </PanelGroup>
+    </>
   )
 }
 
 /* ---------------- tree ---------------- */
 
-const GROUPS: { types: DbObject['type'][]; label: string; icon: JSX.Element }[] = [
+const GROUPS: { types: DbObject['type'][]; label: string; icon: React.JSX.Element }[] = [
   { types: ['U'], label: 'Tables', icon: <Table2 size={13} /> },
   { types: ['V'], label: 'Views', icon: <Eye size={13} /> },
   { types: ['P'], label: 'Procedures', icon: <Zap size={13} /> },
@@ -413,7 +417,7 @@ function ConnNode(props: {
   onOpen: (db: string, o: DbObject) => void
   onEdit: () => void
   onRemove: () => void
-}): JSX.Element {
+}): React.JSX.Element {
   const { conn: c, node } = props
   return (
     <div className="db-node">
@@ -461,7 +465,7 @@ function ConnNode(props: {
   )
 }
 
-function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node?: ObjNode; onToggle: () => void; onRefresh: () => void; onOpen: (o: DbObject) => void }): JSX.Element {
+function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node?: ObjNode; onToggle: () => void; onRefresh: () => void; onOpen: (o: DbObject) => void }): React.JSX.Element {
   const [filter, setFilter] = useState('')
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({ Tables: true })
   const [cols, setCols] = useState<Record<string, DbColumn[] | string | null>>({})
@@ -588,7 +592,7 @@ function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node
 
 /* ---------------- results ---------------- */
 
-function Results({ result, running }: { result: DbQueryResult | null; running: boolean }): JSX.Element {
+function Results({ result, running }: { result: DbQueryResult | null; running: boolean }): React.JSX.Element {
   const [tab, setTab] = useState(0)
   const [copied, setCopied] = useState('')
   const [sel, setSel] = useState<[number, number] | null>(null)
@@ -687,7 +691,7 @@ function Results({ result, running }: { result: DbQueryResult | null; running: b
   )
 }
 
-function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number, number] | null; onSel: (s: [number, number] | null) => void; onCopyCell: (v: string) => void }): JSX.Element {
+function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number, number] | null; onSel: (s: [number, number] | null) => void; onCopyCell: (v: string) => void }): React.JSX.Element {
   const numeric = useMemo(() => set.columns.map((c) => NUMERIC.test(c.type)), [set])
   return (
     <div
@@ -742,7 +746,7 @@ function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number,
 
 /* ---------------- add / edit connection ---------------- */
 
-function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | null; onClose: () => void; onSaved: (list: DbConnection[], id?: string) => void }): JSX.Element {
+function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | null; onClose: () => void; onSaved: (list: DbConnection[], id?: string) => void }): React.JSX.Element {
   const [name, setName] = useState(conn?.name ?? '')
   const [mode, setMode] = useState<'fields' | 'string'>('fields')
   const [server, setServer] = useState('')
@@ -923,7 +927,7 @@ function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | nul
 
 /* ---------------- import from SSMS / project ---------------- */
 
-function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[]; onClose: () => void; onDone: (list: DbConnection[]) => void }): JSX.Element {
+function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[]; onClose: () => void; onDone: (list: DbConnection[]) => void }): React.JSX.Element {
   const folder = useStore((s) => s.chats.find((c) => c.id === s.activeChatId)?.cwd ?? s.root ?? '')
   const [source, setSource] = useState<'ssms' | 'project'>('ssms')
   const [found, setFound] = useState<Record<string, { busy?: boolean; error?: string; items?: DbFound[] }>>({})

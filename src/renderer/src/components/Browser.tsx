@@ -43,7 +43,7 @@ const TABLET_UA =
 interface Device {
   key: string
   label: string
-  icon: JSX.Element
+  icon: React.JSX.Element
   w?: number
   h?: number
   /** phones/tablets also get a mobile browser identity, so sites serve their mobile layout */
@@ -67,7 +67,7 @@ function savedDevice(): string {
   }
 }
 
-export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId: string; active: boolean }): JSX.Element {
+export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId: string; active: boolean }): React.JSX.Element {
   const ref = useRef<WebviewEl>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const url = useStore((s) => s.browsers[chatKey]?.tabs.find((t) => t.id === tabId)?.url ?? HOME_URL)

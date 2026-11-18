@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
 import { useStore } from './store'
 import { applyTheme, closeTab, detectClaude, loadSessions, newChat, openFolder, refreshGit, selectChat, showChatBrowser, toggleBottom } from './actions'
 import { focusTerm } from './terminals'
@@ -72,11 +72,11 @@ function useBoot(): void {
   }, [])
 }
 
-function Handle({ dir }: { dir: 'h' | 'v' }): JSX.Element {
-  return <PanelResizeHandle className={`resize-handle ${dir}`} />
+function Handle({ dir }: { dir: 'h' | 'v' }): React.JSX.Element {
+  return <Separator className={`resize-handle ${dir}`} />
 }
 
-export default function App(): JSX.Element {
+export default function App(): React.JSX.Element {
   useBoot()
   useGlobalKeys()
   const root = useStore((s) => s.root)
@@ -84,6 +84,9 @@ export default function App(): JSX.Element {
   const bottomOpen = useStore((s) => s.bottomOpen)
   const quickOpen = useStore((s) => s.quickOpen)
   const dropdown = useStore((s) => s.win?.mode === 'dropdown')
+  // layouts are remembered per set of visible panels (sidebar / bottom panel can be toggled)
+  const layoutH = useDefaultLayout({ id: 'layout-h', panelIds: sidebarOpen ? ['sidebar', 'center', 'claude'] : ['center', 'claude'], storage: localStorage })
+  const layoutV = useDefaultLayout({ id: 'layout-v', panelIds: bottomOpen ? ['editor', 'bottom'] : ['editor'], storage: localStorage })
 
   return (
     <div className={`app${dropdown ? ' mode-dropdown' : ''}`}>
@@ -92,35 +95,35 @@ export default function App(): JSX.Element {
         <Welcome />
       ) : (
         <div className="workbench">
-          <PanelGroup direction="horizontal" autoSaveId="layout-h" className="panels">
+          <Group orientation="horizontal" className="panels" defaultLayout={layoutH.defaultLayout} onLayoutChanged={layoutH.onLayoutChanged}>
             {sidebarOpen && (
               <>
-                <Panel id="sidebar" order={1} defaultSize={19} minSize={13} maxSize={35}>
+                <Panel id="sidebar" defaultSize="19%" minSize="13%" maxSize="35%">
                   <Sidebar />
                 </Panel>
                 <Handle dir="h" />
               </>
             )}
-            <Panel id="center" order={2} defaultSize={45} minSize={20}>
-              <PanelGroup direction="vertical" autoSaveId="layout-v">
-                <Panel id="editor" order={1} defaultSize={68} minSize={20}>
+            <Panel id="center" defaultSize="45%" minSize="20%">
+              <Group orientation="vertical" defaultLayout={layoutV.defaultLayout} onLayoutChanged={layoutV.onLayoutChanged}>
+                <Panel id="editor" defaultSize="68%" minSize="20%">
                   <EditorArea />
                 </Panel>
                 {bottomOpen && (
                   <>
                     <Handle dir="v" />
-                    <Panel id="bottom" order={2} defaultSize={32} minSize={12}>
+                    <Panel id="bottom" defaultSize="32%" minSize="12%">
                       <BottomPanel />
                     </Panel>
                   </>
                 )}
-              </PanelGroup>
+              </Group>
             </Panel>
             <Handle dir="h" />
-            <Panel id="claude" order={3} defaultSize={36} minSize={22}>
+            <Panel id="claude" defaultSize="36%" minSize="22%">
               <ClaudePanel />
             </Panel>
-          </PanelGroup>
+          </Group>
         </div>
       )}
       <StatusBar />

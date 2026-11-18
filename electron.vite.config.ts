@@ -1,18 +1,17 @@
 import { resolve } from 'path'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'electron-vite'
+import react, { reactCompilerPreset } from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
 
+// electron-vite 5+: main/preload deps are externalized by default (build.externalizeDeps)
 export default defineConfig({
-  main: {
-    plugins: [externalizeDepsPlugin()]
-  },
-  preload: {
-    plugins: [externalizeDepsPlugin()]
-  },
+  main: {},
+  preload: {},
   renderer: {
     resolve: {
       alias: { '@': resolve('src/renderer/src') }
     },
-    plugins: [react()]
+    // React Compiler: auto-memoizes components/hooks, so re-renders skip unchanged subtrees
+    plugins: [react(), babel({ presets: [reactCompilerPreset()] })]
   }
 })

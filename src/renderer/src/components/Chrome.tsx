@@ -35,7 +35,7 @@ import type { UsageLimit } from '../../../shared/types'
 
 /* ================================ Title bar ================================ */
 
-export function TitleBar(): JSX.Element {
+export function TitleBar(): React.JSX.Element {
   const root = useStore((s) => s.root)
   const recent = useStore((s) => s.recent)
   const [menu, setMenu] = useState(false)
@@ -119,7 +119,7 @@ export function TitleBar(): JSX.Element {
 }
 
 /** Light ↔ dark. */
-function ThemeToggle(): JSX.Element {
+function ThemeToggle(): React.JSX.Element {
   const light = useStore((s) => s.themeResolved === 'light')
   return (
     <button className="icon-btn" title={light ? 'Switch to dark theme' : 'Switch to light theme'} onClick={() => toggleTheme()}>
@@ -129,7 +129,7 @@ function ThemeToggle(): JSX.Element {
 }
 
 /** Window opacity: a button that opens a slider (20–100%). */
-function OpacityControl(): JSX.Element {
+function OpacityControl(): React.JSX.Element {
   const saved = useStore((s) => s.settings?.dropOpacity ?? 1)
   const seeThrough = useStore((s) => !!s.settings?.seeThrough)
   const [pending, setPending] = useState(false)
@@ -192,7 +192,7 @@ function OpacityControl(): JSX.Element {
   )
 }
 
-function ModeSwitch(): JSX.Element | null {
+function ModeSwitch(): React.JSX.Element | null {
   const win = useStore((s) => s.win)
   if (!win) return null
   const drop = win.mode === 'dropdown'
@@ -209,7 +209,7 @@ function ModeSwitch(): JSX.Element | null {
   )
 }
 
-function WindowControls(): JSX.Element | null {
+function WindowControls(): React.JSX.Element | null {
   const win = useStore((s) => s.win)
   if (!win) return null
   if (win.mode === 'dropdown') {
@@ -238,14 +238,14 @@ function WindowControls(): JSX.Element | null {
 
 /* ================================ Activity bar ================================ */
 
-export function ActivityBar(): JSX.Element {
+export function ActivityBar(): React.JSX.Element {
   const view = useStore((s) => s.sidebarView)
   const open = useStore((s) => s.sidebarOpen)
   const attention = useStore((s) => s.chats.filter((c) => c.attention).length)
   const working = useStore((s) => s.chats.some((c) => c.status === 'working'))
   const changes = useStore((s) => s.git.files.length)
 
-  const item = (v: SidebarView, icon: React.ReactNode, title: string, badge?: React.ReactNode): JSX.Element => (
+  const item = (v: SidebarView, icon: React.ReactNode, title: string, badge?: React.ReactNode): React.JSX.Element => (
     <button
       className={`activity-item${view === v && open ? ' active' : ''}`}
       title={title}
@@ -282,7 +282,7 @@ function resetLabel(iso: string | null): string {
 }
 
 /** Plan usage limits (same as Claude's "Plan usage limits" panel), refreshed every 2 minutes. */
-function UsageMeters(): JSX.Element | null {
+function UsageMeters(): React.JSX.Element | null {
   const [limits, setLimits] = useState<UsageLimit[] | null>(null)
   useEffect(() => {
     let live = true
@@ -314,7 +314,7 @@ function UsageMeters(): JSX.Element | null {
   )
 }
 
-export function StatusBar(): JSX.Element {
+export function StatusBar(): React.JSX.Element {
   const git = useStore((s) => s.git)
   const claude = useStore((s) => s.claude)
   const working = useStore((s) => s.chats.filter((c) => c.status === 'working').length)
@@ -373,7 +373,7 @@ function fuzzy(query: string, text: string): number {
   return score
 }
 
-export function QuickOpen(): JSX.Element {
+export function QuickOpen(): React.JSX.Element {
   const root = useStore((s) => s.root)!
   const [files, setFiles] = useState<string[]>([])
   const [q, setQ] = useState('')
@@ -448,7 +448,7 @@ export function QuickOpen(): JSX.Element {
 
 /* ================================ Welcome (no folder) ================================ */
 
-export function Welcome(): JSX.Element {
+export function Welcome(): React.JSX.Element {
   const claude = useStore((s) => s.claude)
   const projects = useStore((s) => s.projects)
   const byRecent = [...projects].sort((a, b) => b.updated - a.updated)

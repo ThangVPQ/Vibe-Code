@@ -73,7 +73,7 @@ async function save(patch: Partial<AppSettings>): Promise<void> {
 }
 
 /** "Aa" button at the end of the editor tab bar: font family, size, ligatures. */
-export function EditorFontButton(): JSX.Element {
+export function EditorFontButton(): React.JSX.Element {
   const font = useStore((s) => s.settings?.editorFont || DEFAULT_FONT)
   const size = useStore((s) => s.settings?.editorFontSize || DEFAULT_SIZE)
   const lig = useStore((s) => s.settings?.editorLigatures ?? true)

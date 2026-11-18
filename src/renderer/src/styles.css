@@ -429,8 +429,8 @@ kbd {
   top: -3px;
   bottom: -3px;
 }
-.resize-handle[data-resize-handle-state='hover'],
-.resize-handle[data-resize-handle-state='drag'] {
+.resize-handle[data-separator='hover'],
+.resize-handle[data-separator='active'] {
   background: var(--accent);
 }
 
@@ -3548,7 +3548,7 @@ button.sb-item:hover {
 .db-split { flex: 1; min-height: 0; }
 .db-editor { height: 100%; }
 .db-resize { height: 5px; background: var(--border); cursor: row-resize; transition: background 0.12s; }
-.db-resize:hover, .db-resize[data-resize-handle-active] { background: var(--accent); }
+.db-resize:hover, .db-resize[data-separator='active'] { background: var(--accent); }
 
 .db-results { height: 100%; display: flex; flex-direction: column; min-height: 0; background: var(--bg-2); }
 .db-results-empty { align-items: center; justify-content: center; flex-direction: row; gap: 8px; color: var(--text-faint); font-size: 12.5px; padding: 20px; text-align: center; }
@@ -3700,7 +3700,7 @@ button.sb-item:hover {
 .db-import-note { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-faint); }
 .db-pane .db-side { width: auto; }
 .db-resize-v { width: 4px; background: var(--border); cursor: col-resize; transition: background 0.12s; }
-.db-resize-v:hover, .db-resize-v[data-resize-handle-active] { background: var(--accent); }
+.db-resize-v:hover, .db-resize-v[data-separator='active'] { background: var(--accent); }
 .db-main { container-type: inline-size; }
 .db-toolbar { overflow: hidden; }
 .db-toolbar > * { flex-shrink: 0; }
