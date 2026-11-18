@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Collapse, SlidePill } from './motion'
 import {
   ChevronRight,
   FolderGit2,
   FolderPlus,
   History,
-  Plus,
   RefreshCw,
   RotateCcw,
   Sparkles,
@@ -22,7 +22,9 @@ import {
 import { basename, useStore } from '../store'
 import { closeChat, loadSessions, openFolder, newChat, newChatIn, openCommitDiff, openDiff, openFile, openSession, refreshGit, renameChat, selectChat } from '../actions'
 import { FileIcon, FolderIcon, StatusDot, statusLabel } from './icons'
-import type { DirEntry, GitCommit, GitCommitFile, GitFile } from '../../../shared/types'
+import type { DirEntry, GitCommit, GitCommitFile, GitFile, ProjectGroup } from '../../../shared/types'
+import { agentDef } from '../../../shared/agents'
+import { NewChatMenu } from './AgentMenu'
 
 export function Sidebar(): React.JSX.Element {
   // files and git changes live in the Source code tab; the sidebar is just the chats
@@ -94,7 +96,6 @@ function ProjectsTree(): React.JSX.Element {
   const root = useStore((s) => s.root)
   const chats = useStore((s) => s.chats)
   const activeChatId = useStore((s) => s.activeChatId)
-  const claudeFound = useStore((s) => !!s.claude?.found)
   const [expanded, setExpanded] = useState<Set<string>>(loadExpanded)
   const [more, setMore] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
@@ -117,15 +118,28 @@ function ProjectsTree(): React.JSX.Element {
   const liveBySession = useMemo(() => new Map(chats.filter((c) => c.sessionId).map((c) => [c.sessionId!, c])), [chats])
   const activeSession = chats.find((c) => c.id === activeChatId)?.sessionId
 
+  // Codex / Grok / Gemini… chats aren't in Claude's session store: list the open ones under their
+  // project, adding the project when it has no Claude history yet.
+  const slashKey = (p: string): string => normKey(p).replace(/\//g, '\\')
+  const agentChats = chats.filter((c) => agentDef(c.agent).id !== 'claude')
+  const allProjects: ProjectGroup[] = [...projects]
+  for (const c of agentChats) {
+    if (allProjects.some((g) => slashKey(g.key) === slashKey(c.cwd))) continue
+    allProjects.unshift({ key: normKey(c.cwd), cwd: c.cwd, name: basename(c.cwd), updated: c.createdAt, sessions: [] })
+  }
   const needle = q.trim().toLowerCase()
+  const agentRows = (g: ProjectGroup): typeof agentChats =>
+    agentChats.filter(
+      (c) => slashKey(c.cwd) === slashKey(g.key) && (!needle || g.name.toLowerCase().includes(needle) || c.title.toLowerCase().includes(needle))
+    )
   const visible = needle
-    ? projects
+    ? allProjects
         .map((g) => ({
           ...g,
           sessions: g.name.toLowerCase().includes(needle) ? g.sessions : g.sessions.filter((s) => s.title.toLowerCase().includes(needle))
         }))
-        .filter((g) => g.sessions.length > 0)
-    : projects
+        .filter((g) => g.sessions.length > 0 || agentRows(g).length > 0)
+    : allProjects
 
   const flip = (set: (f: (s: Set<string>) => Set<string>) => void, key: string): void =>
     set((e) => {
@@ -157,7 +171,8 @@ function ProjectsTree(): React.JSX.Element {
       {visible.map((g) => {
         const open = needle ? true : expanded.has(g.key)
         const isRoot = !!root && normKey(root) === g.key
-        const liveCount = g.sessions.filter((s) => liveBySession.has(s.id)).length
+        const others = agentRows(g)
+        const liveCount = g.sessions.filter((s) => liveBySession.has(s.id)).length + others.length
         const shown = needle || more.has(g.key) ? g.sessions : g.sessions.slice(0, PAGE)
         return (
           <div key={g.key} className="proj">
@@ -166,19 +181,26 @@ function ProjectsTree(): React.JSX.Element {
               <ChevronRight size={13} className={`proj-chev${open ? ' open' : ''}`} />
               {liveCount > 0 && <span className="proj-live" title={`${liveCount} open`} />}
               <span className="proj-spacer" />
-              <button
+              <NewChatMenu
                 className="icon-btn tiny proj-add"
-                title={`New chat in ${g.name}`}
-                disabled={!claudeFound}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  newChatIn(g.cwd)
-                }}
-              >
-                <Plus size={14} />
-              </button>
+                size={14}
+                title={`New chat in ${g.name} — Claude, Codex, Grok, Gemini…`}
+                onPick={(agent) => newChatIn(g.cwd, agent)}
+              />
             </div>
             <Collapse open={open}>
+            {others.map((c) => (
+              <div
+                key={c.id}
+                className={`sess-row${c.id === activeChatId ? ' active' : ''}`}
+                onClick={() => selectChat(c.id)}
+                title={`${c.title}\n${agentDef(c.agent).label} · ${c.cwd}`}
+              >
+                <StatusDot status={c.status} attention={c.attention} />
+                <span className="sess-title">{c.title}</span>
+                <span className="sess-time">{agentDef(c.agent).label}</span>
+              </div>
+            ))}
             {shown.map((s) => {
               const live = liveBySession.get(s.id)
               return (
@@ -286,10 +308,10 @@ function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey
 /** Right-click menu on a file or folder in the explorer. */
 function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: string; onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState({ left: target.x, top: target.y })
+  const [pos, setPos] = useState<React.CSSProperties>({ left: target.x, top: target.y, visibility: 'hidden' })
 
-  // keep the menu on screen
-  useEffect(() => {
+  // keep the menu on screen — measured before paint so it never jumps
+  useLayoutEffect(() => {
     const r = ref.current?.getBoundingClientRect()
     if (!r) return
     setPos({
@@ -334,7 +356,8 @@ function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: stri
   if (target.isDir && target.path !== root)
     items.splice(1, 0, [<FolderOpen size={14} key="s" />, 'Reveal in parent folder', run(() => window.api.fs.reveal(target.path))])
 
-  return (
+  // portal to <body>: inside the sidebar a transformed/blurred ancestor breaks position:fixed
+  return createPortal(
     <div ref={ref} className="menu ctx-menu" style={pos} onContextMenu={(e) => e.preventDefault()}>
       {items.map(([icon, label, act]) => (
         <button key={label} className="menu-item" onClick={act}>
@@ -342,7 +365,8 @@ function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: stri
           <span className="menu-item-main">{label}</span>
         </button>
       ))}
-    </div>
+    </div>,
+    document.body
   )
 }
 

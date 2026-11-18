@@ -3,6 +3,7 @@ import { basename, uid, useStore, type Chat, type EditorTab, type WebTab } from 
 import { createTerm, disposeTerm, focusTerm, onTerminalEvents, readScreen, restartTerm, setTerminalClear, setTerminalTheme, writeToTerm } from './terminals'
 import { disposeModel, getModel, isDirty } from './fileModels'
 import type { SessionInfo } from '../../shared/types'
+import { agentDef, type AgentId } from '../../shared/agents'
 
 const st = useStore.getState
 const lastData = new Map<string, number>()
@@ -22,7 +23,7 @@ function checkStatus(id: string): void {
       statusTimer.delete(id)
       const chat = st().chats.find((c) => c.id === id)
       if (!chat || chat.status === 'exited') return
-      const busy = /esc to interrupt/i.test(readScreen(id).split('\n').slice(-8).join('\n'))
+      const busy = /esc to (interrupt|cancel)/i.test(readScreen(id).split('\n').slice(-8).join('\n'))
       if (busy && chat.status !== 'working') st().patchChat(id, { status: 'working' })
       if (!busy && chat.status !== 'idle') {
         // finished work while you were looking elsewhere → needs a look
@@ -40,7 +41,7 @@ onTerminalEvents({
   title: (id, raw) => {
     // Claude Code sets the terminal title to a short task summary, often prefixed by a spinner glyph.
     const title = raw.replace(/^[\s✳✶✻✽✢·*⠀-⣿]+/u, '').trim()
-    if (!title || /^(claude|claude code|powershell|pwsh|windows powershell)$/i.test(title) || /\.exe$/i.test(title)) return
+    if (!title || /^(claude|claude code|codex|grok|gemini|qwen|copilot|opencode|powershell|pwsh|windows powershell)$/i.test(title) || /\.exe$/i.test(title)) return
     const chat = st().chats.find((c) => c.id === id)
     // once the session store has a title for this chat, that one wins (see loadSessions)
     const known = chat?.sessionId && st().projects.some((g) => g.sessions.some((s) => s.id === chat.sessionId))
@@ -79,7 +80,7 @@ onTerminalEvents({
     // Startup prompts: the trust-folder question is always answered "Yes" (you only open your own
     // projects here); the bypass warning too when the chat or its project runs in bypass mode.
     const bypass = !!st().projectBypass[folderKey(chat.cwd)] || chat.permissionMode === 'bypassPermissions'
-    answerStartupDialog(id, bypass)
+    if (agentDef(chat.agent).id === 'claude') answerStartupDialog(id, bypass)
     const text = ((outTail.get(id) ?? '') + data.replace(ANSI, '')).slice(-400)
     outTail.set(id, text)
     const seen = seenLocal.get(id) ?? new Set<string>()
@@ -287,14 +288,14 @@ export async function openSession(s: SessionInfo): Promise<void> {
 }
 
 /** New chat inside a project from the sidebar tree. */
-export async function newChatIn(projectCwd: string): Promise<void> {
+export async function newChatIn(projectCwd: string, agent?: AgentId): Promise<void> {
   if (!st().root || !samePath(st().root!, projectCwd)) await openFolder(projectCwd, { autoChat: false })
-  newChat()
+  newChat({ agent })
 }
 
 export async function detectClaude(): Promise<void> {
-  const claude = await window.api.claude.detect()
-  useStore.setState({ claude })
+  const [claude, agents] = await Promise.all([window.api.claude.detect(), window.api.claude.agents().catch(() => [])])
+  useStore.setState({ claude, agents })
 }
 
 let gitTimer: ReturnType<typeof setTimeout> | null = null
@@ -316,11 +317,15 @@ interface NewChatOpts {
   title?: string
   sessionId?: string
   pinnedTitle?: boolean
+  /** coding agent to run — default Claude Code */
+  agent?: AgentId
 }
 
 export function newChat(opts: NewChatOpts = {}): void {
   const cwd = opts.cwd ?? st().root
   if (!cwd) return
+  const agent = agentDef(opts.agent)
+  if (agent.id !== 'claude') return newAgentChat(cwd, agent.id, opts)
   let args = opts.args ?? []
   let sessionId = opts.sessionId
   // Fresh chats get an id we choose, so the sidebar can match them to the session store.
@@ -352,6 +357,34 @@ export function newChat(opts: NewChatOpts = {}): void {
   useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id }))
 }
 
+/**
+ * A chat running another coding agent (Codex, Grok, Gemini…). It has no Claude session id, model
+ * or effort; it only starts in bypass mode like Claude chats do, when the agent has such a flag.
+ */
+function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts): void {
+  const agent = agentDef(agentId)
+  const permissionMode = agent.yolo.length ? NEW_CHAT_DEFAULTS.permissionMode : undefined
+  const args = [...(opts.args ?? []), ...agentFlags(agentId, permissionMode)]
+  const n = st().chats.filter((c) => c.agent === agentId).length + 1
+  const chat: Chat = {
+    id: 'chat-' + uid(),
+    title: opts.title ?? `${agent.label} ${n}`,
+    pinnedTitle: opts.pinnedTitle ?? false,
+    cwd,
+    status: 'starting',
+    attention: false,
+    createdAt: Date.now(),
+    agent: agentId,
+    claudeArgs: args,
+    permissionMode
+  }
+  createTerm({ id: chat.id, cwd, kind: 'claude', agent: agentId, claudeArgs: args })
+  useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id }))
+}
+
+const agentFlags = (agentId: AgentId | undefined, permissionMode?: string): string[] =>
+  permissionMode === 'bypassPermissions' ? agentDef(agentId).yolo : []
+
 /** What every new chat starts with: Opus 5.5, medium effort, bypass permissions. */
 const NEW_CHAT_DEFAULTS = { model: 'claude-opus-5-5', effort: 'medium', permissionMode: 'bypassPermissions' }
 
@@ -382,7 +415,7 @@ export function setChatEffort(id: string, effort: string): void {
 export function setChatPermission(id: string, mode: string): void {
   const c = st().chats.find((x) => x.id === id)
   if (!c) return
-  if (c.status === 'working' && !window.confirm('Claude is still working. Restart this chat with the new permission mode?')) return
+  if (c.status === 'working' && !window.confirm(`${agentDef(c.agent).label} is still working. Restart this chat with the new permission mode?`)) return
   st().patchChat(id, { permissionMode: mode || undefined })
   restartChat(id)
 }
@@ -420,6 +453,11 @@ export function restartChat(id: string): void {
   const c = st().chats.find((x) => x.id === id)
   if (!c) return
   st().patchChat(id, { status: 'starting' })
+  if (agentDef(c.agent).id !== 'claude') {
+    // other agents: pick their last conversation back up where they can, else start fresh
+    restartTerm(id, { claudeArgs: [...agentDef(c.agent).resume, ...agentFlags(c.agent, c.permissionMode)] })
+    return
+  }
   // a chat that never got past startup has nothing to resume: start that same session fresh
   const saved = !!c.sessionId && st().projects.some((g) => g.sessions.some((s) => s.id === c.sessionId))
   const base = c.sessionId ? (saved ? ['--resume', c.sessionId] : ['--session-id', c.sessionId]) : ['--continue']

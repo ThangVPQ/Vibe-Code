@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
-import type { AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloThread } from '../shared/types'
+import type { AgentInfo, AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloSticker, ZaloThread, ZaloThreadInfo, ZaloTyping } from '../shared/types'
 
 function on<T extends unknown[]>(channel: string, cb: (...args: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, ...args: unknown[]): void => cb(...(args as T))
@@ -19,6 +19,7 @@ const api = {
   },
   claude: {
     detect: (): Promise<ClaudeInfo> => ipcRenderer.invoke('claude:detect'),
+    agents: (): Promise<AgentInfo[]> => ipcRenderer.invoke('agents:detect'),
     usage: (): Promise<UsageLimit[] | null> => ipcRenderer.invoke('claude:usage'),
     getProjectBypass:(folder: string): Promise<boolean> => ipcRenderer.invoke('claude:getProjectBypass', folder),
     setProjectBypass: (folder: string, on: boolean): Promise<boolean> => ipcRenderer.invoke('claude:setProjectBypass', folder, on)
@@ -66,12 +67,31 @@ const api = {
     reconnect: (): Promise<ZaloState> => ipcRenderer.invoke('zalo:reconnect'),
     logout: (): Promise<void> => ipcRenderer.invoke('zalo:logout'),
     threads: (query?: string): Promise<ZaloThread[]> => ipcRenderer.invoke('zalo:threads', query),
-    messages: (threadId: string, limit?: number): Promise<ZaloMessage[]> => ipcRenderer.invoke('zalo:messages', threadId, limit),
+    messages: (threadId: string, limit?: number, before?: number): Promise<ZaloMessage[]> => ipcRenderer.invoke('zalo:messages', threadId, limit, before),
     /** groups: fetch older messages from Zalo; returns how many arrived */
     loadOlder: (threadId: string): Promise<number> => ipcRenderer.invoke('zalo:loadOlder', threadId),
-    send: (threadId: string, text: string): Promise<string> => ipcRenderer.invoke('zalo:send', threadId, text),
+    send: (threadId: string, text: string, replyTo?: string): Promise<string> => ipcRenderer.invoke('zalo:send', threadId, text, replyTo),
+    /** conversations for the tab: pinned first, then newest */
+    uiThreads: (): Promise<ZaloThread[]> => ipcRenderer.invoke('zalo:uiThreads'),
+    contacts: (): Promise<ZaloThread[]> => ipcRenderer.invoke('zalo:contacts'),
+    /** the conversation on screen (its messages are marked read) */
+    setActive: (threadId: string | null): Promise<void> => ipcRenderer.invoke('zalo:setActive', threadId),
+    info: (threadId: string): Promise<ZaloThreadInfo> => ipcRenderer.invoke('zalo:info', threadId),
+    sendFiles: (threadId: string, paths: string[], caption?: string): Promise<void> => ipcRenderer.invoke('zalo:sendFiles', threadId, paths, caption),
+    sendSticker: (threadId: string, s: ZaloSticker): Promise<void> => ipcRenderer.invoke('zalo:sendSticker', threadId, s),
+    stickers: (keyword: string): Promise<ZaloSticker[]> => ipcRenderer.invoke('zalo:stickers', keyword),
+    react: (threadId: string, msgId: string, icon: string): Promise<void> => ipcRenderer.invoke('zalo:react', threadId, msgId, icon),
+    recall: (threadId: string, msgId: string): Promise<void> => ipcRenderer.invoke('zalo:recall', threadId, msgId),
+    deleteForMe: (threadId: string, msgId: string): Promise<void> => ipcRenderer.invoke('zalo:deleteForMe', threadId, msgId),
+    forward: (fromThread: string, msgId: string, toThread: string): Promise<void> => ipcRenderer.invoke('zalo:forward', fromThread, msgId, toThread),
+    typing: (threadId: string): void => ipcRenderer.send('zalo:typing', threadId),
+    prefs: (p?: { notify?: boolean }): Promise<{ notify: boolean }> => ipcRenderer.invoke('zalo:prefs', p),
     onState: (cb: (s: ZaloState) => void) => on('zalo:state', cb),
-    onChanged: (cb: () => void) => on('zalo:changed', cb)
+    /** ids of the conversations that changed ([] = reload everything) */
+    onChanged: (cb: (ids: string[]) => void) => on('zalo:changed', cb),
+    onTyping: (cb: (t: ZaloTyping) => void) => on('zalo:typing', cb),
+    /** a notification was clicked */
+    onOpenThread: (cb: (threadId: string) => void) => on('zalo:openThread', cb)
   },
   win: {
     state: (): Promise<WindowState> => ipcRenderer.invoke('win:state'),

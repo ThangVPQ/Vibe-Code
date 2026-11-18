@@ -205,6 +205,88 @@ export function onTerminalEvents(h: { activity?: ActivityFn; title?: TitleFn; ex
   Object.assign(handlers, h)
 }
 
+/* ---- image paths in terminal output: hover preview + click to enlarge ---- */
+
+const PATH_RE = /[A-Za-z]:[\\/][^\s"'<>|*?:`]*/g
+const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|avif)$/i
+
+/** Show a path in File Explorer: a folder opens, a file is selected in its folder.
+ *  A path cut short (e.g. at a space) falls back to the nearest folder that exists. */
+async function revealPath(path: string): Promise<void> {
+  let p = path.replace(/\//g, '\\')
+  for (;;) {
+    const info = (await window.api.app.fileInfo([p]).catch(() => []))[0]
+    if (info?.dir) return void window.api.fs.openPath(p)
+    if (info && info.size >= 0) return void window.api.fs.reveal(p)
+    const cut = p.lastIndexOf('\\')
+    if (cut < 3) return
+    p = p.slice(0, cut)
+  }
+}
+const imageCache = new Map<string, Promise<string | undefined>>()
+let hoverEl: HTMLImageElement | null = null
+let hoverToken = 0
+
+function loadImage(path: string): Promise<string | undefined> {
+  let p = imageCache.get(path)
+  if (!p) {
+    p = window.api.app
+      .fileInfo([path])
+      .then((r) => r[0]?.preview)
+      .catch(() => undefined)
+    // a missing file may appear later: don't remember failures
+    p.then((src) => !src && imageCache.delete(path))
+    imageCache.set(path, p)
+  }
+  return p
+}
+
+async function showImageHover(path: string, e: MouseEvent): Promise<void> {
+  const token = ++hoverToken
+  const src = await loadImage(path)
+  if (!src || token !== hoverToken) return
+  if (!hoverEl) {
+    hoverEl = document.createElement('img')
+    hoverEl.className = 'term-image-hover'
+    document.body.appendChild(hoverEl)
+  }
+  hoverEl.src = src
+  const below = e.clientY < window.innerHeight / 2
+  hoverEl.style.left = `${Math.min(e.clientX + 12, window.innerWidth - 336)}px`
+  hoverEl.style.top = below ? `${e.clientY + 18}px` : ''
+  hoverEl.style.bottom = below ? '' : `${window.innerHeight - e.clientY + 12}px`
+  hoverEl.style.display = 'block'
+}
+
+function hideImageHover(): void {
+  hoverToken++
+  if (hoverEl) hoverEl.style.display = 'none'
+}
+
+async function showImageLightbox(path: string): Promise<void> {
+  hideImageHover()
+  const src = await loadImage(path)
+  if (!src) return
+  const box = document.createElement('div')
+  box.className = 'image-lightbox'
+  const img = document.createElement('img')
+  img.src = src
+  box.appendChild(img)
+  const close = (): void => {
+    box.remove()
+    window.removeEventListener('keydown', onKey, true)
+  }
+  const onKey = (ev: KeyboardEvent): void => {
+    if (ev.key !== 'Escape') return
+    ev.preventDefault()
+    ev.stopPropagation()
+    close()
+  }
+  box.addEventListener('click', close)
+  window.addEventListener('keydown', onKey, true)
+  document.body.appendChild(box)
+}
+
 export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void {
   wire()
   if (entries.has(spawn.id)) return
@@ -226,7 +308,7 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
     cursorWidth: 2,
     allowProposedApi: true,
     scrollback: 10000,
-    smoothScrollDuration: 90,
+    smoothScrollDuration: 125,
     theme: shownTheme(),
     allowTransparency: true,
     macOptionIsMeta: true
@@ -235,6 +317,24 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
   term.loadAddon(fit)
   // clicked links go to the app (a chat's own Web tab); external browser only as a fallback
   term.loadAddon(new WebLinksAddon((_e, url) => openLink(url)))
+  // Windows paths: images get a hover thumbnail + click to enlarge, anything else opens in File Explorer
+  term.registerLinkProvider({
+    provideLinks(y, cb) {
+      const text = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? ''
+      const links = [...text.matchAll(PATH_RE)].map((m) => {
+        const path = m[0].replace(/[.,;)\]]+$/, '')
+        const image = IMAGE_EXT_RE.test(path)
+        return {
+          range: { start: { x: m.index + 1, y }, end: { x: m.index + path.length, y } },
+          text: path,
+          activate: () => void (image ? showImageLightbox(path) : revealPath(path)),
+          hover: (e: MouseEvent) => void (image && showImageHover(path, e)),
+          leave: hideImageHover
+        }
+      })
+      cb(links.length ? links : undefined)
+    }
+  })
   const uni = new Unicode11Addon()
   term.loadAddon(uni)
   term.unicode.activeVersion = '11'

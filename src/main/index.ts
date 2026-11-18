@@ -48,7 +48,7 @@ async function readProjectLocal(folder: string): Promise<ProjectLocal> {
   }
   return raw.trim() ? (JSON.parse(raw) as ProjectLocal) : {}
 }
-import { detectClaude, killAll, killPty, resizePty, spawnPty, writePty } from './pty'
+import { detectAgents, detectClaude, killAll, killPty, resizePty, spawnPty, writePty } from './pty'
 import { listFiles, readDir, readFile, watchFolder, writeFile } from './fs'
 import { gitCommitFiles, gitInit, gitLog, gitOriginal, gitShow, gitState } from './git'
 import { getSettings, rememberFolder, updateSettings } from './settings'
@@ -58,7 +58,7 @@ import { listSessions, sessionImages, sessionContext, watchSessions } from './se
 import { attachView, startBrowserMcp } from './browserMcp'
 import * as db from './mssql'
 import * as zalo from './zalo'
-import type { AppSettings, DbConnectionInput, PtySpawnOptions, UsageLimit, WindowMode } from '../shared/types'
+import type { AppSettings, DbConnectionInput, PtySpawnOptions, UsageLimit, WindowMode, ZaloSticker } from '../shared/types'
 
 let win: BrowserWindow | null = null
 
@@ -134,6 +134,7 @@ function registerIpc(): void {
   ipcMain.on('pty:resize', (_e, id: string, cols: number, rows: number) => resizePty(id, cols, rows))
   ipcMain.on('pty:kill', (_e, id: string) => killPty(id))
   ipcMain.handle('claude:detect', () => detectClaude())
+  ipcMain.handle('agents:detect', () => detectAgents())
   // each chat's Web tab tells us its <webview>, so that chat's browser tools can reach it
   ipcMain.on('browser:attach', (_e, chatId: string, wcId: number) => attachView(chatId, wcId))
   // SQL Server: saved connections, queries, finding existing connections (project files, SSMS)
@@ -159,9 +160,22 @@ function registerIpc(): void {
   ipcMain.handle('zalo:reconnect', () => zalo.reconnect())
   ipcMain.handle('zalo:logout', () => zalo.logout())
   ipcMain.handle('zalo:threads', (_e, q?: string) => zalo.listThreads(q))
-  ipcMain.handle('zalo:messages', (_e, threadId: string, limit?: number) => zalo.getMessages(threadId, limit))
+  ipcMain.handle('zalo:messages', (_e, threadId: string, limit?: number, before?: number) => zalo.getMessages(threadId, limit, before))
   ipcMain.handle('zalo:loadOlder', (_e, threadId: string) => zalo.loadOlder(threadId))
-  ipcMain.handle('zalo:send', (_e, threadId: string, text: string) => zalo.sendText(threadId, text))
+  ipcMain.handle('zalo:send', (_e, threadId: string, text: string, replyTo?: string) => zalo.sendText(threadId, text, undefined, replyTo))
+  ipcMain.handle('zalo:uiThreads', () => zalo.uiThreads())
+  ipcMain.handle('zalo:contacts', () => zalo.contacts())
+  ipcMain.handle('zalo:setActive', (_e, threadId: string | null) => zalo.setActive(threadId))
+  ipcMain.handle('zalo:info', (_e, threadId: string) => zalo.threadInfo(threadId))
+  ipcMain.handle('zalo:sendFiles', (_e, threadId: string, paths: string[], caption?: string) => zalo.sendFiles(threadId, paths, caption))
+  ipcMain.handle('zalo:sendSticker', (_e, threadId: string, s: ZaloSticker) => zalo.sendSticker(threadId, s))
+  ipcMain.handle('zalo:stickers', (_e, keyword: string) => zalo.searchStickers(keyword))
+  ipcMain.handle('zalo:react', (_e, threadId: string, msgId: string, icon: string) => zalo.react(threadId, msgId, icon))
+  ipcMain.handle('zalo:recall', (_e, threadId: string, msgId: string) => zalo.recall(threadId, msgId))
+  ipcMain.handle('zalo:deleteForMe', (_e, threadId: string, msgId: string) => zalo.deleteForMe(threadId, msgId))
+  ipcMain.handle('zalo:forward', (_e, fromThread: string, msgId: string, toThread: string) => zalo.forward(fromThread, msgId, toThread))
+  ipcMain.on('zalo:typing', (_e, threadId: string) => zalo.typing(threadId))
+  ipcMain.handle('zalo:prefs', (_e, p?: { notify?: boolean }) => (p ? zalo.setPrefs(p) : zalo.getPrefs()))
 
   // Claude session store (shared with the Claude desktop app / CLI)
   ipcMain.handle('sessions:list', (e) => {

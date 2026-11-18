@@ -3,7 +3,8 @@ import { existsSync } from 'fs'
 import type { WebContents } from 'electron'
 import * as pty from '@lydell/node-pty'
 import { win32 } from 'path'
-import type { ClaudeInfo, PtySpawnOptions } from '../shared/types'
+import type { AgentInfo, ClaudeInfo, PtySpawnOptions } from '../shared/types'
+import { AGENTS, agentDef } from '../shared/agents'
 import { mcpConfigFor } from './browserMcp'
 
 const sessions = new Map<string, pty.IPty>()
@@ -41,6 +42,11 @@ export async function detectClaude(): Promise<ClaudeInfo> {
   return { found: !!path, path, shell }
 }
 
+/** Which coding agents (Claude, Codex, Grok, Gemini…) are installed. */
+export async function detectAgents(): Promise<AgentInfo[]> {
+  return Promise.all(AGENTS.map(async (a) => ({ id: a.id, found: !!(await which(a.cmd)) })))
+}
+
 function quoteArg(a: string): string {
   return /^[\w\-./:=]+$/.test(a) ? a : `'${a.replace(/'/g, "''")}'`
 }
@@ -67,9 +73,10 @@ export async function spawnPty(wc: WebContents, opts: PtySpawnOptions): Promise<
   let args: string[] = []
 
   if (opts.kind === 'claude') {
-    // the chat's own Web tab as MCP tools; last, because --mcp-config takes several values
-    const mcp = mcpConfigFor(opts.id)
-    const claudeCmd = ['claude', ...(opts.claudeArgs ?? []), ...(mcp ? ['--mcp-config', mcp] : [])].map(quoteArg).join(' ')
+    const agent = agentDef(opts.agent)
+    // the chat's own Web tab as MCP tools (Claude only); last, because --mcp-config takes several values
+    const mcp = agent.id === 'claude' ? mcpConfigFor(opts.id) : null
+    const claudeCmd = [agent.cmd, ...(opts.claudeArgs ?? []), ...(mcp ? ['--mcp-config', mcp] : [])].map(quoteArg).join(' ')
     // Run claude inside an interactive shell so that when it exits the user lands in a shell
     // in the same folder instead of a dead pane.
     args = isWin ? ['-NoLogo', '-NoExit', '-Command', claudeCmd] : ['-lc', `${claudeCmd}; exec ${shell}`]

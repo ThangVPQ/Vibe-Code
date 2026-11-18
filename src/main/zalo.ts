@@ -1,8 +1,19 @@
-import { app, safeStorage, type BrowserWindow } from 'electron'
+import { app, Notification, safeStorage, type BrowserWindow } from 'electron'
 import { promises as fsp, readFileSync } from 'fs'
 import { join } from 'path'
-import { LoginQRCallbackEventType, ThreadType, Zalo, type API, type Credentials, type Message } from 'zca-js'
-import type { ZaloMessage, ZaloState, ZaloThread } from '../shared/types'
+import {
+  LoginQRCallbackEventType,
+  ThreadType,
+  Zalo,
+  type API,
+  type Credentials,
+  type Message,
+  type Reaction,
+  type Reactions,
+  type SendMessageQuote,
+  type Undo
+} from 'zca-js'
+import type { ZaloAttachment, ZaloMessage, ZaloState, ZaloSticker, ZaloThread, ZaloThreadInfo } from '../shared/types'
 
 /**
  * Personal Zalo account through zca-js (unofficial: it talks to Zalo the way Zalo Web does).
@@ -27,32 +38,57 @@ const cacheFile = (): string => join(dir(), 'cache.json')
 const MAX_PER_THREAD = 3000
 const threads = new Map<string, ZaloThread>()
 const messages = new Map<string, ZaloMessage[]>()
-/** userId → display name (friends, senders seen) */
+/** userId / groupId → display name (friends, groups, senders seen) */
 const names = new Map<string, string>()
+/** userId / groupId → avatar url */
+const avatars = new Map<string, string>()
+/** ids of my friends (for the contact list) */
+const friends = new Set<string>()
+/** stickerId → image url */
+const stickerUrls = new Map<number, string>()
+let prefs = { notify: true }
 let cacheLoaded = false
 let saveTimer: NodeJS.Timeout | null = null
 let changedTimer: NodeJS.Timeout | null = null
+const changedIds = new Set<string>()
+/** the conversation open in the Zalo tab (its messages count as read) */
+let activeThread: string | null = null
 
 function loadCache(): void {
   if (cacheLoaded) return
   cacheLoaded = true
   try {
-    const c = JSON.parse(readFileSync(cacheFile(), 'utf8')) as { threads: ZaloThread[]; messages: Record<string, ZaloMessage[]>; names: Record<string, string> }
+    const c = JSON.parse(readFileSync(cacheFile(), 'utf8')) as {
+      threads?: ZaloThread[]
+      messages?: Record<string, ZaloMessage[]>
+      names?: Record<string, string>
+      avatars?: Record<string, string>
+      friends?: string[]
+      stickers?: Record<string, string>
+      prefs?: typeof prefs
+    }
     for (const t of c.threads ?? []) threads.set(t.id, t)
     for (const [k, v] of Object.entries(c.messages ?? {})) messages.set(k, v)
     for (const [k, v] of Object.entries(c.names ?? {})) names.set(k, v)
+    for (const [k, v] of Object.entries(c.avatars ?? {})) avatars.set(k, v)
+    for (const id of c.friends ?? []) friends.add(id)
+    for (const [k, v] of Object.entries(c.stickers ?? {})) stickerUrls.set(Number(k), v)
+    if (c.prefs) prefs = { ...prefs, ...c.prefs }
   } catch {
     /* no cache yet */
   }
 }
 
-function scheduleSave(): void {
-  // tell the window soon, write the disk a little later
+/** Something changed in these conversations: tell the window soon, write the disk a little later. */
+function changed(...ids: string[]): void {
+  for (const id of ids) changedIds.add(id)
   if (!changedTimer)
     changedTimer = setTimeout(() => {
       changedTimer = null
-      getWin()?.webContents.send('zalo:changed')
-    }, 300)
+      const list = [...changedIds]
+      changedIds.clear()
+      getWin()?.webContents.send('zalo:changed', list)
+    }, 120)
   if (saveTimer) return
   saveTimer = setTimeout(() => {
     saveTimer = null
@@ -61,62 +97,321 @@ function scheduleSave(): void {
 }
 
 async function writeCache(): Promise<void> {
-  const data = { threads: [...threads.values()], messages: Object.fromEntries(messages), names: Object.fromEntries(names) }
+  const data = {
+    threads: [...threads.values()].filter((t) => !t.contact),
+    messages: Object.fromEntries(messages),
+    names: Object.fromEntries(names),
+    avatars: Object.fromEntries(avatars),
+    friends: [...friends],
+    stickers: Object.fromEntries(stickerUrls),
+    prefs
+  }
   await fsp.mkdir(dir(), { recursive: true })
   await fsp.writeFile(cacheFile(), JSON.stringify(data), 'utf8').catch(() => {})
 }
 
-/** Readable text for any Zalo message: plain text as is, attachments as "[kind] title url". */
-function contentText(msgType: string, content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!content || typeof content !== 'object') return `[${msgType}]`
-  const c = content as Record<string, unknown>
-  const kind = msgType.replace(/^(chat|share)\./, '')
-  const label: Record<string, string> = { photo: 'ảnh', video: 'video', voice: 'ghi âm', sticker: 'sticker', gif: 'gif', file: 'file', link: 'link', location: 'vị trí', recommended: 'danh thiếp' }
-  const parts = [`[${label[kind] ?? kind}]`]
-  for (const k of ['title', 'description', 'href']) {
-    const v = c[k]
-    if (typeof v === 'string' && v.trim() && !parts.includes(v)) parts.push(v.trim())
+/* ---------------- parsing Zalo messages ---------------- */
+
+const KIND_LABEL: Record<string, string> = {
+  photo: 'Ảnh',
+  video: 'Video',
+  voice: 'Tin nhắn thoại',
+  sticker: 'Sticker',
+  gif: 'GIF',
+  file: 'File',
+  link: 'Link',
+  location: 'Vị trí',
+  card: 'Danh thiếp',
+  other: 'Tin nhắn'
+}
+export const attachLabel = (a: ZaloAttachment): string => KIND_LABEL[a.kind] ?? 'Tin nhắn'
+
+function parseJson(v: unknown): Record<string, unknown> {
+  if (v && typeof v === 'object') return v as Record<string, unknown>
+  if (typeof v !== 'string' || !v.trim().startsWith('{')) return {}
+  try {
+    return JSON.parse(v) as Record<string, unknown>
+  } catch {
+    return {}
   }
+}
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+const num = (v: unknown): number | undefined => {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+/** What an attachment message carries, in one shape for the UI. */
+function parseAttachment(msgType: string, content: unknown): ZaloAttachment | undefined {
+  if (typeof content === 'string' || !content || typeof content !== 'object') return undefined
+  const c = content as Record<string, unknown>
+  const p = parseJson(c.params)
+  const base = { url: str(c.href), thumb: str(c.thumb), title: str(c.title), desc: str(c.description) }
+  const t = msgType.replace(/^(chat|share)\./, '')
+  if (t === 'photo' || t === 'doodle')
+    return { kind: 'photo', ...base, url: str(p.hd) ?? str(p.rawUrl) ?? base.url, width: num(p.width), height: num(p.height) }
+  if (t.startsWith('video'))
+    return { kind: 'video', ...base, width: num(p.video_width), height: num(p.video_height), duration: num(p.duration) ? num(p.duration)! / 1000 : undefined }
+  if (t === 'voice') return { kind: 'voice', ...base, duration: num(p.duration) ? num(p.duration)! / 1000 : undefined }
+  if (t === 'gif') return { kind: 'gif', ...base, width: num(p.width), height: num(p.height) }
+  if (t === 'sticker') {
+    const id = num(c.id)
+    return id ? { kind: 'sticker', sticker: { id, cateId: Number(c.catId ?? c.cateId) || 0, type: Number(c.type) || 0 }, url: stickerUrls.get(id) } : undefined
+  }
+  if (t === 'file') return { kind: 'file', ...base, size: num(p.fileSize), ext: str(p.fileExt)?.toLowerCase() }
+  if (t.startsWith('location')) return { kind: 'location', ...base }
+  if (t === 'recommended' || t === 'link') {
+    const action = str(c.action) ?? ''
+    if (action.includes('user')) return { kind: 'card', ...base, desc: str(p.phone) ?? base.desc }
+    return { kind: 'link', ...base }
+  }
+  return { kind: 'other', ...base }
+}
+
+/** Readable text for any Zalo message: plain text as is, attachments as "[kind] title url". */
+function contentText(att: ZaloAttachment | undefined, content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!att) return '[tin nhắn]'
+  const parts = [`[${attachLabel(att).toLowerCase()}]`]
+  for (const v of [att.title, att.desc, att.url]) if (v && !parts.includes(v)) parts.push(v)
   return parts.join(' ')
 }
 
-function ingest(list: Message[]): void {
+/** One line for the conversation list. */
+function previewOf(m: ZaloMessage): string {
+  if (m.recalled) return 'Tin nhắn đã thu hồi'
+  if (!m.att) return m.text
+  const a = m.att
+  if (a.kind === 'file') return `📎 ${a.title ?? 'File'}`
+  if (a.kind === 'photo') return `🖼 ${a.title ?? 'Ảnh'}`
+  if (a.kind === 'video') return `🎬 ${a.title ?? 'Video'}`
+  if (a.kind === 'voice') return '🎤 Tin nhắn thoại'
+  if (a.kind === 'sticker') return 'Sticker'
+  if (a.kind === 'gif') return 'GIF'
+  if (a.kind === 'link') return `🔗 ${a.title ?? a.url ?? 'Link'}`
+  if (a.kind === 'location') return `📍 ${a.title ?? 'Vị trí'}`
+  if (a.kind === 'card') return `👤 ${a.title ?? 'Danh thiếp'}`
+  return a.title ?? m.text
+}
+
+function refreshThreadLast(threadId: string): void {
+  const t = threads.get(threadId)
+  const last = messages.get(threadId)?.at(-1)
+  if (!t || !last) return
+  t.lastTs = last.ts
+  t.last = (t.group && !last.self ? `${last.fromName}: ` : '') + previewOf(last).slice(0, 200)
+  t.lastSelf = last.self
+  t.lastStatus = last.self ? last.status : undefined
+}
+
+function toMessage(m: Message): ZaloMessage {
+  const d = m.data
+  const isGroup = m.type === ThreadType.Group
+  const att = parseAttachment(d.msgType, d.content)
+  const fromId = m.isSelf ? state.self?.id ?? String(d.uidFrom) : String(d.uidFrom)
+  const q = d.quote
+  const mentions = 'mentions' in d && Array.isArray(d.mentions) ? d.mentions.map((x) => ({ uid: String(x.uid), pos: x.pos, len: x.len })) : undefined
+  return {
+    id: String(d.msgId),
+    cliMsgId: String(d.cliMsgId),
+    threadId: m.threadId,
+    group: isGroup,
+    fromId,
+    fromName: m.isSelf ? 'Tôi' : d.dName || names.get(String(d.uidFrom)) || String(d.uidFrom),
+    self: m.isSelf,
+    ts: Number(d.ts) || Date.now(),
+    type: d.msgType,
+    text: contentText(att, d.content),
+    att,
+    mentions: mentions?.length ? mentions : undefined,
+    quote: q?.msg || q?.attach ? `${q.fromD}: ${q.msg || '[tệp đính kèm]'}` : undefined,
+    reply: q ? { id: String(q.globalMsgId), from: q.fromD, text: q.msg || (q.attach ? '[tệp đính kèm]' : '') } : undefined,
+    status: m.isSelf ? 'sent' : undefined,
+    raw: {
+      content: d.content,
+      msgType: d.msgType,
+      propertyExt: d.propertyExt,
+      uidFrom: String(d.uidFrom),
+      idTo: String(d.idTo),
+      ttl: d.ttl,
+      st: d.st,
+      at: d.at,
+      cmd: d.cmd
+    }
+  }
+}
+
+/** Store messages. `live`: just arrived (counts as unread, may notify). */
+function ingest(list: Message[], live = false): void {
   if (!list.length) return
   loadCache()
+  const touched = new Set<string>()
   for (const m of list) {
-    const d = m.data
-    const isGroup = m.type === ThreadType.Group
-    const msg: ZaloMessage = {
-      id: String(d.msgId),
-      cliMsgId: String(d.cliMsgId),
-      threadId: m.threadId,
-      group: isGroup,
-      fromId: m.isSelf ? state.self?.id ?? String(d.uidFrom) : String(d.uidFrom),
-      fromName: m.isSelf ? 'Tôi' : d.dName || names.get(String(d.uidFrom)) || String(d.uidFrom),
-      self: m.isSelf,
-      ts: Number(d.ts) || Date.now(),
-      type: d.msgType,
-      text: contentText(d.msgType, d.content),
-      quote: d.quote?.msg ? `${d.quote.fromD}: ${d.quote.msg}` : undefined
-    }
-    if (!m.isSelf && d.dName) names.set(msg.fromId, d.dName)
+    const msg = toMessage(m)
+    if (!m.isSelf && m.data.dName) names.set(msg.fromId, m.data.dName)
     const arr = messages.get(m.threadId) ?? []
     if (arr.some((x) => x.id === msg.id)) continue
     arr.push(msg)
-    arr.sort((a, b) => a.ts - b.ts)
+    if (arr.length > 1 && arr[arr.length - 2].ts > msg.ts) arr.sort((a, b) => a.ts - b.ts)
     if (arr.length > MAX_PER_THREAD) arr.splice(0, arr.length - MAX_PER_THREAD)
     messages.set(m.threadId, arr)
-    const t = threads.get(m.threadId) ?? { id: m.threadId, group: isGroup, name: '', lastTs: 0, last: '' }
-    if (!t.name && !isGroup && !m.isSelf && d.dName) t.name = d.dName
-    if (!t.name) t.name = isGroup ? '' : names.get(m.threadId) ?? ''
-    if (msg.ts >= t.lastTs) {
-      t.lastTs = msg.ts
-      t.last = `${msg.self ? 'Bạn' : msg.fromName}: ${msg.text}`.slice(0, 200)
-    }
+    const t = threads.get(m.threadId) ?? { id: m.threadId, group: msg.group, name: '', lastTs: 0, last: '' }
+    delete t.contact
+    if (!t.name && !msg.group && !m.isSelf && m.data.dName) t.name = m.data.dName
+    if (!t.name) t.name = names.get(m.threadId) ?? ''
+    if (!t.avatar && avatars.has(m.threadId)) t.avatar = avatars.get(m.threadId)
     threads.set(m.threadId, t)
+    if (msg.ts >= t.lastTs) refreshThreadLast(m.threadId)
+    if (live && !msg.self) {
+      const focused = getWin()?.isFocused() && activeThread === m.threadId
+      if (focused) markSeen(m.threadId)
+      else {
+        t.unread = (t.unread ?? 0) + 1
+        notify(t, msg)
+      }
+    }
+    if (msg.att?.kind === 'sticker' && !msg.att.url) void resolveSticker(msg)
+    if (msg.group && !m.isSelf && !avatars.has(msg.fromId)) wantProfile(msg.fromId)
+    touched.add(m.threadId)
   }
-  scheduleSave()
+  changed(...touched)
+}
+
+function notify(t: ZaloThread, m: ZaloMessage): void {
+  if (!prefs.notify || !Notification.isSupported()) return
+  const n = new Notification({
+    title: t.name || m.fromName,
+    body: (t.group ? `${m.fromName}: ` : '') + previewOf(m).slice(0, 160),
+    silent: false
+  })
+  n.on('click', () => {
+    const w = getWin()
+    if (!w) return
+    w.show()
+    w.focus()
+    w.webContents.send('zalo:openThread', t.id)
+  })
+  n.show()
+}
+
+/* ---------------- profiles & stickers, fetched lazily ---------------- */
+
+const profileQueue = new Set<string>()
+let profileTimer: NodeJS.Timeout | null = null
+function wantProfile(uid: string): void {
+  if (!api || profileQueue.has(uid)) return
+  profileQueue.add(uid)
+  profileTimer ??= setTimeout(() => void flushProfiles(), 800)
+}
+async function flushProfiles(): Promise<void> {
+  profileTimer = null
+  const a = api
+  const ids = [...profileQueue].filter((id) => !avatars.has(id)).slice(0, 100)
+  if (!a || !ids.length) return
+  try {
+    const r = await a.getUserInfo(ids)
+    for (const [k, p] of Object.entries(r.changed_profiles ?? {})) {
+      const id = k.replace(/_0$/, '')
+      if (p.avatar) avatars.set(id, p.avatar)
+      if (p.displayName || p.zaloName) names.set(id, p.displayName || p.zaloName)
+      const t = threads.get(id)
+      if (t) {
+        if (p.avatar) t.avatar = p.avatar
+        if (!t.name) t.name = p.displayName || p.zaloName
+      }
+    }
+    changed(...threads.keys())
+  } catch {
+    /* avatars are a nicety */
+  }
+}
+
+async function resolveSticker(m: ZaloMessage): Promise<void> {
+  const s = m.att?.sticker
+  if (!s || !api) return
+  try {
+    if (!stickerUrls.has(s.id)) {
+      const [d] = await api.getStickersDetail(s.id)
+      const url = d?.stickerWebpUrl || d?.stickerUrl
+      if (url) stickerUrls.set(s.id, url)
+    }
+    const url = stickerUrls.get(s.id)
+    if (url && m.att) {
+      m.att.url = url
+      changed(m.threadId)
+    }
+  } catch {
+    /* shown as "Sticker" */
+  }
+}
+
+/* ---------------- live events: reactions, recalls, seen, typing ---------------- */
+
+const findMsg = (threadId: string, msgId: string): ZaloMessage | undefined => messages.get(threadId)?.find((m) => m.id === msgId)
+
+function applyReaction(r: Reaction): void {
+  const d = r.data
+  const uid = String(d.uidFrom)
+  for (const target of d.content?.rMsg ?? []) {
+    const m = findMsg(r.threadId, String(target.gMsgID))
+    if (!m) continue
+    const reactions = { ...(m.reactions ?? {}) }
+    for (const k of Object.keys(reactions)) {
+      reactions[k] = reactions[k].filter((u) => u !== uid)
+      if (!reactions[k].length) delete reactions[k]
+    }
+    const icon = d.content.rIcon
+    if (icon) reactions[icon] = [...(reactions[icon] ?? []), uid]
+    m.reactions = Object.keys(reactions).length ? reactions : undefined
+    changed(r.threadId)
+  }
+}
+
+function applyUndo(u: Undo): void {
+  const m = findMsg(u.threadId, String(u.data.content.globalMsgId))
+  if (!m) return
+  m.recalled = true
+  m.text = 'Tin nhắn đã được thu hồi'
+  m.att = undefined
+  m.reply = undefined
+  m.reactions = undefined
+  refreshThreadLast(u.threadId)
+  changed(u.threadId)
+}
+
+/** My messages up to `msgId` in this thread were read by the other side. */
+function markMineSeen(threadId: string, msgId: string): void {
+  const arr = messages.get(threadId)
+  if (!arr) return
+  const upTo = arr.find((m) => m.id === msgId)?.ts ?? Infinity
+  for (const m of arr) if (m.self && m.ts <= upTo && m.status === 'sent') m.status = 'seen'
+  refreshThreadLast(threadId)
+  changed(threadId)
+}
+
+/** Tell Zalo (and the sender) we read this conversation. */
+function markSeen(threadId: string): void {
+  const t = threads.get(threadId)
+  if (t?.unread) {
+    t.unread = 0
+    changed(threadId)
+  }
+  const a = api
+  if (!a || state.status !== 'online') return
+  const unseen = (messages.get(threadId) ?? []).filter((m) => !m.self && m.raw).slice(-20)
+  if (!unseen.length) return
+  const params = unseen.map((m) => ({
+    msgId: m.id,
+    cliMsgId: m.cliMsgId,
+    uidFrom: m.raw!.uidFrom,
+    idTo: m.raw!.idTo,
+    msgType: m.raw!.msgType,
+    st: m.raw!.st,
+    at: m.raw!.at,
+    cmd: m.raw!.cmd,
+    ts: m.ts
+  }))
+  a.sendSeenEvent(params, t?.group ? ThreadType.Group : ThreadType.User).catch(() => {})
 }
 
 /* ---------------- session ---------------- */
@@ -147,8 +442,12 @@ function readCreds(): Credentials | null {
 const newZalo = (): Zalo => new Zalo({ selfListen: true, checkUpdate: false, logging: false })
 
 const OLD_PAGES = 15
+let retries = 0
+let retryTimer: NodeJS.Timeout | null = null
+
 async function afterLogin(a: API): Promise<void> {
   api = a
+  retries = 0
   loadCache()
   const id = a.getOwnId()
   setState({ status: 'online', qr: undefined, error: undefined, self: { id, name: state.self?.name ?? '', avatar: state.self?.avatar ?? '' } })
@@ -156,39 +455,75 @@ async function afterLogin(a: API): Promise<void> {
     .then((r) => setState({ self: { id, name: r.profile.displayName || r.profile.zaloName, avatar: r.profile.avatar } }))
     .catch(() => {})
   void loadNames(a)
+  void loadPins(a)
 
-  // recent history: Zalo replays it page by page over the socket
+  // recent history: Zalo replays it page by page over the socket, once the socket has its key
   const pages = { [ThreadType.User]: 0, [ThreadType.Group]: 0 }
   const l = a.listener
-  l.on('connected', () => {
+  l.on('cipher_key', () => {
+    if (api !== a) return
     pages[ThreadType.User] = pages[ThreadType.Group] = 0
     l.requestOldMessages(ThreadType.User)
     l.requestOldMessages(ThreadType.Group)
+    l.requestOldReactions(ThreadType.User)
+    l.requestOldReactions(ThreadType.Group)
   })
-  l.on('message', (m) => ingest([m]))
+  l.on('message', (m) => ingest([m], true))
   l.on('old_messages', (list, type) => {
     ingest(list)
     if (list.length && ++pages[type] < OLD_PAGES) {
-      const oldest = list.reduce((a, b) => (Number(a.data.ts) <= Number(b.data.ts) ? a : b))
+      const oldest = list.reduce((x, y) => (Number(x.data.ts) <= Number(y.data.ts) ? x : y))
       l.requestOldMessages(type, oldest.data.msgId)
     }
+  })
+  l.on('reaction', applyReaction)
+  l.on('old_reactions', (list) => list.forEach(applyReaction))
+  l.on('undo', applyUndo)
+  l.on('seen_messages', (list) => {
+    for (const s of list) {
+      if (s.isSelf) continue
+      markMineSeen(s.threadId, String(s.data.msgId))
+    }
+  })
+  l.on('typing', (t) => {
+    const uid = String(t.data.uid)
+    getWin()?.webContents.send('zalo:typing', { threadId: t.threadId, uid, name: names.get(uid) ?? '' })
   })
   l.on('closed', (code) => {
     if (api !== a) return
     // 3000: the account opened Zalo Web somewhere else — only one web session may listen
-    setState({ status: 'error', error: code === 3000 ? 'Zalo Web đang mở ở nơi khác nên phiên này bị ngắt. Bấm Kết nối lại.' : `Mất kết nối Zalo (${code}).` })
+    if (code === 3000) {
+      setState({ status: 'error', error: 'Zalo Web đang mở ở nơi khác nên phiên này bị ngắt. Bấm Kết nối lại.' })
+      return
+    }
+    if (retries < 5) {
+      retries++
+      setState({ status: 'connecting', error: undefined })
+      retryTimer = setTimeout(() => void reconnect(true), 2000 * retries)
+      return
+    }
+    setState({ status: 'error', error: `Mất kết nối Zalo (${code}).` })
   })
   l.on('error', () => {})
   l.start({ retryOnClose: true })
 }
 
-/** Friend and group names, so threads show who they are. */
+/** Friend and group names / avatars, so threads show who they are. */
 async function loadNames(a: API): Promise<void> {
   try {
-    const friends = await a.getAllFriends()
-    for (const f of friends) names.set(f.userId, f.displayName || f.zaloName)
-    for (const t of threads.values()) if (!t.group && names.has(t.id)) t.name = names.get(t.id)!
-    scheduleSave()
+    const list = await a.getAllFriends()
+    friends.clear()
+    for (const f of list) {
+      friends.add(f.userId)
+      names.set(f.userId, f.displayName || f.zaloName)
+      if (f.avatar) avatars.set(f.userId, f.avatar)
+    }
+    for (const t of threads.values())
+      if (!t.group) {
+        if (names.has(t.id)) t.name = names.get(t.id)!
+        if (avatars.has(t.id)) t.avatar = avatars.get(t.id)
+      }
+    changed(...threads.keys())
   } catch {
     /* names are a nicety */
   }
@@ -198,12 +533,29 @@ async function loadNames(a: API): Promise<void> {
       const info = await a.getGroupInfo(ids.slice(i, i + 50))
       for (const [gid, g] of Object.entries(info.gridInfoMap)) {
         names.set(gid, g.name)
-        const t = threads.get(gid)
-        if (t) t.name = g.name
-        else threads.set(gid, { id: gid, group: true, name: g.name, lastTs: 0, last: '' })
+        if (g.avt) avatars.set(gid, g.avt)
+        const t = threads.get(gid) ?? { id: gid, group: true, name: g.name, lastTs: 0, last: '' }
+        t.name = g.name
+        t.avatar = g.avt || undefined
+        t.members = g.totalMember
+        threads.set(gid, t)
       }
     }
-    scheduleSave()
+    changed(...threads.keys())
+  } catch {
+    /* ignore */
+  }
+}
+
+async function loadPins(a: API): Promise<void> {
+  try {
+    const r = await a.getPinConversations()
+    const pinned = new Map(r.conversations.map((c) => [c.replace(/^[ug]/, ''), c.startsWith('g')]))
+    for (const t of threads.values()) t.pinned = pinned.has(t.id) || undefined
+    for (const [id, group] of pinned)
+      if (!threads.has(id)) threads.set(id, { id, group, name: names.get(id) ?? '', avatar: avatars.get(id), lastTs: 0, last: '', pinned: true })
+    for (const [id, group] of pinned) if (!group && !avatars.has(id)) wantProfile(id)
+    changed(...pinned.keys())
   } catch {
     /* ignore */
   }
@@ -216,7 +568,10 @@ export function initZalo(win: () => BrowserWindow | null): void {
   if (readCreds()) void reconnect()
 }
 
-export async function reconnect(): Promise<ZaloState> {
+export async function reconnect(auto = false): Promise<ZaloState> {
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = null
+  if (!auto) retries = 0
   const creds = readCreds()
   if (!creds) {
     setState({ status: 'off' })
@@ -284,23 +639,28 @@ function stopListener(): void {
 
 /** Forget the session and everything cached. */
 export async function logout(): Promise<void> {
+  if (retryTimer) clearTimeout(retryTimer)
   stopListener()
   threads.clear()
   messages.clear()
   names.clear()
+  avatars.clear()
+  friends.clear()
   await fsp.rm(dir(), { recursive: true, force: true }).catch(() => {})
   setState({ status: 'off', self: undefined, qr: undefined, error: undefined })
-  getWin()?.webContents.send('zalo:changed')
+  getWin()?.webContents.send('zalo:changed', [])
 }
 
 export const getState = (): ZaloState => state
 
-/* ---------------- reading / sending ---------------- */
+/* ---------------- reading ---------------- */
 
 function need(): API {
   if (!api || state.status !== 'online') throw new Error('Zalo chưa đăng nhập. Mở tab Zalo trong VIBE CODE và quét QR (hoặc bấm Kết nối lại).')
   return api
 }
+
+const typeOf = (threadId: string, group?: boolean): ThreadType => ((group ?? threads.get(threadId)?.group) ? ThreadType.Group : ThreadType.User)
 
 export function listThreads(query = '', limit = 200): ZaloThread[] {
   loadCache()
@@ -309,6 +669,20 @@ export function listThreads(query = '', limit = 200): ZaloThread[] {
     .filter((t) => !q || t.name.toLowerCase().includes(q) || t.id.includes(q))
     .sort((a, b) => b.lastTs - a.lastTs)
     .slice(0, limit)
+}
+
+/** Conversations for the Zalo tab: everything with a name, pinned and newest first. */
+export function uiThreads(): ZaloThread[] {
+  loadCache()
+  return [...threads.values()].filter((t) => t.name || t.lastTs).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.lastTs - a.lastTs)
+}
+
+/** Friends, for the contact list (with their thread if one exists). */
+export function contacts(): ZaloThread[] {
+  loadCache()
+  return [...friends]
+    .map((id) => threads.get(id) ?? { id, group: false, name: names.get(id) ?? id, avatar: avatars.get(id), lastTs: 0, last: '', contact: true })
+    .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
 }
 
 export function getMessages(threadId: string, limit = 50, before?: number): ZaloMessage[] {
@@ -346,11 +720,170 @@ export function searchMessages(query: string, threadId?: string, limit = 50): Za
     .slice(0, limit)
 }
 
-export async function sendText(threadId: string, text: string, group?: boolean): Promise<string> {
+/** The conversation open in the tab (null when none): its messages are read as they come. */
+export function setActive(threadId: string | null): void {
+  activeThread = threadId
+  if (threadId) markSeen(threadId)
+}
+
+export async function threadInfo(threadId: string): Promise<ZaloThreadInfo> {
+  const t = threads.get(threadId)
+  const info: ZaloThreadInfo = {
+    id: threadId,
+    name: t?.name || names.get(threadId) || threadId,
+    avatar: t?.avatar ?? avatars.get(threadId),
+    group: !!t?.group,
+    members: t?.members
+  }
+  const a = api
+  if (!a) return info
+  try {
+    if (info.group) {
+      const g = (await a.getGroupInfo(threadId)).gridInfoMap[threadId]
+      if (g) {
+        info.members = g.totalMember
+        info.desc = g.desc || undefined
+        info.avatar = g.fullAvt || g.avt || info.avatar
+      }
+    } else {
+      const [p, o] = await Promise.all([
+        a.getUserInfo(threadId).then((r) => Object.values(r.changed_profiles ?? {})[0]).catch(() => undefined),
+        a.lastOnline(threadId).catch(() => undefined)
+      ])
+      if (p) {
+        info.avatar = p.avatar || info.avatar
+        info.phone = p.phoneNumber || undefined
+        info.desc = p.status || undefined
+      }
+      if (o?.settings?.show_online_status) {
+        info.lastOnline = o.lastOnline
+        info.online = !!o.lastOnline && Date.now() - o.lastOnline * (o.lastOnline < 1e12 ? 1000 : 1) < 3 * 60_000
+      }
+    }
+  } catch {
+    /* basic info only */
+  }
+  return info
+}
+
+/* ---------------- sending & actions ---------------- */
+
+function quoteOf(threadId: string, replyTo?: string): SendMessageQuote | undefined {
+  const m = replyTo ? findMsg(threadId, replyTo) : undefined
+  if (!m?.raw) return undefined
+  return {
+    content: m.raw.content as SendMessageQuote['content'],
+    msgType: m.raw.msgType,
+    propertyExt: m.raw.propertyExt as SendMessageQuote['propertyExt'],
+    uidFrom: m.raw.uidFrom,
+    msgId: m.id,
+    cliMsgId: m.cliMsgId,
+    ts: String(m.ts),
+    ttl: m.raw.ttl
+  }
+}
+
+export async function sendText(threadId: string, text: string, group?: boolean, replyTo?: string): Promise<string> {
   const a = need()
-  const isGroup = group ?? threads.get(threadId)?.group ?? false
-  const r = await a.sendMessage(text, threadId, isGroup ? ThreadType.Group : ThreadType.User)
+  const quote = quoteOf(threadId, replyTo)
+  const r = await a.sendMessage(quote ? { msg: text, quote } : text, threadId, typeOf(threadId, group))
   return String(r.message?.msgId ?? '')
+}
+
+/** Files from disk (images are sent as photos), with an optional caption. */
+export async function sendFiles(threadId: string, paths: string[], caption = ''): Promise<void> {
+  const a = need()
+  await a.sendMessage({ msg: caption, attachments: paths }, threadId, typeOf(threadId))
+}
+
+export async function sendSticker(threadId: string, s: ZaloSticker): Promise<void> {
+  const a = need()
+  stickerUrls.set(s.id, s.url)
+  await a.sendSticker({ id: s.id, cateId: s.cateId, type: s.type }, threadId, typeOf(threadId))
+}
+
+export async function searchStickers(keyword: string): Promise<ZaloSticker[]> {
+  const a = need()
+  const ids = (await a.getStickers(keyword.trim() || 'hi')).slice(0, 48)
+  if (!ids.length) return []
+  const list = await a.getStickersDetail(ids)
+  return list
+    .map((d) => ({ id: d.id, cateId: d.cateId, type: d.type, url: d.stickerWebpUrl || d.stickerUrl }))
+    .filter((s) => s.url)
+}
+
+export async function react(threadId: string, msgId: string, icon: string): Promise<void> {
+  const a = need()
+  const m = findMsg(threadId, msgId)
+  if (!m) throw new Error('Không tìm thấy tin nhắn.')
+  await a.addReaction(icon as Reactions, { data: { msgId: m.id, cliMsgId: m.cliMsgId }, threadId, type: typeOf(threadId) })
+  // the listener echoes my reaction too; apply it now so the chip shows at once
+  const me = state.self?.id ?? ''
+  const reactions = { ...(m.reactions ?? {}) }
+  for (const k of Object.keys(reactions)) {
+    reactions[k] = reactions[k].filter((u) => u !== me)
+    if (!reactions[k].length) delete reactions[k]
+  }
+  if (icon) reactions[icon] = [...(reactions[icon] ?? []), me]
+  m.reactions = Object.keys(reactions).length ? reactions : undefined
+  changed(threadId)
+}
+
+/** Recall my message for everyone. */
+export async function recall(threadId: string, msgId: string): Promise<void> {
+  const a = need()
+  const m = findMsg(threadId, msgId)
+  if (!m?.self) throw new Error('Chỉ thu hồi được tin nhắn của bạn.')
+  await a.undo({ msgId: m.id, cliMsgId: m.cliMsgId }, threadId, typeOf(threadId))
+  m.recalled = true
+  m.text = 'Tin nhắn đã được thu hồi'
+  m.att = undefined
+  m.reply = undefined
+  refreshThreadLast(threadId)
+  changed(threadId)
+}
+
+/** Delete a message on my side only. */
+export async function deleteForMe(threadId: string, msgId: string): Promise<void> {
+  const a = need()
+  const arr = messages.get(threadId) ?? []
+  const m = arr.find((x) => x.id === msgId)
+  if (!m) return
+  await a.deleteMessage({ data: { cliMsgId: m.cliMsgId, msgId: m.id, uidFrom: m.raw?.uidFrom ?? m.fromId }, threadId, type: typeOf(threadId) }, true)
+  arr.splice(arr.indexOf(m), 1)
+  refreshThreadLast(threadId)
+  changed(threadId)
+}
+
+export async function forward(fromThread: string, msgId: string, toThread: string): Promise<void> {
+  const a = need()
+  const m = findMsg(fromThread, msgId)
+  if (!m) throw new Error('Không tìm thấy tin nhắn.')
+  if (typeof m.raw?.content !== 'string') {
+    // attachments: send the link again (Zalo's forward call takes text only)
+    await a.sendMessage(m.att?.url ?? m.text, toThread, typeOf(toThread))
+    return
+  }
+  const r = await a.forwardMessage({ message: m.raw.content }, [toThread], typeOf(toThread))
+  if (r.fail?.length) throw new Error(`Chuyển tiếp lỗi (${r.fail[0].error_code}).`)
+}
+
+let lastTyping = 0
+export function typing(threadId: string): void {
+  const a = api
+  if (!a || Date.now() - lastTyping < 3000) return
+  lastTyping = Date.now()
+  a.sendTypingEvent(threadId, typeOf(threadId)).catch(() => {})
+}
+
+export function getPrefs(): typeof prefs {
+  loadCache()
+  return prefs
+}
+export function setPrefs(p: Partial<typeof prefs>): typeof prefs {
+  prefs = { ...prefs, ...p }
+  changed()
+  return prefs
 }
 
 /* ---------------- Claude tools (MCP server "vibe-zalo") ---------------- */
@@ -416,14 +949,14 @@ const fmtMsg = (m: ZaloMessage): string =>
   `[${fmtTime(m.ts)}] ${m.self ? 'Tôi' : m.fromName}${m.group ? ` (${m.fromId})` : ''}: ${m.quote ? `↪ «${m.quote.slice(0, 80)}» ` : ''}${m.text}`
 
 export async function callZaloTool(name: string, args: Record<string, unknown>): Promise<string> {
-  const num = (v: unknown, d: number, max: number): number => Math.min(max, Math.max(1, Number(v) || d))
+  const n = (v: unknown, d: number, max: number): number => Math.min(max, Math.max(1, Number(v) || d))
   switch (name) {
     case 'zalo_status':
       return state.status === 'online'
         ? `Logged in as ${state.self?.name} (id ${state.self?.id}). ${threads.size} conversations cached.`
         : `Not logged in (${state.status}${state.error ? ': ' + state.error : ''}). Ask the user to open the Zalo tab in VIBE CODE and scan the QR code.`
     case 'zalo_list_chats': {
-      const list = listThreads(String(args.query ?? ''), num(args.limit, 30, 500))
+      const list = listThreads(String(args.query ?? ''), n(args.limit, 30, 500))
       if (!list.length) return 'No conversations synced yet.'
       return list.map((t) => `${t.group ? 'group' : 'user '} ${t.id}  ${t.name || '(no name)'}  · ${fmtTime(t.lastTs)}  · ${t.last}`).join('\n')
     }
@@ -431,24 +964,24 @@ export async function callZaloTool(name: string, args: Record<string, unknown>):
       const id = String(args.threadId ?? '')
       let note = ''
       if (args.older) note = `Fetched ${await loadOlder(id)} older messages.\n`
-      const list = getMessages(id, num(args.limit, 50, 500), typeof args.before === 'number' ? args.before : undefined)
+      const list = getMessages(id, n(args.limit, 50, 500), typeof args.before === 'number' ? args.before : undefined)
       const t = threads.get(id)
       const head = `${t?.group ? 'Group' : 'Chat with'} ${t?.name || id}\n`
       if (!list.length) return head + note + 'No messages synced for this conversation.'
       return head + note + list.map(fmtMsg).join('\n') + `\n(oldest ts here: ${list[0].ts} — pass as \`before\` for earlier messages)`
     }
     case 'zalo_search_messages': {
-      const list = searchMessages(String(args.query ?? ''), args.threadId ? String(args.threadId) : undefined, num(args.limit, 50, 500))
+      const list = searchMessages(String(args.query ?? ''), args.threadId ? String(args.threadId) : undefined, n(args.limit, 50, 500))
       if (!list.length) return 'No matches.'
       return list.map((m) => `${threads.get(m.threadId)?.name || m.threadId} (${m.threadId}) ${fmtMsg(m)}`).join('\n')
     }
     case 'zalo_contacts': {
       const q = String(args.query ?? '').toLowerCase()
-      const rows = [...names.entries()].filter(([, n]) => !q || n.toLowerCase().includes(q))
+      const rows = [...names.entries()].filter(([, v]) => !q || v.toLowerCase().includes(q))
       if (!rows.length) return 'No contacts match.'
       return rows
         .slice(0, 500)
-        .map(([id, n]) => `${threads.get(id)?.group ? 'group' : 'user '} ${id}  ${n}`)
+        .map(([id, v]) => `${threads.get(id)?.group ? 'group' : 'user '} ${id}  ${v}`)
         .join('\n')
     }
     case 'zalo_find_user': {

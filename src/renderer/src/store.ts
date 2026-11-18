@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { AppSettings, ClaudeInfo, GitState, ProjectGroup, WindowState } from '../../shared/types'
+import type { AgentId } from '../../shared/agents'
+import type { AgentInfo, AppSettings, ClaudeInfo, GitState, ProjectGroup, WindowState } from '../../shared/types'
 
 export type ChatStatus = 'starting' | 'working' | 'idle' | 'exited'
 
@@ -13,6 +14,8 @@ export interface Chat {
   /** finished work while you were looking elsewhere */
   attention: boolean
   createdAt: number
+  /** coding agent this chat runs — undefined = Claude Code */
+  agent?: AgentId
   claudeArgs?: string[]
   /** Claude Code session id — links this chat to its entry in ~/.claude/projects */
   sessionId?: string
@@ -39,6 +42,8 @@ interface State {
   root: string | null
   recent: string[]
   claude: ClaudeInfo | null
+  /** which coding agents (Claude, Codex, Grok…) are installed */
+  agents: AgentInfo[]
   git: GitState
   fsTick: number
   /** every project + session Claude Code knows about (shared with the Claude app) */
@@ -90,6 +95,7 @@ export const useStore = create<State>((set) => ({
   root: null,
   recent: [],
   claude: null,
+  agents: [],
   git: { isRepo: false, root: null, branch: null, files: [] },
   fsTick: 0,
   projects: [],

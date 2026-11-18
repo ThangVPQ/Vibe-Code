@@ -22,6 +22,8 @@ import { Logo, StatusDot, statusLabel } from './icons'
 import { ChatImages, useChatImages } from './ChatImages'
 import { AttachmentTray } from './AttachmentTray'
 import { pickAttachments } from '../attachments'
+import { NewChatMenu } from './AgentMenu'
+import { AGENTS, agentDef } from '../../../shared/agents'
 
 export function TerminalView({ id, autoFocus = true }: { id: string; autoFocus?: boolean }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
@@ -79,6 +81,7 @@ export function ClaudePanel(): React.JSX.Element {
             <div className="chat-titlebar-main">
               <StatusDot status={active.status} attention={active.attention} />
               <span className="chat-titlebar-title">{active.title}</span>
+              {agentDef(active.agent).id !== 'claude' && <span className="chat-agent">{agentDef(active.agent).label}</span>}
               <span className={`chat-state s-${active.status}`}>{statusLabel[active.status]}</span>
             </div>
             <div className="chat-titlebar-actions">
@@ -87,10 +90,8 @@ export function ClaudePanel(): React.JSX.Element {
                   <RefreshCw size={13} /> Restart
                 </button>
               )}
-              <BypassProjectButton chat={active} />
-              <button className="icon-btn accent" title="New chat (Ctrl+Shift+N)" onClick={() => newChat()}>
-                <Plus size={16} />
-              </button>
+              {agentDef(active.agent).id === 'claude' && <BypassProjectButton chat={active} />}
+              <NewChatMenu title="New chat — Claude, Codex, Grok, Gemini… (Ctrl+Shift+N: Claude)" onPick={(agent) => newChat({ agent })} />
               <button className="icon-btn" title="Close chat (it stays in the sidebar history)" onClick={() => closeChat(active.id)}>
                 <X size={15} />
               </button>
@@ -158,7 +159,7 @@ export function ClaudePanel(): React.JSX.Element {
             </button>
           </div>
           <ChatStatusBar chat={active} />
-          <ContextBar chat={active} />
+          {agentDef(active.agent).id === 'claude' && <ContextBar chat={active} />}
         </>
       )}
     </div>
@@ -254,6 +255,10 @@ function sendPrompt(id: string, text: string): void {
 
 function ChatStatusBar({ chat }: { chat: Chat }): React.JSX.Element {
   const exited = chat.status === 'exited'
+  const agent = agentDef(chat.agent)
+  const isClaude = agent.id === 'claude'
+  // other agents: only "ask" vs their own never-ask flag (Codex --dangerously-bypass…, Gemini --yolo…)
+  const modes = isClaude ? MODES : agent.yolo.length ? MODES.filter((m) => !m.value || m.value === 'bypassPermissions') : []
   return (
     <div className="chat-statusbar">
       <div className="sb-actions">
@@ -273,15 +278,17 @@ function ChatStatusBar({ chat }: { chat: Chat }): React.JSX.Element {
           </button>
         ))}
       </div>
-      <Picker title="Model" options={MODELS} value={chat.model ?? ''} onPick={(v) => setChatModel(chat.id, v)} />
-      <Picker title="Effort" options={EFFORTS} value={chat.effort ?? ''} onPick={(v) => setChatEffort(chat.id, v)} />
-      <Picker
-        title="Permission mode (restarts the chat)"
-        options={MODES}
-        value={chat.permissionMode ?? ''}
-        warn={chat.permissionMode === 'bypassPermissions'}
-        onPick={(v) => setChatPermission(chat.id, v)}
-      />
+      {isClaude && <Picker title="Model" options={MODELS} value={chat.model ?? ''} onPick={(v) => setChatModel(chat.id, v)} />}
+      {isClaude && <Picker title="Effort" options={EFFORTS} value={chat.effort ?? ''} onPick={(v) => setChatEffort(chat.id, v)} />}
+      {modes.length > 0 && (
+        <Picker
+          title="Permission mode (restarts the chat)"
+          options={modes}
+          value={chat.permissionMode ?? ''}
+          warn={chat.permissionMode === 'bypassPermissions'}
+          onPick={(v) => setChatPermission(chat.id, v)}
+        />
+      )}
       {(chat.status === 'working' || chat.status === 'starting') && <span className="sb-spinner" title="Working" />}
     </div>
   )
@@ -385,6 +392,8 @@ function Picker(props: { title: string; options: Opt[]; value: string; warn?: bo
 }
 
 function NoChat(): React.JSX.Element {
+  const agents = useStore((s) => s.agents)
+  const others = AGENTS.filter((a) => a.id !== 'claude' && agents.some((x) => x.id === a.id && x.found))
   return (
     <div className="no-chat">
       <div className="glow-orb">
@@ -403,6 +412,15 @@ function NoChat(): React.JSX.Element {
           <History size={14} /> Resume…
         </button>
       </div>
+      {others.length > 0 && (
+        <div className="no-chat-actions no-chat-agents">
+          {others.map((a) => (
+            <button key={a.id} className="btn btn-ghost btn-sm" onClick={() => newChat({ agent: a.id })}>
+              <Plus size={13} /> {a.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

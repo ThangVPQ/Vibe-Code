@@ -11,7 +11,7 @@ import { ensureModel, isDirty, markTab, saveModel } from '../fileModels'
 import { FileIcon, Logo } from './icons'
 import { EditorFontButton, useEditorFont } from './EditorFont'
 import { DatabasePane } from './Database'
-import { ZaloPane } from './Zalo'
+import { ZaloPane, useZaloUnread } from './Zalo'
 
 /** Middle area: two fixed tabs — Source code (files, diffs) and Web (built-in browser). */
 export function EditorArea(): React.JSX.Element {
@@ -19,6 +19,7 @@ export function EditorArea(): React.JSX.Element {
   const fileCount = useStore((s) => s.tabs.length)
   const key = useStore((s) => browserKey(s.activeChatId))
   const browsers = useStore((s) => s.browsers)
+  const zaloUnread = useZaloUnread()
   // the Database tab mounts on first visit, then stays (keeps its SQL, results and open tree)
   const [dbSeen, setDbSeen] = useState(view === 'db')
   const [zaloSeen, setZaloSeen] = useState(view === 'zalo')
@@ -46,6 +47,7 @@ export function EditorArea(): React.JSX.Element {
         </button>
         <button role="tab" aria-selected={view === 'zalo'} className={view === 'zalo' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'zalo' })}>
           <MessageCircle size={14} /> Zalo
+          {zaloUnread > 0 && <span className="center-count zl-tab-count">{zaloUnread > 99 ? '99+' : zaloUnread}</span>}
         </button>
       </div>
       {/* Source code: the whole project of the open chat — file tree on the left, files on the right */}
