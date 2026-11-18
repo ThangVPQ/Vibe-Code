@@ -4,6 +4,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import type { PtySpawnOptions } from '../../shared/types'
+import { attachBlob, attachPaths, attachmentsOf, takeAttachments } from './attachments'
 
 export const termTheme: ITheme = {
   background: '#222a44',
@@ -277,6 +278,15 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
   term.onData((d) => {
     // the handler may take the keystroke instead (e.g. to restart an ended chat)
     if (handlers.input?.(spawn.id, d)) return
+    // Enter with files in the tray: their paths go into the prompt first, then the Enter.
+    // Not while Claude shows a numbered menu (permission prompt…) — there Enter picks an option.
+    if (d === '\r' && spawn.kind === 'claude' && attachmentsOf(spawn.id).length && !menuOnScreen(term)) {
+      const paths = takeAttachments(spawn.id).map((a) => quotePath(a.path))
+      window.api.pty.write(spawn.id, ' ' + paths.join(' ') + ' ')
+      // a separate Enter, so Claude doesn't read it as part of the typed-in block
+      setTimeout(() => window.api.pty.write(spawn.id, '\r'), 120)
+      return
+    }
     window.api.pty.write(spawn.id, d)
   })
   term.onTitleChange((t) => handlers.title?.(spawn.id, t))
@@ -286,27 +296,38 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
   parkingLot().appendChild(el)
   term.open(el)
 
-  // Ctrl+V with an image on the clipboard: save it and hand Claude the file path.
+  // Ctrl+V with a picture (or files copied in Explorer) on the clipboard: into the attachment tray.
   el.addEventListener(
     'paste',
     (ev) => {
-      const img = [...(ev.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
-      if (!img) return
+      const files = [...(ev.clipboardData?.files ?? [])]
+      if (!files.length) return
       ev.preventDefault()
       ev.stopPropagation()
-      sendImage(spawn.id, img)
+      takeFiles(spawn.id, spawn.kind, files)
     },
     true
   )
-  // Drop files (images or anything else) onto the chat → their paths go into the prompt.
+  // Drop files (pictures or anything else) onto the chat → the attachment tray.
+  let dragDepth = 0
+  const hasFiles = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes('Files')
+  el.addEventListener('dragenter', (ev) => {
+    if (!hasFiles(ev)) return
+    dragDepth++
+    el.classList.add('drop-hover')
+  })
+  el.addEventListener('dragleave', () => {
+    if (--dragDepth <= 0) {
+      dragDepth = 0
+      el.classList.remove('drop-hover')
+    }
+  })
   el.addEventListener('dragover', (ev) => ev.preventDefault())
   el.addEventListener('drop', (ev) => {
     ev.preventDefault()
-    for (const f of ev.dataTransfer?.files ?? []) {
-      const p = window.api.app.pathFor(f)
-      if (p) writeToTerm(spawn.id, quotePath(p) + ' ')
-      else if (f.type.startsWith('image/')) sendImage(spawn.id, f)
-    }
+    dragDepth = 0
+    el.classList.remove('drop-hover')
+    takeFiles(spawn.id, spawn.kind, [...(ev.dataTransfer?.files ?? [])])
     term.focus()
   })
   // Right-click: copy the selection, or paste when nothing is selected.
@@ -411,20 +432,28 @@ export function focusTerm(id: string): void {
 
 const quotePath = (p: string): string => (/\s/.test(p) ? `"${p}"` : p)
 
-/** Attach button: pick files from disk → their paths go into the prompt (Claude reads them by path). */
-export async function attachFiles(id: string, cwd?: string): Promise<void> {
-  // (missing until the app restarts after an update)
-  if (typeof window.api.app.pickFiles !== 'function') return
-  const paths = await window.api.app.pickFiles(cwd).catch(() => [] as string[])
-  if (paths.length) writeToTerm(id, paths.map(quotePath).join(' ') + ' ')
-  focusTerm(id)
+/**
+ * Files from a drop / paste. A chat puts them in its attachment tray (clipboard pictures saved to
+ * temp first); a plain shell just gets the paths typed in.
+ */
+function takeFiles(id: string, kind: PtySpawnOptions['kind'], files: File[]): void {
+  const paths: string[] = []
+  for (const f of files) {
+    const p = window.api.app.pathFor(f)
+    if (p) paths.push(p)
+    else if (f.type.startsWith('image/') && kind === 'claude') attachBlob(id, f)
+  }
+  if (kind === 'claude') attachPaths(id, paths)
+  else if (paths.length) writeToTerm(id, paths.map(quotePath).join(' ') + ' ')
 }
 
-async function sendImage(id: string, file: Blob): Promise<void> {
-  const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
-  const path = await window.api.app.saveImage(new Uint8Array(await file.arrayBuffer()), ext)
-  writeToTerm(id, quotePath(path) + ' ')
-  focusTerm(id)
+/** Claude is showing a numbered choice (permission prompt, plan approval…): "❯ 1. Yes" near the bottom. */
+function menuOnScreen(term: Terminal): boolean {
+  const b = term.buffer.active
+  for (let r = term.rows - 1; r >= Math.max(0, term.rows - 20); r--) {
+    if (/❯\s*\d+\./.test(b.getLine(b.viewportY + r)?.translateToString(true) ?? '')) return true
+  }
+  return false
 }
 
 /** Paste button / right-click: an image if the clipboard holds one, else text. */
@@ -432,7 +461,15 @@ export async function pasteInto(id: string): Promise<void> {
   try {
     for (const item of await navigator.clipboard.read()) {
       const type = item.types.find((t) => t.startsWith('image/'))
-      if (type) return sendImage(id, await item.getType(type))
+      if (type) {
+        const blob = await item.getType(type)
+        if (entries.get(id)?.spawn.kind === 'claude') await attachBlob(id, blob)
+        else {
+          const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
+          writeToTerm(id, quotePath(await window.api.app.saveImage(new Uint8Array(await blob.arrayBuffer()), ext)) + ' ')
+        }
+        return focusTerm(id)
+      }
     }
   } catch {
     /* clipboard.read can refuse; fall back to text */

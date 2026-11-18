@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
-import type { AppSettings, ClaudeInfo, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState } from '../shared/types'
+import type { AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState } from '../shared/types'
 
 function on<T extends unknown[]>(channel: string, cb: (...args: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, ...args: unknown[]): void => cb(...(args as T))
@@ -36,6 +36,28 @@ const api = {
     /** tokens in the chat's context window right now (last API call), or null before the first reply */
     context: (sessionId: string): Promise<{ used: number; model: string } | null> => ipcRenderer.invoke('sessions:context', sessionId),
     onChanged: (cb: () => void) => on('sessions:changed', cb)
+  },
+  db: {
+    list: (): Promise<DbConnection[]> => ipcRenderer.invoke('db:list'),
+    /** one connection with its connection string (for editing) */
+    get: (id: string): Promise<(DbConnection & { conn: string }) | null> => ipcRenderer.invoke('db:get', id),
+    save: (c: DbConnectionInput): Promise<DbConnection[]> => ipcRenderer.invoke('db:save', c),
+    saveMany: (list: DbConnectionInput[]): Promise<DbConnection[]> => ipcRenderer.invoke('db:saveMany', list),
+    remove: (id: string): Promise<DbConnection[]> => ipcRenderer.invoke('db:remove', id),
+    test: (conn: string): Promise<{ ok: boolean; error?: string; version?: string }> => ipcRenderer.invoke('db:test', conn),
+    buildConn: (f: { server: string; database?: string; windowsAuth: boolean; user?: string; password?: string; trustCert?: boolean; encrypt?: boolean }): Promise<string> =>
+      ipcRenderer.invoke('db:buildConn', f),
+    /** key/value pairs of a connection string, keys lower-cased */
+    parseConn: (conn: string): Promise<Record<string, string>> => ipcRenderer.invoke('db:parseConn', conn),
+    query: (id: string, sql: string, database?: string, maxRows?: number): Promise<DbQueryResult> =>
+      ipcRenderer.invoke('db:query', id, sql, database, maxRows),
+    cancel: (): void => ipcRenderer.send('db:cancel'),
+    databases: (id: string): Promise<string[]> => ipcRenderer.invoke('db:databases', id),
+    objects: (id: string, database: string): Promise<DbObject[]> => ipcRenderer.invoke('db:objects', id, database),
+    columns: (id: string, database: string, schema: string, table: string): Promise<DbColumn[]> =>
+      ipcRenderer.invoke('db:columns', id, database, schema, table),
+    scanProject: (folder: string): Promise<DbFound[]> => ipcRenderer.invoke('db:scanProject', folder),
+    scanSsms: (): Promise<DbFound[]> => ipcRenderer.invoke('db:scanSsms')
   },
   win: {
     state: (): Promise<WindowState> => ipcRenderer.invoke('win:state'),
@@ -74,6 +96,9 @@ const api = {
     pickFolder: (): Promise<string | null> => ipcRenderer.invoke('app:pickFolder'),
     /** OS file picker (multi-select); [] when cancelled */
     pickFiles: (defaultPath?: string): Promise<string[]> => ipcRenderer.invoke('app:pickFiles', defaultPath),
+    /** size, folder?, and an image's data: URL (≤15 MB) for each path */
+    fileInfo: (paths: string[]): Promise<{ path: string; size: number; dir: boolean; preview?: string }[]> =>
+      ipcRenderer.invoke('app:fileInfo', paths),
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:openExternal', url),
     clearBrowserCache: (): Promise<void> => ipcRenderer.invoke('app:clearBrowserCache'),
     relaunch: (): Promise<boolean> => ipcRenderer.invoke('app:relaunch'),

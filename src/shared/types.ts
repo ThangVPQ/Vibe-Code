@@ -91,6 +91,10 @@ export interface AppSettings {
   permissionMode: string
   /** Linux-style overlay: transparent window background, text stays solid (needs a relaunch) */
   seeThrough: boolean
+  /** code editor (Monaco): font family name, size in px, ligatures */
+  editorFont: string
+  editorFontSize: number
+  editorLigatures: boolean
 }
 
 export interface WindowState {
@@ -114,4 +118,70 @@ export interface ClaudeInfo {
   found: boolean
   path: string | null
   shell: string
+}
+
+/* ---------------- SQL Server (Database tab + Claude's mssql tools) ---------------- */
+
+/** A saved connection as the UI sees it — no password. */
+export interface DbConnection {
+  id: string
+  name: string
+  server: string
+  database: string
+  auth: 'sql' | 'windows'
+  user: string
+  /** Claude's queries run in a transaction that is always rolled back */
+  claudeReadOnly: boolean
+  color?: string
+}
+
+export interface DbConnectionInput {
+  id?: string
+  name: string
+  conn: string
+  claudeReadOnly: boolean
+  color?: string
+}
+
+/** A connection string found in the project or in SSMS, ready to add. */
+export interface DbFound {
+  name: string
+  conn: string
+  /** where it came from: a project file, or "SSMS 20.0" */
+  file: string
+  /** SSMS knew the server and login but had no saved password */
+  needsPassword?: boolean
+}
+
+export interface DbObject {
+  schema: string
+  name: string
+  /** U table, V view, P procedure, FN / IF / TF function */
+  type: 'U' | 'V' | 'P' | 'FN' | 'IF' | 'TF'
+}
+
+export interface DbColumn {
+  name: string
+  type: string
+  nullable: boolean
+  identity: boolean
+  pk: boolean
+  /** foreign key target: schema.table.column */
+  ref?: string
+}
+
+export interface DbResultSet {
+  columns: { name: string; type: string }[]
+  rows: unknown[][]
+  truncated: boolean
+}
+
+export interface DbQueryResult {
+  ok: boolean
+  error?: string
+  results: DbResultSet[]
+  messages: string[]
+  /** rows inserted / updated / deleted; -1 for none */
+  affected: number
+  ms: number
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react'
-import { Code2, Columns2, FileDiff, FileText, Rows2, X, Command, GitCompare, Globe, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import { Code2, Columns2, Database, FileDiff, FileText, Rows2, X, Command, GitCompare, Globe, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
@@ -9,6 +9,8 @@ import { ChangesView, ExplorerView } from './Sidebar'
 import { editorOptions, languageFor, monaco } from '../monaco'
 import { ensureModel, isDirty, markTab, saveModel } from '../fileModels'
 import { FileIcon, Logo } from './icons'
+import { EditorFontButton, useEditorFont } from './EditorFont'
+import { DatabasePane } from './Database'
 
 /** Middle area: two fixed tabs — Source code (files, diffs) and Web (built-in browser). */
 export function EditorArea(): JSX.Element {
@@ -16,6 +18,11 @@ export function EditorArea(): JSX.Element {
   const fileCount = useStore((s) => s.tabs.length)
   const key = useStore((s) => browserKey(s.activeChatId))
   const browsers = useStore((s) => s.browsers)
+  // the Database tab mounts on first visit, then stays (keeps its SQL, results and open tree)
+  const [dbSeen, setDbSeen] = useState(view === 'db')
+  useEffect(() => {
+    if (view === 'db') setDbSeen(true)
+  }, [view])
   // switching chats while on Web: give that chat its own browser
   useEffect(() => {
     if (view === 'web' && !browsers[key]) openBrowser()
@@ -31,12 +38,20 @@ export function EditorArea(): JSX.Element {
         <button role="tab" aria-selected={view === 'web'} className={view === 'web' ? 'on' : ''} onClick={() => openBrowser()}>
           <Globe size={14} /> Web
         </button>
+        <button role="tab" aria-selected={view === 'db'} className={view === 'db' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'db' })}>
+          <Database size={14} /> Database
+        </button>
       </div>
       {/* Source code: the whole project of the open chat — file tree on the left, files on the right */}
       <div className="center-pane code-pane" style={{ display: view === 'code' ? 'flex' : 'none' }}>
         <CodeSide />
         <CodeArea />
       </div>
+      {dbSeen && (
+        <div className="center-pane db-host" style={{ display: view === 'db' ? 'flex' : 'none' }}>
+          <DatabasePane />
+        </div>
+      )}
       {/* one browser per chat, every tab kept alive so pages survive switching */}
       {Object.keys(browsers).map((k) => (
         <div key={k} className="center-pane browser-host" style={{ display: view === 'web' && k === key ? 'flex' : 'none' }}>
@@ -155,6 +170,7 @@ function CodeArea(): JSX.Element {
   return (
     <div className="editor-area">
       {tabs.length > 0 && (
+        <div className="tab-row">
         <div className="tab-strip" ref={stripRef} onWheel={(e) => (e.currentTarget.scrollLeft += e.deltaY)}>
           <SlidePill className="tab-pill" />
           {tabs.map((t) => (
@@ -185,6 +201,8 @@ function CodeArea(): JSX.Element {
             </div>
           ))}
           <div className="tab-strip-fill" />
+        </div>
+        <EditorFontButton />
         </div>
       )}
       <div className="editor-body">
@@ -219,6 +237,7 @@ const useMonacoTheme = (): string => useStore((s) => (s.themeResolved === 'light
 
 function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): JSX.Element {
   const theme = useMonacoTheme()
+  const font = useEditorFont()
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -253,7 +272,7 @@ function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): JSX
           path={fileUri(tab.path)}
           language={languageFor(tab.path)}
           theme={theme}
-          options={editorOptions}
+          options={{ ...editorOptions, ...font }}
           keepCurrentModel
           onMount={onMount}
         />
@@ -266,6 +285,7 @@ function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): JSX
 
 function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> }): JSX.Element {
   const theme = useMonacoTheme()
+  const font = useEditorFont()
   const gitRoot = useStore((s) => s.git.root)
   const file = useStore((s) => s.git.files.find((f) => f.abs.toLowerCase() === tab.path.toLowerCase()))
   const sideBySide = useStore((s) => s.diffSideBySide)
@@ -352,6 +372,7 @@ function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> }): JSX.E
             theme={theme}
             options={{
               ...editorOptions,
+              ...font,
               readOnly: true,
               originalEditable: false,
               renderSideBySide: sideBySide,

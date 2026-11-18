@@ -137,8 +137,8 @@ export function languageFor(path: string): string {
 
 export const editorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
   fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, monospace',
-  fontSize: 13.5,
-  lineHeight: 21,
+  fontSize: 12,
+  lineHeight: 18,
   fontLigatures: true,
   minimap: { enabled: true, scale: 1, renderCharacters: false, showSlider: 'mouseover' },
   smoothScrolling: true,

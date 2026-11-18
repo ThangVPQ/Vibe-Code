@@ -17,9 +17,11 @@ import {
   loadProjectBypass,
   toggleProjectBypass
 } from '../actions'
-import { attachFiles, attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../terminals'
+import { attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../terminals'
 import { Logo, StatusDot, statusLabel } from './icons'
 import { ChatImages, useChatImages } from './ChatImages'
+import { AttachmentTray } from './AttachmentTray'
+import { pickAttachments } from '../attachments'
 
 export function TerminalView({ id, autoFocus = true }: { id: string; autoFocus?: boolean }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
@@ -115,14 +117,16 @@ export function ClaudePanel(): JSX.Element {
             <TerminalView id={active.id} />
           </div>
           {tab === 'images' && <ChatImages images={images} />}
+          <AttachmentTray chatId={active.id} />
           <div className="quick-bar">
             <button
               className="chip"
-              title="Choose files from disk; their paths are added to your prompt (you can also drag files onto the chat)"
+              title="Attach files — they go with your next message (you can also paste pictures or drag files onto the chat)"
               disabled={active.status === 'exited'}
-              onClick={() => {
+              onClick={async () => {
                 setTab('chat')
-                attachFiles(active.id, active.cwd)
+                await pickAttachments(active.id, active.cwd)
+                focusTerm(active.id)
               }}
             >
               <Paperclip size={12} />

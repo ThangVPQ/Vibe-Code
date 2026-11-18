@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
 import { join } from 'path'
-import { mkdir, readFile as readFileFs, writeFile as writeFileFs } from 'fs/promises'
+import { mkdir, readFile as readFileFs, stat as statFs, writeFile as writeFileFs } from 'fs/promises'
 
 // Renamed from "TINJS Studio" to "VIBE CODE": keep using the old data folder so settings,
 // recent folders and browser logins carry over.
@@ -56,7 +56,8 @@ import { runDebugScript } from './debug'
 import { applyDropPrefs, hideDropdown, iconPath, initWindowing, setMode, toggleWindow, windowState } from './windowing'
 import { listSessions, sessionImages, sessionContext, watchSessions } from './sessions'
 import { attachView, startBrowserMcp } from './browserMcp'
-import type { AppSettings, PtySpawnOptions, UsageLimit, WindowMode } from '../shared/types'
+import * as db from './mssql'
+import type { AppSettings, DbConnectionInput, PtySpawnOptions, UsageLimit, WindowMode } from '../shared/types'
 
 let win: BrowserWindow | null = null
 
@@ -134,6 +135,22 @@ function registerIpc(): void {
   ipcMain.handle('claude:detect', () => detectClaude())
   // each chat's Web tab tells us its <webview>, so that chat's browser tools can reach it
   ipcMain.on('browser:attach', (_e, chatId: string, wcId: number) => attachView(chatId, wcId))
+  // SQL Server: saved connections, queries, finding existing connections (project files, SSMS)
+  ipcMain.handle('db:list', () => db.listConnections())
+  ipcMain.handle('db:get', (_e, id: string) => db.getConnection(id))
+  ipcMain.handle('db:save', (_e, c: DbConnectionInput) => db.saveConnection(c))
+  ipcMain.handle('db:saveMany', (_e, list: DbConnectionInput[]) => db.saveConnections(list))
+  ipcMain.handle('db:remove', (_e, id: string) => db.removeConnection(id))
+  ipcMain.handle('db:test', (_e, conn: string) => db.testConnection(conn))
+  ipcMain.handle('db:buildConn', (_e, f: Parameters<typeof db.buildConn>[0]) => db.buildConn(f))
+  ipcMain.handle('db:parseConn', (_e, conn: string) => db.parseConn(conn))
+  ipcMain.handle('db:query', (_e, id: string, sql: string, database?: string, maxRows?: number) => db.query(id, sql, database, maxRows))
+  ipcMain.on('db:cancel', () => db.cancelQueries())
+  ipcMain.handle('db:databases', (_e, id: string) => db.listDatabases(id))
+  ipcMain.handle('db:objects', (_e, id: string, database: string) => db.listObjects(id, database))
+  ipcMain.handle('db:columns', (_e, id: string, database: string, schema: string, table: string) => db.listColumns(id, database, schema, table))
+  ipcMain.handle('db:scanProject', (_e, folder: string) => db.scanProject(folder))
+  ipcMain.handle('db:scanSsms', () => db.scanSsms())
 
   // Claude session store (shared with the Claude desktop app / CLI)
   ipcMain.handle('sessions:list', (e) => {
@@ -191,6 +208,28 @@ function registerIpc(): void {
       properties: ['openFile', 'multiSelections']
     })
     return r.canceled ? [] : r.filePaths
+  })
+  // Chat attachment tray: size + (for images) the picture itself as a data: URL for the thumbnail/lightbox.
+  ipcMain.handle('app:fileInfo', async (_e, paths: string[]) => {
+    const MIME: Record<string, string> = {
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+      bmp: 'image/bmp', svg: 'image/svg+xml', ico: 'image/x-icon', avif: 'image/avif'
+    }
+    return Promise.all(
+      paths.map(async (p) => {
+        try {
+          const st = await statFs(p)
+          const mime = MIME[(p.split('.').pop() ?? '').toLowerCase()]
+          let preview: string | undefined
+          if (mime && st.isFile() && st.size <= 15 * 1024 * 1024) {
+            preview = `data:${mime};base64,${(await readFileFs(p)).toString('base64')}`
+          }
+          return { path: p, size: st.isFile() ? st.size : -1, dir: st.isDirectory(), preview }
+        } catch {
+          return { path: p, size: -1, dir: false }
+        }
+      })
+    )
   })
   // Under `electron-vite dev` a relaunched app would lose its dev server, so the user restarts by hand.
   ipcMain.handle('app:relaunch', (): boolean => {
@@ -267,6 +306,7 @@ if (!app.requestSingleInstanceLock()) {
   // that holds the single-instance lock and swallows the next launch.
   app.on('before-quit', () => {
     killAll()
+    db.cancelQueries()
     setTimeout(() => app.exit(0), 2500).unref()
   })
 }

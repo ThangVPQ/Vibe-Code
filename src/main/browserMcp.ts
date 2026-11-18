@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { randomBytes } from 'crypto'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { callDbTool, DB_INSTRUCTIONS, DB_TOOLS } from './mssql'
 
 /**
  * Built-in browser as an MCP server (like Claude desktop's preview tools).
@@ -13,6 +14,8 @@ import { join } from 'path'
  */
 
 const SERVER_NAME = 'vibe-browser'
+/** SQL Server tools: same HTTP server, own MCP server entry (/db/<chatId>) */
+const DB_SERVER_NAME = 'vibe-mssql'
 const token = randomBytes(24).toString('hex')
 let port = 0
 let getWin: () => BrowserWindow | null = () => null
@@ -54,6 +57,11 @@ export function mcpConfigFor(chatId: string): string | null {
       [SERVER_NAME]: {
         type: 'http',
         url: `http://127.0.0.1:${port}/mcp/${encodeURIComponent(chatId)}`,
+        headers: { Authorization: `Bearer ${token}` }
+      },
+      [DB_SERVER_NAME]: {
+        type: 'http',
+        url: `http://127.0.0.1:${port}/db/${encodeURIComponent(chatId)}`,
         headers: { Authorization: `Bearer ${token}` }
       }
     }
@@ -243,7 +251,29 @@ interface RpcRequest {
   params?: Record<string, unknown>
 }
 
-async function handleRpc(chatId: string, msg: RpcRequest): Promise<unknown> {
+async function handleRpc(chatId: string, msg: RpcRequest, dbTools: boolean): Promise<unknown> {
+  if (dbTools) {
+    switch (msg.method) {
+      case 'initialize':
+        return {
+          protocolVersion: (msg.params?.protocolVersion as string) ?? '2025-06-18',
+          capabilities: { tools: {} },
+          serverInfo: { name: DB_SERVER_NAME, version: '0.1.0' },
+          instructions: DB_INSTRUCTIONS
+        }
+      case 'ping':
+        return {}
+      case 'tools/list':
+        return { tools: DB_TOOLS }
+      case 'tools/call':
+        try {
+          return { content: text(await callDbTool(String(msg.params?.name), (msg.params?.arguments ?? {}) as Record<string, unknown>)) }
+        } catch (e) {
+          return { content: text(e instanceof Error ? e.message : String(e)), isError: true }
+        }
+    }
+    throw Object.assign(new Error(`Method not found: ${msg.method}`), { code: -32601 })
+  }
   switch (msg.method) {
     case 'initialize':
       return {
@@ -279,7 +309,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 async function onRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const m = /^\/mcp\/([^/?]+)/.exec(req.url ?? '')
+  const m = /^\/(mcp|db)\/([^/?]+)/.exec(req.url ?? '')
   if (!m || req.headers.authorization !== `Bearer ${token}`) {
     res.writeHead(m ? 401 : 404).end()
     return
@@ -289,7 +319,7 @@ async function onRequest(req: IncomingMessage, res: ServerResponse): Promise<voi
     res.writeHead(405, { Allow: 'POST' }).end()
     return
   }
-  const chatId = decodeURIComponent(m[1])
+  const chatId = decodeURIComponent(m[2])
   let msg: RpcRequest
   try {
     msg = JSON.parse(await readBody(req))
@@ -305,7 +335,7 @@ async function onRequest(req: IncomingMessage, res: ServerResponse): Promise<voi
   }
   let reply: unknown
   try {
-    reply = { jsonrpc: '2.0', id: msg.id, result: await handleRpc(chatId, msg) }
+    reply = { jsonrpc: '2.0', id: msg.id, result: await handleRpc(chatId, msg, m[1] === 'db') }
   } catch (e) {
     const code = (e as { code?: number }).code ?? -32603
     reply = { jsonrpc: '2.0', id: msg.id, error: { code, message: e instanceof Error ? e.message : String(e) } }

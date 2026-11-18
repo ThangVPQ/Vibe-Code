@@ -17,7 +17,10 @@ const defaults: AppSettings = {
   model: '',
   effort: '',
   permissionMode: '',
-  seeThrough: false
+  seeThrough: false,
+  editorFont: 'JetBrains Mono',
+  editorFontSize: 12,
+  editorLigatures: true
 }
 
 let cache: AppSettings | null = null

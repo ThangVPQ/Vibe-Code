@@ -1,3 +1,4 @@
+import { clearAttachments } from './attachments'
 import { basename, uid, useStore, type Chat, type EditorTab, type WebTab } from './store'
 import { createTerm, disposeTerm, focusTerm, onTerminalEvents, readScreen, restartTerm, setTerminalClear, setTerminalTheme, writeToTerm } from './terminals'
 import { disposeModel, getModel, isDirty } from './fileModels'
@@ -401,6 +402,7 @@ export function selectChat(id: string): void {
 
 export function closeChat(id: string): void {
   disposeTerm(id)
+  clearAttachments(id)
   lastData.delete(id)
   useStore.setState((s) => {
     const idx = s.chats.findIndex((c) => c.id === id)
