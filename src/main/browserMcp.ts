@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { callDbTool, DB_INSTRUCTIONS, DB_TOOLS } from './mssql'
+import { callZaloTool, ZALO_INSTRUCTIONS, ZALO_TOOLS } from './zalo'
 
 /**
  * Built-in browser as an MCP server (like Claude desktop's preview tools).
@@ -16,6 +17,8 @@ import { callDbTool, DB_INSTRUCTIONS, DB_TOOLS } from './mssql'
 const SERVER_NAME = 'vibe-browser'
 /** SQL Server tools: same HTTP server, own MCP server entry (/db/<chatId>) */
 const DB_SERVER_NAME = 'vibe-mssql'
+/** personal Zalo account tools: /zalo/<chatId> */
+const ZALO_SERVER_NAME = 'vibe-zalo'
 const token = randomBytes(24).toString('hex')
 let port = 0
 let getWin: () => BrowserWindow | null = () => null
@@ -62,6 +65,11 @@ export function mcpConfigFor(chatId: string): string | null {
       [DB_SERVER_NAME]: {
         type: 'http',
         url: `http://127.0.0.1:${port}/db/${encodeURIComponent(chatId)}`,
+        headers: { Authorization: `Bearer ${token}` }
+      },
+      [ZALO_SERVER_NAME]: {
+        type: 'http',
+        url: `http://127.0.0.1:${port}/zalo/${encodeURIComponent(chatId)}`,
         headers: { Authorization: `Bearer ${token}` }
       }
     }
@@ -251,8 +259,36 @@ interface RpcRequest {
   params?: Record<string, unknown>
 }
 
-async function handleRpc(chatId: string, msg: RpcRequest, dbTools: boolean): Promise<unknown> {
-  if (dbTools) {
+/** A server whose tools only return text (SQL Server, Zalo). */
+async function handleTextRpc(
+  msg: RpcRequest,
+  info: { name: string; instructions: string; tools: unknown[]; call: (name: string, args: Record<string, unknown>) => Promise<string> }
+): Promise<unknown> {
+  switch (msg.method) {
+    case 'initialize':
+      return {
+        protocolVersion: (msg.params?.protocolVersion as string) ?? '2025-06-18',
+        capabilities: { tools: {} },
+        serverInfo: { name: info.name, version: '0.1.0' },
+        instructions: info.instructions
+      }
+    case 'ping':
+      return {}
+    case 'tools/list':
+      return { tools: info.tools }
+    case 'tools/call':
+      try {
+        return { content: text(await info.call(String(msg.params?.name), (msg.params?.arguments ?? {}) as Record<string, unknown>)) }
+      } catch (e) {
+        return { content: text(e instanceof Error ? e.message : String(e)), isError: true }
+      }
+  }
+  throw Object.assign(new Error(`Method not found: ${msg.method}`), { code: -32601 })
+}
+
+async function handleRpc(chatId: string, msg: RpcRequest, kind: string): Promise<unknown> {
+  if (kind === 'zalo') return handleTextRpc(msg, { name: ZALO_SERVER_NAME, instructions: ZALO_INSTRUCTIONS, tools: ZALO_TOOLS, call: callZaloTool })
+  if (kind === 'db') {
     switch (msg.method) {
       case 'initialize':
         return {
@@ -309,7 +345,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 async function onRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const m = /^\/(mcp|db)\/([^/?]+)/.exec(req.url ?? '')
+  const m = /^\/(mcp|db|zalo)\/([^/?]+)/.exec(req.url ?? '')
   if (!m || req.headers.authorization !== `Bearer ${token}`) {
     res.writeHead(m ? 401 : 404).end()
     return
@@ -335,7 +371,7 @@ async function onRequest(req: IncomingMessage, res: ServerResponse): Promise<voi
   }
   let reply: unknown
   try {
-    reply = { jsonrpc: '2.0', id: msg.id, result: await handleRpc(chatId, msg, m[1] === 'db') }
+    reply = { jsonrpc: '2.0', id: msg.id, result: await handleRpc(chatId, msg, m[1]) }
   } catch (e) {
     const code = (e as { code?: number }).code ?? -32603
     reply = { jsonrpc: '2.0', id: msg.id, error: { code, message: e instanceof Error ? e.message : String(e) } }

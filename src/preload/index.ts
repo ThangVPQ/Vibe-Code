@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
-import type { AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState } from '../shared/types'
+import type { AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloThread } from '../shared/types'
 
 function on<T extends unknown[]>(channel: string, cb: (...args: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, ...args: unknown[]): void => cb(...(args as T))
@@ -58,6 +58,20 @@ const api = {
       ipcRenderer.invoke('db:columns', id, database, schema, table),
     scanProject: (folder: string): Promise<DbFound[]> => ipcRenderer.invoke('db:scanProject', folder),
     scanSsms: (): Promise<DbFound[]> => ipcRenderer.invoke('db:scanSsms')
+  },
+  zalo: {
+    state: (): Promise<ZaloState> => ipcRenderer.invoke('zalo:state'),
+    login: (): Promise<void> => ipcRenderer.invoke('zalo:login'),
+    cancel: (): Promise<void> => ipcRenderer.invoke('zalo:cancel'),
+    reconnect: (): Promise<ZaloState> => ipcRenderer.invoke('zalo:reconnect'),
+    logout: (): Promise<void> => ipcRenderer.invoke('zalo:logout'),
+    threads: (query?: string): Promise<ZaloThread[]> => ipcRenderer.invoke('zalo:threads', query),
+    messages: (threadId: string, limit?: number): Promise<ZaloMessage[]> => ipcRenderer.invoke('zalo:messages', threadId, limit),
+    /** groups: fetch older messages from Zalo; returns how many arrived */
+    loadOlder: (threadId: string): Promise<number> => ipcRenderer.invoke('zalo:loadOlder', threadId),
+    send: (threadId: string, text: string): Promise<string> => ipcRenderer.invoke('zalo:send', threadId, text),
+    onState: (cb: (s: ZaloState) => void) => on('zalo:state', cb),
+    onChanged: (cb: () => void) => on('zalo:changed', cb)
   },
   win: {
     state: (): Promise<WindowState> => ipcRenderer.invoke('win:state'),

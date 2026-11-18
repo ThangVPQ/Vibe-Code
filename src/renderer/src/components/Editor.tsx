@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react'
-import { Code2, Columns2, Database, FileDiff, FileText, Rows2, X, Command, GitCompare, Globe, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import { Code2, Columns2, Database, FileDiff, FileText, Rows2, X, Command, GitCompare, Globe, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
@@ -11,6 +11,7 @@ import { ensureModel, isDirty, markTab, saveModel } from '../fileModels'
 import { FileIcon, Logo } from './icons'
 import { EditorFontButton, useEditorFont } from './EditorFont'
 import { DatabasePane } from './Database'
+import { ZaloPane } from './Zalo'
 
 /** Middle area: two fixed tabs — Source code (files, diffs) and Web (built-in browser). */
 export function EditorArea(): React.JSX.Element {
@@ -20,8 +21,10 @@ export function EditorArea(): React.JSX.Element {
   const browsers = useStore((s) => s.browsers)
   // the Database tab mounts on first visit, then stays (keeps its SQL, results and open tree)
   const [dbSeen, setDbSeen] = useState(view === 'db')
+  const [zaloSeen, setZaloSeen] = useState(view === 'zalo')
   useEffect(() => {
     if (view === 'db') setDbSeen(true)
+    if (view === 'zalo') setZaloSeen(true)
   }, [view])
   // switching chats while on Web: give that chat its own browser
   useEffect(() => {
@@ -41,6 +44,9 @@ export function EditorArea(): React.JSX.Element {
         <button role="tab" aria-selected={view === 'db'} className={view === 'db' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'db' })}>
           <Database size={14} /> Database
         </button>
+        <button role="tab" aria-selected={view === 'zalo'} className={view === 'zalo' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'zalo' })}>
+          <MessageCircle size={14} /> Zalo
+        </button>
       </div>
       {/* Source code: the whole project of the open chat — file tree on the left, files on the right */}
       <div className="center-pane code-pane" style={{ display: view === 'code' ? 'flex' : 'none' }}>
@@ -50,6 +56,11 @@ export function EditorArea(): React.JSX.Element {
       {dbSeen && (
         <div className="center-pane db-host" style={{ display: view === 'db' ? 'flex' : 'none' }}>
           <DatabasePane />
+        </div>
+      )}
+      {zaloSeen && (
+        <div className="center-pane zalo-host" style={{ display: view === 'zalo' ? 'flex' : 'none' }}>
+          <ZaloPane />
         </div>
       )}
       {/* one browser per chat, every tab kept alive so pages survive switching */}

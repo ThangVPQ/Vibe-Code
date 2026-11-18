@@ -57,6 +57,7 @@ import { applyDropPrefs, hideDropdown, iconPath, initWindowing, setMode, toggleW
 import { listSessions, sessionImages, sessionContext, watchSessions } from './sessions'
 import { attachView, startBrowserMcp } from './browserMcp'
 import * as db from './mssql'
+import * as zalo from './zalo'
 import type { AppSettings, DbConnectionInput, PtySpawnOptions, UsageLimit, WindowMode } from '../shared/types'
 
 let win: BrowserWindow | null = null
@@ -151,6 +152,16 @@ function registerIpc(): void {
   ipcMain.handle('db:columns', (_e, id: string, database: string, schema: string, table: string) => db.listColumns(id, database, schema, table))
   ipcMain.handle('db:scanProject', (_e, folder: string) => db.scanProject(folder))
   ipcMain.handle('db:scanSsms', () => db.scanSsms())
+  // Zalo (personal account via zca-js): QR login, synced conversations, sending
+  ipcMain.handle('zalo:state', () => zalo.getState())
+  ipcMain.handle('zalo:login', () => zalo.loginQR())
+  ipcMain.handle('zalo:cancel', () => zalo.cancelLogin())
+  ipcMain.handle('zalo:reconnect', () => zalo.reconnect())
+  ipcMain.handle('zalo:logout', () => zalo.logout())
+  ipcMain.handle('zalo:threads', (_e, q?: string) => zalo.listThreads(q))
+  ipcMain.handle('zalo:messages', (_e, threadId: string, limit?: number) => zalo.getMessages(threadId, limit))
+  ipcMain.handle('zalo:loadOlder', (_e, threadId: string) => zalo.loadOlder(threadId))
+  ipcMain.handle('zalo:send', (_e, threadId: string, text: string) => zalo.sendText(threadId, text))
 
   // Claude session store (shared with the Claude desktop app / CLI)
   ipcMain.handle('sessions:list', (e) => {
@@ -292,6 +303,7 @@ if (!app.requestSingleInstanceLock()) {
     await startBrowserMcp(() => win)
     registerIpc()
     createWindow()
+    zalo.initZalo(() => win)
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

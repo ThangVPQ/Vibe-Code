@@ -185,3 +185,38 @@ export interface DbQueryResult {
   affected: number
   ms: number
 }
+
+/* ---------------- Zalo (Zalo tab + Claude's zalo tools) ---------------- */
+
+export interface ZaloState {
+  status: 'off' | 'qr' | 'connecting' | 'online' | 'error'
+  /** QR code to scan (data: URL) while status is 'qr' */
+  qr?: string
+  /** name shown on the phone that scanned the QR, waiting for "Đăng nhập" there */
+  scanned?: string
+  error?: string
+  self?: { id: string; name: string; avatar: string }
+}
+
+export interface ZaloThread {
+  id: string
+  group: boolean
+  name: string
+  lastTs: number
+  last: string
+}
+
+export interface ZaloMessage {
+  id: string
+  cliMsgId: string
+  threadId: string
+  group: boolean
+  fromId: string
+  fromName: string
+  self: boolean
+  ts: number
+  /** Zalo msgType, e.g. "webchat", "chat.photo" */
+  type: string
+  text: string
+  quote?: string
+}
