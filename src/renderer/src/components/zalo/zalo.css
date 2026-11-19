@@ -1099,6 +1099,9 @@ button.zl-info-row:hover { background: var(--w-06) !important; }
 .zt-row.fresh { animation: zt-flash 2.4s ease-out 1; }
 @keyframes zt-flash { from { background: color-mix(in srgb, var(--accent, #3b82f6) 22%, transparent); } to { background: transparent; } }
 .zt-new { margin-left: 2px; padding: 0 5px; border-radius: 6px; font-size: 10px; font-weight: 600; color: #fff; background: var(--accent, #3b82f6); }
+.zt-new.upd { background: #d9922e; }
+/* task text can be selected / copied */
+.zt-main .zt-row-title, .zt-main .zt-row-detail { user-select: text; -webkit-user-select: text; cursor: text; }
 .zt-foot { padding: 8px 14px 10px; font-size: 11px; color: var(--zl-meta); border-top: 1px solid var(--border); }
 
 /* ---------------- connected home: account + task list ---------------- */

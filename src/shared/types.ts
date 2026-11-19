@@ -381,6 +381,10 @@ export interface ZaloTasksState {
   incoming?: ZaloIncoming[]
   /** ids of tasks the last analysis created (highlighted in the list) */
   fresh?: string[]
+  /** ids of tasks whose status the last analysis changed */
+  changed?: string[]
+  /** tasks created / changed by Claude that I haven't looked at yet → the badge on the Zalo tab */
+  unseen?: Record<string, 'new' | 'updated'>
   /** a batch of incoming messages is waiting: goes to Claude at this time unless more arrive */
   dueAt?: number
 }

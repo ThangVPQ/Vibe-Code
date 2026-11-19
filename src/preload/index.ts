@@ -100,6 +100,8 @@ const api = {
     setTaskStatus: (id: string, status: ZaloTask['status']): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:taskStatus', id, status),
     removeTask: (id: string): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:taskRemove', id),
     onTasks: (cb: (s: ZaloTasksState) => void) => on('zalo:tasks', cb),
+    /** the task list is (not) on screen in a focused window → clears the badge, no pop-ups meanwhile */
+    tasksViewing: (on: boolean): void => ipcRenderer.send('zalo:tasksViewing', on),
     /** a "new task" notification was clicked */
     onShowTasks: (cb: () => void) => on('zalo:showTasks', cb),
     onState: (cb: (s: ZaloState) => void) => on('zalo:state', cb),

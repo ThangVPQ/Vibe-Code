@@ -3,6 +3,7 @@ import { Check, ChevronDown, CircleDot, ClipboardList, Loader2, RefreshCw, Spark
 import type { ZaloIncoming, ZaloTask, ZaloTasksState } from '../../../../shared/types'
 import { listTime } from './util'
 import { Avatar } from './Avatar'
+import { useStore } from '../../store'
 
 const SECTIONS: { key: ZaloTask['status']; label: string }[] = [
   { key: 'todo', label: 'Cần làm' },
@@ -18,6 +19,18 @@ const NEXT: Record<ZaloTask['status'], ZaloTask['status']> = { todo: 'doing', do
 export function ZaloTasks(): React.JSX.Element {
   const [s, setS] = useState<ZaloTasksState>({ tasks: [], running: false, analyzedAt: 0 })
   const [showDone, setShowDone] = useState(false)
+  // "mới" / "cập nhật" tags: kept while I'm on the tab even though main already counts them as seen
+  const [tags, setTags] = useState<Record<string, 'new' | 'updated'>>({})
+  const onTab = useStore((st) => st.centerView === 'zalo')
+  useEffect(() => {
+    if (!onTab) setTags({})
+  }, [onTab])
+  useEffect(() => {
+    const add: Record<string, 'new' | 'updated'> = { ...s.unseen }
+    for (const id of s.changed ?? []) add[id] ??= 'updated'
+    for (const id of s.fresh ?? []) add[id] = 'new'
+    if (Object.keys(add).length) setTags((t) => ({ ...t, ...add }))
+  }, [s.unseen, s.changed, s.fresh])
 
   useEffect(() => {
     void window.api.zalo.tasks().then((st) => {
@@ -72,7 +85,7 @@ export function ZaloTasks(): React.JSX.Element {
                 <span className="zt-sec-n">{list.length}</span>
                 {key === 'done' && <ChevronDown size={14} className={folded ? 'zt-fold' : ''} />}
               </button>
-              {!folded && list.map((t) => <Row key={t.id} t={t} fresh={!!s.fresh?.includes(t.id)} />)}
+              {!folded && list.map((t) => <Row key={t.id} t={t} tag={tags[t.id]} />)}
             </section>
           )
         })}
@@ -121,9 +134,9 @@ function Incoming({ list, running, dueAt }: { list: ZaloIncoming[]; running: boo
   )
 }
 
-function Row({ t, fresh }: { t: ZaloTask; fresh?: boolean }): React.JSX.Element {
+function Row({ t, tag }: { t: ZaloTask; tag?: 'new' | 'updated' }): React.JSX.Element {
   return (
-    <div className={'zt-row ' + t.status + (fresh ? ' fresh' : '')}>
+    <div className={'zt-row ' + t.status + (tag ? ' fresh' : '')}>
       <button
         className="zt-check"
         title={t.status === 'todo' ? 'Đánh dấu đang xử lý' : t.status === 'doing' ? 'Đánh dấu hoàn thành' : 'Mở lại'}
@@ -139,7 +152,8 @@ function Row({ t, fresh }: { t: ZaloTask; fresh?: boolean }): React.JSX.Element 
           {t.group && <Users size={11} />}
           {t.group ? `${t.threadName} · ${t.from}` : t.from} · {listTime(t.ts)}
           {t.manual && <span className="zt-manual">· đặt tay</span>}
-          {fresh && <span className="zt-new">mới</span>}
+          {tag === 'new' && <span className="zt-new">mới</span>}
+          {tag === 'updated' && <span className="zt-new upd">cập nhật</span>}
         </span>
       </div>
       <button className="zt-del" title="Xoá khỏi danh sách" onClick={() => void window.api.zalo.removeTask(t.id)}>

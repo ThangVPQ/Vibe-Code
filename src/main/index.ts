@@ -188,6 +188,7 @@ function registerIpc(): void {
   ipcMain.handle('zalo:tasksAnalyze', () => zaloTasks.analyze())
   ipcMain.handle('zalo:taskStatus', (_e, id: string, status: ZaloTask['status']) => zaloTasks.setStatus(id, status))
   ipcMain.handle('zalo:taskRemove', (_e, id: string) => zaloTasks.removeTask(id))
+  ipcMain.on('zalo:tasksViewing', (_e, on: boolean) => zaloTasks.setViewing(on))
 
   // Claude session store (shared with the Claude desktop app / CLI)
   ipcMain.handle('sessions:list', (e) => {

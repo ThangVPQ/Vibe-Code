@@ -26,6 +26,7 @@ export function EditorArea(): React.JSX.Element {
     if (view === 'db') setDbSeen(true)
     if (view === 'zalo') setZaloSeen(true)
   }, [view])
+  const zaloBadge = useZaloBadge(view === 'zalo')
   // switching chats while on Web: give that chat its own browser
   useEffect(() => {
     if (view === 'web' && !browsers[key]) openBrowser()
@@ -46,6 +47,11 @@ export function EditorArea(): React.JSX.Element {
         </button>
         <button role="tab" aria-selected={view === 'zalo'} className={view === 'zalo' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'zalo' })}>
           <MessageCircle size={14} /> Zalo
+          {zaloBadge > 0 && (
+            <span key={zaloBadge} className="center-count alert" title={`${zaloBadge} việc mới / vừa cập nhật`}>
+              {zaloBadge > 99 ? '99+' : zaloBadge}
+            </span>
+          )}
         </button>
       </div>
       {/* Source code: the whole project of the open chat — file tree on the left, files on the right */}
@@ -71,6 +77,32 @@ export function EditorArea(): React.JSX.Element {
       ))}
     </div>
   )
+}
+
+/**
+ * Zalo tab badge: tasks Claude created or changed that I haven't looked at.
+ * Also tells main when the tab is on screen in a focused window (that clears the badge, and skips pop-ups).
+ */
+function useZaloBadge(onTab: boolean): number {
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    const count = (s: { unseen?: Record<string, unknown> }): void => setN(Object.keys(s.unseen ?? {}).length)
+    void window.api.zalo.tasks().then(count)
+    return window.api.zalo.onTasks(count)
+  }, [])
+  useEffect(() => {
+    const send = (): void => window.api.zalo.tasksViewing(onTab && document.hasFocus() && !document.hidden)
+    send()
+    window.addEventListener('focus', send)
+    window.addEventListener('blur', send)
+    document.addEventListener('visibilitychange', send)
+    return () => {
+      window.removeEventListener('focus', send)
+      window.removeEventListener('blur', send)
+      document.removeEventListener('visibilitychange', send)
+    }
+  }, [onTab])
+  return n
 }
 
 /** A chat's browser: its tab strip and one page per tab. */

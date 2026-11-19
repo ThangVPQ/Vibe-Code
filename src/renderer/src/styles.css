@@ -2718,6 +2718,18 @@ button.sb-item:hover {
   background: var(--w-12);
   color: var(--text-2);
 }
+.center-count.alert {
+  min-width: 17px;
+  text-align: center;
+  font-weight: 700;
+  background: #e5484d;
+  color: #fff;
+  animation: center-pop 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+@keyframes center-pop {
+  from { transform: scale(0.4); }
+  to { transform: scale(1); }
+}
 .center-pane {
   flex: 1;
   min-height: 0;

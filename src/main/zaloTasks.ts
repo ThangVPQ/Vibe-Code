@@ -1,4 +1,4 @@
-import { app, Notification, type BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { spawn } from 'child_process'
 import { existsSync, promises as fsp, readFileSync } from 'fs'
 import { join } from 'path'
@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 import type { ZaloIncoming, ZaloTask, ZaloTasksState } from '../shared/types'
 import { cleanEnv, detectClaude } from './pty'
 import * as zalo from './zalo'
+import { initToasts, showToasts, type ToastCard } from './zaloToast'
 
 /**
  * "Việc của tôi": Claude reads what was sent to me on Zalo (personal chats, @mentions, replies to me)
@@ -32,6 +33,12 @@ let dueAt = 0
 let incoming: ZaloIncoming[] = []
 /** tasks created by the last analysis */
 let fresh: string[] = []
+/** tasks whose status the last analysis changed */
+let changed: string[] = []
+/** tasks created / changed by Claude that I haven't looked at yet (the badge on the Zalo tab) */
+let unseen: Record<string, 'new' | 'updated'> = {}
+/** the Zalo tab is on screen in a focused window: changes count as seen right away, no pop-up */
+let viewing = false
 
 const dir = (): string => join(app.getPath('userData'), 'zalo')
 const file = (): string => join(dir(), 'tasks.json')
@@ -43,6 +50,7 @@ function load(): void {
     const d = JSON.parse(readFileSync(file(), 'utf8'))
     tasks = Array.isArray(d.tasks) ? d.tasks : []
     analyzedAt = Number(d.analyzedAt) || 0
+    unseen = d.unseen && typeof d.unseen === 'object' ? d.unseen : {}
   } catch {
     /* first run */
   }
@@ -50,7 +58,7 @@ function load(): void {
 
 async function save(): Promise<void> {
   await fsp.mkdir(dir(), { recursive: true })
-  await fsp.writeFile(file(), JSON.stringify({ tasks, analyzedAt }))
+  await fsp.writeFile(file(), JSON.stringify({ tasks, analyzedAt, unseen }))
 }
 
 export function getTasks(): ZaloTasksState {
@@ -59,7 +67,7 @@ export function getTasks(): ZaloTasksState {
     const uid = t.fromId ?? (t.group ? undefined : t.threadId)
     return { ...t, avatar: uid ? zalo.avatarOf(uid) : undefined }
   })
-  return { tasks: withAvatar, running, analyzedAt, error, incoming, fresh, dueAt: autoTimer ? dueAt : undefined }
+  return { tasks: withAvatar, running, analyzedAt, error, incoming, fresh, changed, unseen, dueAt: autoTimer ? dueAt : undefined }
 }
 
 function broadcast(): void {
@@ -68,6 +76,14 @@ function broadcast(): void {
 
 export function initZaloTasks(win: () => BrowserWindow | null): void {
   getWin = win
+  initToasts(() => {
+    const w = getWin()
+    if (!w) return
+    if (w.isMinimized()) w.restore()
+    w.show()
+    w.focus()
+    w.webContents.send('zalo:showTasks')
+  })
   // realtime: a new message to me (or my reply in a chat with open work) → analyze within seconds
   zalo.onIngest((ids) => {
     load()
@@ -105,29 +121,56 @@ export function initZaloTasks(win: () => BrowserWindow | null): void {
   })
 }
 
-/** Windows notification for the tasks just created; click opens the list. */
-function notifyCreated(list: ZaloTask[]): void {
-  if (!list.length || !Notification.isSupported()) return
-  const one = list.length === 1 ? list[0] : undefined
-  const n = new Notification({
-    title: one ? `Việc mới từ ${one.from}` : `${list.length} việc mới từ Zalo`,
-    body: one ? one.title + (one.group ? ` · ${one.threadName}` : '') : list.map((t) => `• ${t.title} — ${t.from}`).join('\n').slice(0, 250)
-  })
-  n.on('click', () => {
-    const w = getWin()
-    if (!w) return
-    if (w.isMinimized()) w.restore()
-    w.show()
-    w.focus()
-    w.webContents.send('zalo:showTasks')
-  })
-  n.show()
+const STATUS_TAG: Record<ZaloTask['status'], { text: string; color: string }> = {
+  todo: { text: 'Cần làm', color: '#e5484d' },
+  doing: { text: 'Đang xử lý', color: '#d9922e' },
+  done: { text: 'Hoàn thành', color: '#2f9e63' }
+}
+
+/** Badge + Zalo-style pop-ups for tasks Claude just created or changed. */
+function announce(created: ZaloTask[], updated: ZaloTask[]): void {
+  const w = getWin()
+  const looking = viewing && !!w && w.isVisible() && w.isFocused()
+  if (looking) return
+  for (const t of created) unseen[t.id] = 'new'
+  for (const t of updated) if (unseen[t.id] !== 'new') unseen[t.id] = 'updated'
+  const card = (t: ZaloTask, kind: 'new' | 'updated'): ToastCard => {
+    const uid = t.fromId ?? (t.group ? undefined : t.threadId)
+    return {
+      id: t.id,
+      name: t.from,
+      avatar: uid ? zalo.avatarOf(uid) : undefined,
+      title: t.from,
+      tag: kind === 'new' ? { text: 'Việc mới', color: '#3b82f6' } : STATUS_TAG[t.status],
+      body: t.title,
+      meta: t.group ? t.threadName : undefined
+    }
+  }
+  const cards = [...created.map((t) => card(t, 'new')), ...updated.map((t) => card(t, 'updated'))]
+  if (!cards.length) return
+  void showToasts(cards)
+  if (w && !w.isFocused()) w.flashFrame(true)
+}
+
+/** The Zalo tab is (not) on screen; while it is, everything counts as seen. */
+export function setViewing(on: boolean): void {
+  viewing = on
+  if (on) markSeen()
+}
+
+export function markSeen(): void {
+  load()
+  if (!Object.keys(unseen).length) return
+  unseen = {}
+  void save()
+  broadcast()
 }
 
 export function setStatus(id: string, status: ZaloTask['status']): ZaloTasksState {
   load()
   const t = tasks.find((x) => x.id === id)
   if (t) Object.assign(t, { status, manual: true, updatedAt: Date.now() })
+  delete unseen[id]
   void save()
   broadcast()
   return getTasks()
@@ -136,6 +179,7 @@ export function setStatus(id: string, status: ZaloTask['status']): ZaloTasksStat
 export function removeTask(id: string): ZaloTasksState {
   load()
   tasks = tasks.filter((x) => x.id !== id)
+  delete unseen[id]
   void save()
   broadcast()
   return getTasks()
@@ -252,6 +296,7 @@ export async function analyze(): Promise<ZaloTasksState> {
   // messages that arrive during this run stay "incoming" for the next one
   const handling = new Set(incoming.map((m) => m.msgId))
   const created: ZaloTask[] = []
+  const updated: ZaloTask[] = []
   broadcast()
   try {
     const now = Date.now()
@@ -275,7 +320,10 @@ export async function analyze(): Promise<ZaloTasksState> {
           if (!cur.fromId && src && !src.self) cur.fromId = src.fromId
           // a status set by hand stays, unless Claude now sees it finished
           if (!cur.manual || status === 'done') {
-            if (cur.status !== status) cur.updatedAt = now
+            if (cur.status !== status) {
+              cur.updatedAt = now
+              if (!updated.includes(cur)) updated.push(cur)
+            }
             cur.status = status
             if (status === 'done') cur.manual = false
           }
@@ -302,11 +350,16 @@ export async function analyze(): Promise<ZaloTasksState> {
     // forget finished work after a while
     const keep = now - KEEP_DONE_DAYS * 86_400_000
     tasks = tasks.filter((t) => t.status !== 'done' || t.updatedAt > keep)
+    for (const id of Object.keys(unseen)) if (!tasks.some((t) => t.id === id)) delete unseen[id]
     tasks.sort((a, b) => b.ts - a.ts)
     analyzedAt = now
     fresh = created.map((t) => t.id)
+    changed = updated.map((t) => t.id)
+    announce(
+      created.filter((t) => t.status !== 'done'),
+      updated
+    )
     await save()
-    notifyCreated(created.filter((t) => t.status !== 'done'))
   } catch (e) {
     error = e instanceof Error ? e.message : String(e)
   } finally {
