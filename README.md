@@ -4,18 +4,19 @@ Desktop workspace for **Claude Code**: several parallel chats, a Monaco editor (
 
 ![VIBE CODE demo: open a project, go to file, ask Claude for a change, review the diff, run git in the terminal, switch theme](docs/demo.gif)
 
-Stack: Electron · React · TypeScript · Vite (electron-vite) · Monaco · xterm.js (WebGL) · node-pty (ConPTY)
+Stack: Tauri 2 (Rust backend, system WebView2 / WKWebView) · React · TypeScript · Vite · Monaco · xterm.js (WebGL) · portable-pty (ConPTY)
 
 ## Run
 
 ```bash
 npm install
-npm run dev        # dev with hot reload
-npm run build      # production build into out/
-npm start          # run the built app
+npm run dev        # tauri dev: Vite with hot reload + the Rust backend
+npm run build      # release build + installer in src-tauri/target/release/bundle/
 ```
 
-Requires Node 18+, Git, and the `claude` CLI on PATH (`npm install -g @anthropic-ai/claude-code`).
+Building needs Node 24+, Rust (stable, MSVC toolchain on Windows) and, on Windows, the
+Visual Studio C++ Build Tools. Running needs Git and the `claude` CLI on PATH
+(`npm install -g @anthropic-ai/claude-code`). The app itself has no Node runtime.
 
 ## Shortcuts
 
@@ -41,8 +42,11 @@ The Chats sidebar lists every project and conversation from `~/.claude/projects`
 
 ## Layout
 
-- `src/main` – Electron main: PTY sessions, filesystem + watcher, git, settings
-- `src/preload` – the `window.api` bridge
+- `src-tauri/src` – Rust backend: terminals (`pty.rs`), files + watcher, git, Claude's session
+  store, SQL Server (`mssql.rs`), Zalo (`zalo/`), the built-in browser (`browser.rs`, native
+  WebView2 tabs that sleep when hidden), the MCP server Claude's tools talk to (`mcp.rs`), window /
+  tray / drop-down mode (`windowing.rs`)
+- `src/renderer/src/api.ts` – `window.api`: the page's bridge to the Rust commands and events
 - `src/renderer/src` – UI (`components/`), state (`store.ts`, `actions.ts`), terminals, Monaco setup
 
-`STUDIO_DEBUG_SCRIPT=steps.json` runs scripted UI steps and screenshots (see `src/main/debug.ts`).
+`STUDIO_USER_DATA=<folder>` runs with a separate profile (settings, logins, Zalo session).
