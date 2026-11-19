@@ -119,7 +119,12 @@ function hideFooter(e: Entry): void {
     footerCover.set(e, cover)
   }
   const cellH = screen.clientHeight / e.term.rows
-  cover.style.cssText = `position:absolute;left:0;right:0;top:${row * cellH}px;height:${Math.ceil(cellH)}px;z-index:20;pointer-events:none;background:${currentTheme.background ?? '#222a44'};`
+  const css = `position:absolute;left:0;right:0;top:${row * cellH}px;height:${Math.ceil(cellH)}px;z-index:20;pointer-events:none;background:${currentTheme.background ?? '#222a44'};`
+  // runs after every output chunk: touch the DOM only when the row actually moved
+  if (cover.dataset.css !== css) {
+    cover.dataset.css = css
+    cover.style.cssText = css
+  }
 }
 
 interface Entry {
@@ -229,9 +234,17 @@ const imageCache = new Map<string, Promise<string | undefined>>()
 let hoverEl: HTMLImageElement | null = null
 let hoverToken = 0
 
+/** previews are data: URLs (up to a few MB each): keep only the last few hovered */
+const IMAGE_CACHE_MAX = 24
+
 function loadImage(path: string): Promise<string | undefined> {
   let p = imageCache.get(path)
-  if (!p) {
+  if (p) {
+    // most recently used goes to the end
+    imageCache.delete(path)
+    imageCache.set(path, p)
+  } else {
+    if (imageCache.size >= IMAGE_CACHE_MAX) imageCache.delete(imageCache.keys().next().value!)
     p = window.api.app
       .fileInfo([path])
       .then((r) => r[0]?.preview)
@@ -345,7 +358,9 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== 'keydown') return true
     const ctrl = ev.ctrlKey || ev.metaKey
-    if (ctrl && !ev.shiftKey && ev.key.toLowerCase() === 'c' && term.hasSelection()) {
+    // Ctrl+C with a selection, or Ctrl+Shift+C (Windows Terminal / VS Code): copy
+    if (ctrl && ev.key.toLowerCase() === 'c' && (ev.shiftKey || term.hasSelection())) {
+      if (!term.hasSelection()) return false
       navigator.clipboard.writeText(term.getSelection())
       term.clearSelection()
       return false

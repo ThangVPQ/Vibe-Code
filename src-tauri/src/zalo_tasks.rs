@@ -177,7 +177,8 @@ pub fn init() {
 /// Realtime: a new message to me (or my reply in a chat with open work) → analyze within seconds.
 pub fn on_ingest(ids: Vec<String>) {
     let now = core::now_ms() as i64;
-    let feed: Vec<WorkThread> = zalo::work_feed(now - WINDOW_DAYS * DAY, 40, 40).into_iter().filter(|t| ids.contains(&t.thread_id)).collect();
+    // only the conversations that just got messages (not a scan of every conversation per message)
+    let feed: Vec<WorkThread> = zalo::work_feed(now - WINDOW_DAYS * DAY, 40, 40, Some(&ids));
     let mut relevant = false;
     let mut add = Vec::new();
     {
@@ -627,7 +628,7 @@ pub async fn analyze() -> ZaloTasksState {
 
 async fn run_once() -> Result<()> {
     let now = core::now_ms() as i64;
-    let feed = zalo::work_feed(now - WINDOW_DAYS * DAY, 40, 40);
+    let feed = zalo::work_feed(now - WINDOW_DAYS * DAY, 40, 40, None);
     let mut created: Vec<ZaloTask> = Vec::new();
     let mut updated_ids: Vec<String> = Vec::new();
     if !feed.is_empty() {

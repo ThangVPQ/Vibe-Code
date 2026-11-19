@@ -62,8 +62,19 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
       ed.focus()
       ed.trigger('vibe', 'editor.action.quickOutline', null)
     }
+    // Ctrl+G from outside the editor, or ":" in Ctrl+P
+    const line = (): void => {
+      const ed = editorRef.current
+      if (!ed || useStore.getState().activeTabId !== tab.id) return
+      ed.focus()
+      ed.trigger('vibe', 'editor.action.gotoLine', null)
+    }
     window.addEventListener('go-to-symbol', go)
-    return () => window.removeEventListener('go-to-symbol', go)
+    window.addEventListener('go-to-line', line)
+    return () => {
+      window.removeEventListener('go-to-symbol', go)
+      window.removeEventListener('go-to-line', line)
+    }
   }, [tab.id])
 
   const onMount: OnMount = (editor) => {

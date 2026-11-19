@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
 import { useStore } from './store'
-import { applyTheme, closeTab, defaultAgent, detectClaude, loadSessions, newChat, openFolder, refreshGit, selectChat, showChatBrowser, toggleBottom } from './actions'
+import { applyTheme, detectClaude, loadSessions, openFolder, refreshGit, showChatBrowser } from './actions'
+import { onGlobalKey } from './shortcuts'
 import { focusTerm } from './terminals'
 import { reloadIfClean } from './fileModelsLite'
 import { QuickOpen, StatusBar, TitleBar, Welcome } from './components/Chrome'
@@ -11,32 +12,9 @@ import { BottomPanel, ClaudePanel } from './components/Claude'
 
 function useGlobalKeys(): void {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const ctrl = e.ctrlKey || e.metaKey
-      const k = e.key.toLowerCase()
-      const s = useStore.getState()
-      let handled = true
-      if (ctrl && !e.shiftKey && k === 'p') useStore.setState({ quickOpen: !!s.root })
-      else if (ctrl && e.shiftKey && k === 'o') window.dispatchEvent(new Event('go-to-symbol'))
-      else if (ctrl && (e.key === '`' || e.code === 'Backquote')) toggleBottom()
-      else if (ctrl && !e.shiftKey && k === 'b') useStore.setState({ sidebarOpen: !s.sidebarOpen })
-      else if (ctrl && e.shiftKey && k === 'n') defaultAgent() && newChat()
-      else if (ctrl && e.shiftKey && k === 'e') useStore.setState({ centerView: 'code' })
-      else if (ctrl && e.shiftKey && k === 'g') useStore.setState({ centerView: 'code' })
-      else if (ctrl && e.shiftKey && k === 'c') useStore.setState({ sidebarView: 'chats', sidebarOpen: true })
-      else if (ctrl && !e.shiftKey && k === 'w' && s.activeTabId) closeTab(s.activeTabId)
-      else if (e.altKey && !ctrl && /^[1-9]$/.test(e.key)) {
-        const c = s.chats[parseInt(e.key) - 1]
-        if (c) selectChat(c.id)
-      } else handled = false
-      if (handled) {
-        e.preventDefault()
-        e.stopPropagation()
-      }
-    }
-    // capture phase: runs before xterm / monaco swallow the keystroke
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    // capture phase: runs before xterm / monaco swallow the keystroke (see shortcuts.ts)
+    window.addEventListener('keydown', onGlobalKey, true)
+    return () => window.removeEventListener('keydown', onGlobalKey, true)
   }, [])
   // "new Zalo task" notification clicked → show the Zalo tab
   useEffect(() => window.api.zalo.onShowTasks(() => useStore.setState({ centerView: 'zalo' })), [])
@@ -57,8 +35,7 @@ function useBoot(): void {
     const offs = [
       window.api.fs.onChanged((paths) => {
         refreshGit()
-        // structural changes → refresh explorer
-        useStore.setState((s) => ({ fsTick: s.fsTick + 1 }))
+        // the explorer's folders listen to 'fs-changed' and re-read only the ones touched
         for (const p of paths) reloadIfClean(p)
         window.dispatchEvent(new CustomEvent('fs-changed', { detail: paths }))
       }),
@@ -130,7 +107,7 @@ export default function App(): React.JSX.Element {
         </div>
       )}
       <StatusBar />
-      {quickOpen && root && <QuickOpen />}
+      {quickOpen && <QuickOpen />}
     </div>
   )
 }

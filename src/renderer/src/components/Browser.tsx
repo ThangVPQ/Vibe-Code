@@ -56,13 +56,13 @@ function savedDevice(): string {
  * Anything drawn over the page area (menus, dialogs, lightboxes, address suggestions). The page
  * itself is a native view stacked above the app's HTML, so it steps aside while one is open.
  */
-const OVERLAYS = '.overlay, .menu, .ctx-menu, .image-lightbox, .term-image-hover, .bm-menu, .browser-sugg, .zl-lightbox, .zl-ctx'
+const OVERLAYS = '.overlay, .menu, .ctx-menu, .image-lightbox, .term-image-hover, .bm-menu, .browser-sugg, .zl-ctx'
 
 const overlaps = (a: DOMRect, b: DOMRect): boolean => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
 
 let labelSeq = 0
 
-export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId: string; active: boolean }): React.JSX.Element {
+export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: string; tabId: string; active: boolean; onScreen: boolean }): React.JSX.Element {
   const viewRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const url = useStore((s) => s.browsers[chatKey]?.tabs.find((t) => t.id === tabId)?.url ?? HOME_URL)
@@ -160,15 +160,21 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
    * hidden; otherwise it is parked — and the engine throttles, then freezes it.
    */
   const zoom = box?.zoom ?? 1
+  // the open tab of the chat on screen, with the Web view in front: only that page is tracked live
+  const live = active && onScreen
   useEffect(() => {
     const el = viewRef.current
     if (!el) return
     let last = ''
     const place = (): void => {
+      if (!live) {
+        window.api.browser.place(label, { x: 0, y: 0, w: 0, h: 0 }, zoom, false)
+        return
+      }
       const r = el.getBoundingClientRect()
-      const onScreen = active && r.width > 4 && r.height > 4 && document.visibilityState === 'visible' && !el.closest('.browser-tab-pane:not(.on)')
-      const covered = onScreen && [...document.querySelectorAll(OVERLAYS)].some((o) => overlaps(o.getBoundingClientRect(), r))
-      const visible = onScreen && !covered
+      const fits = r.width > 4 && r.height > 4 && document.visibilityState === 'visible' && !el.closest('.browser-tab-pane:not(.on)')
+      const covered = fits && [...document.querySelectorAll(OVERLAYS)].some((o) => overlaps(o.getBoundingClientRect(), r))
+      const visible = fits && !covered
       const key = visible ? `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)},${zoom}` : 'off'
       if (key === last) return
       last = key
@@ -176,10 +182,15 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
     }
     let frame = 0
     const soon = (): void => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(place)
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0
+        place()
+      })
     }
     place()
+    // parked: nothing to follow. (Every tab of every chat used to watch the whole document, so each
+    // terminal redraw made all of them measure the layout.)
+    if (!live) return
     const ro = new ResizeObserver(soon)
     ro.observe(el)
     // menus / dialogs opening, panes sliding, the chat switching
@@ -189,7 +200,7 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
     document.addEventListener('visibilitychange', soon)
     document.addEventListener('transitionend', soon, true)
     // slide-in animations move the placeholder without resizing it
-    const tick = active ? window.setInterval(place, 300) : 0
+    const tick = window.setInterval(place, 300)
     return () => {
       cancelAnimationFrame(frame)
       ro.disconnect()
@@ -199,7 +210,7 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
       document.removeEventListener('transitionend', soon, true)
       window.clearInterval(tick)
     }
-  }, [active, label, zoom])
+  }, [live, label, zoom])
 
   const pickDevice = (key: string): void => {
     const next = DEVICES.find((d) => d.key === key) ?? DEVICES[0]
@@ -310,7 +321,6 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
         </button>
       </div>
       <BookmarkBar onOpen={(u) => go(u)} />
-      {loading && <div className="browser-progress" />}
       <div className={`browser-stage${box ? ' emulated' : ''}`} ref={stageRef}>
         {/* placeholder: the native page is laid over exactly this box */}
         <div ref={viewRef} className="browser-view" style={box ? { width: box.w, height: box.h, flex: 'none' } : undefined} />

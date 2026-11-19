@@ -51,8 +51,9 @@ const settled = new Set<string>()
 
 onTerminalEvents({
   activity: (id) => {
+    if (!st().chats.some((c) => c.id === id)) return
     lastData.set(id, Date.now())
-    if (st().chats.some((c) => c.id === id)) checkStatus(id)
+    checkStatus(id)
   },
   title: (id, raw) => {
     // Claude Code sets the terminal title to a short task summary, often prefixed by a spinner glyph.
@@ -303,11 +304,16 @@ export async function openFolder(folder?: string | null, opts: { autoChat?: bool
 /* ---------------- Claude session store (shared with the Claude app) ---------------- */
 
 let sessTimer: ReturnType<typeof setTimeout> | null = null
+let lastProjects = ''
 export function loadSessions(): void {
   if (sessTimer) clearTimeout(sessTimer)
   sessTimer = setTimeout(async () => {
     const projects = await window.api.sessions.list().catch(() => null)
     if (!projects) return
+    // Claude writes its transcripts all the time; most pings change nothing in the list
+    const json = JSON.stringify(projects)
+    if (json === lastProjects) return
+    lastProjects = json
     useStore.setState({ projects })
     // Titles Claude generates (or that were renamed in the Claude app) flow into open chats.
     const byId = new Map(projects.flatMap((g) => g.sessions.map((s) => [s.id, s] as const)))
@@ -378,7 +384,9 @@ export function refreshGit(): void {
   gitTimer = setTimeout(async () => {
     const root = st().root
     if (!root) return
-    const git = await window.api.git.state(root)
+    const git = await window.api.git.state(root).catch(() => null)
+    // unchanged status (most file events): keep the same object, so nothing re-renders or re-fetches
+    if (!git || st().root !== root || JSON.stringify(git) === JSON.stringify(st().git)) return
     useStore.setState({ git })
   }, 120)
 }
@@ -523,7 +531,7 @@ export function setChatPermission(id: string, mode: string): void {
 export function selectChat(id: string): void {
   const chat = st().chats.find((c) => c.id === id)
   useStore.setState({ activeChatId: id })
-  st().patchChat(id, { attention: false })
+  if (chat?.attention) st().patchChat(id, { attention: false })
   // Explorer / Changes follow the chat you're looking at.
   if (chat) {
     const proj = st().projects.find((g) => g.sessions.some((s) => s.id === chat.sessionId))
@@ -560,9 +568,14 @@ export async function newChatFromZaloTask(taskId: string, title: string, project
 export function closeChat(id: string): void {
   disposeTerm(id)
   clearAttachments(id)
-  lastData.delete(id)
-  statusDirty.delete(id)
+  forgetTerm(id)
   settled.delete(id)
+  pendingDraft.delete(id)
+  seenLocal.delete(id)
+  clearTimeout(dialogTimer.get(id))
+  dialogTimer.delete(id)
+  clearTimeout(draftTimer.get(id))
+  draftTimer.delete(id)
   useStore.setState((s) => {
     const idx = s.chats.findIndex((c) => c.id === id)
     const chats = s.chats.filter((c) => c.id !== id)
@@ -596,6 +609,13 @@ export function renameChat(id: string, title: string): void {
   if (t) st().patchChat(id, { title: t, pinnedTitle: true })
 }
 
+/** Per-terminal bookkeeping of the output handlers, dropped when a chat / shell closes. */
+function forgetTerm(id: string): void {
+  lastData.delete(id)
+  statusDirty.delete(id)
+  outTail.delete(id)
+}
+
 /* ---------------- Shells (bottom panel) ---------------- */
 
 export function newShell(): void {
@@ -612,6 +632,7 @@ export function newShell(): void {
 
 export function closeShell(id: string): void {
   disposeTerm(id)
+  forgetTerm(id)
   useStore.setState((s) => {
     const shells = s.shells.filter((x) => x.id !== id)
     return {
@@ -734,11 +755,18 @@ export function openCommitDiff(gitRoot: string, commit: { hash: string; short: s
   pushTab({ id: `c:${commit.hash}:${rel}`, kind: 'diff', path: abs, rel, title: `${basename(rel)} @${commit.short}`, commit })
 }
 
+/** recently closed editor tabs, newest last (Ctrl+Shift+T brings them back) */
+const closedTabs: EditorTab[] = []
+
 export function closeTab(id: string): void {
   const tab = st().tabs.find((t) => t.id === id)
   if (tab?.kind === 'file') {
     if (hasUnsaved(tab.path) && !window.confirm(`Discard unsaved changes to ${tab.title}?`)) return
     disposeModel(tab.path)
+  }
+  if (tab) {
+    closedTabs.push(tab.kind === 'file' ? { ...tab, dirty: false } : tab)
+    if (closedTabs.length > 30) closedTabs.shift()
   }
   useStore.setState((s) => {
     const idx = s.tabs.findIndex((t) => t.id === id)
@@ -746,4 +774,30 @@ export function closeTab(id: string): void {
     const activeTabId = s.activeTabId === id ? (tabs[Math.min(idx, tabs.length - 1)]?.id ?? null) : s.activeTabId
     return { tabs, activeTabId }
   })
+}
+
+/** Ctrl+Shift+T: the last closed editor tab again. */
+export function reopenClosedTab(): void {
+  while (closedTabs.length) {
+    const t = closedTabs.pop()!
+    if (st().tabs.some((x) => x.id === t.id)) continue
+    return pushTab(t)
+  }
+}
+
+/** Ctrl+Tab / Ctrl+PageDown (+1) and Ctrl+Shift+Tab / Ctrl+PageUp (−1) through the editor tabs. */
+export function cycleTab(step: 1 | -1): void {
+  const { tabs, activeTabId } = st()
+  if (!tabs.length) return
+  const i = tabs.findIndex((t) => t.id === activeTabId)
+  const next = tabs[(i + step + tabs.length) % tabs.length]
+  useStore.setState({ activeTabId: next.id, centerView: 'code' })
+}
+
+/** Next / previous chat in the sidebar's order. */
+export function cycleChat(step: 1 | -1): void {
+  const { chats, activeChatId } = st()
+  if (!chats.length) return
+  const i = chats.findIndex((c) => c.id === activeChatId)
+  selectChat(chats[(i + step + chats.length) % chats.length].id)
 }

@@ -62,4 +62,4 @@ export function markTab(path: string, dirty: boolean): void {
 
 export { languageFor }
 
-registerFileModels({ getModel, isDirty, disposeModel, reloadIfClean, languageFor })
+registerFileModels({ getModel, isDirty, disposeModel, reloadIfClean, saveModel, languageFor })

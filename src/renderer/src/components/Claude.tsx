@@ -60,12 +60,12 @@ const PULL =
   'keep my work safe and tell me what happened.\r'
 
 export function ClaudePanel(): React.JSX.Element {
-  const chats = useStore((s) => s.chats)
-  const activeId = useStore((s) => s.activeChatId)
+  // only the open chat: other chats' status / title changes don't re-render this panel
+  const active = useStore((s) => s.chats.find((c) => c.id === s.activeChatId) ?? null)
+  const activeId = active?.id ?? null
   const claude = useStore((s) => s.claude)
   // Codex / Gemini… alone is enough to chat; the install card is for when no agent is there at all
   const anyAgent = useStore((s) => !!s.claude?.found || s.agents.some((a) => a.found))
-  const active = chats.find((c) => c.id === activeId) ?? null
   const images = useChatImages(active?.sessionId)
   const tasks = useChatTasks(active?.sessionId)
   const runningTasks = tasks.filter((t) => t.status === 'running').length
@@ -354,11 +354,12 @@ function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
     const load = (): void => {
       window.api.sessions
         .context(sessionId)
-        .then((c) => alive && setCtx(c))
+        .then((c) => alive && setCtx((prev) => (prev && c && prev.used === c.used && prev.model === c.model ? prev : c)))
         .catch(() => {})
     }
     load()
-    const off = window.api.sessions.onChanged(() => {
+    const off = window.api.sessions.onChanged((ids) => {
+      if (!ids.includes(sessionId)) return
       clearTimeout(timer)
       timer = setTimeout(load, 400)
     })

@@ -283,7 +283,8 @@ function ProjectsTree(): React.JSX.Element {
   )
 }
 
-function shortAgo(t: number): string {
+/** "now", "5m", "3h", "2d", then the date. */
+export function shortAgo(t: number): string {
   const m = Math.floor((Date.now() - t) / 60000)
   if (m < 1) return 'now'
   if (m < 60) return `${m}m`
@@ -424,19 +425,53 @@ function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: stri
   )
 }
 
+const normDir = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+
+/** Parent folder of `p`, normalized like normDir. */
+const parentOf = (p: string): string => {
+  const n = normDir(p)
+  return n.slice(0, Math.max(0, n.lastIndexOf('/')))
+}
+
+/** Re-renders when a file event touches something directly inside `dir` (not on every change anywhere). */
+function useDirChanges(dir: string): number {
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    const key = normDir(dir)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onChange = (e: Event): void => {
+      const paths = (e as CustomEvent<string[]>).detail
+      if (!paths.some((p) => parentOf(p) === key)) return
+      clearTimeout(timer)
+      timer = setTimeout(() => setN((x) => x + 1), 100)
+    }
+    window.addEventListener('fs-changed', onChange)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('fs-changed', onChange)
+    }
+  }, [dir])
+  return n
+}
+
+const sameEntries = (a: DirEntry[] | null, b: DirEntry[]): boolean =>
+  !!a && a.length === b.length && a.every((x, i) => x.path === b[i].path && x.isDir === b[i].isDir && x.name === b[i].name)
+
 function DirChildren({ dir, depth, deco, openCtx }: { dir: string; depth: number; deco: Map<string, string>; openCtx: OpenCtx }): React.JSX.Element {
   const [items, setItems] = useState<DirEntry[] | null>(null)
+  // the Refresh button bumps fsTick; file events only reach the folders they touch
   const tick = useStore((s) => s.fsTick)
+  const changed = useDirChanges(dir)
   useEffect(() => {
     let live = true
     window.api.fs
       .readDir(dir)
-      .then((r) => live && setItems(r))
+      .then((r) => live && setItems((prev) => (sameEntries(prev, r) ? prev : r)))
       .catch(() => live && setItems([]))
     return () => {
       live = false
     }
-  }, [dir, tick])
+  }, [dir, tick, changed])
   if (!items) return <div className="tree-loading" style={{ paddingLeft: 12 + depth * 12 }} />
   return (
     <>
@@ -584,6 +619,21 @@ function HistoryList(): React.JSX.Element | null {
   const gitRoot = git.root
   const [commits, setCommits] = useState<GitCommit[] | null>(null)
   const [open, setOpen] = useState<string | null>(null)
+  // a commit / pull / checkout moves HEAD or a ref even when the working tree status stays the same
+  const [refs, setRefs] = useState(0)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onChange = (e: Event): void => {
+      if (!(e as CustomEvent<string[]>).detail.some((p) => /[\\/]\.git[\\/](HEAD|refs|packed-refs)/.test(p))) return
+      clearTimeout(timer)
+      timer = setTimeout(() => setRefs((n) => n + 1), 300)
+    }
+    window.addEventListener('fs-changed', onChange)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('fs-changed', onChange)
+    }
+  }, [])
 
   // refetch whenever git state refreshes (new commits, checkout, pull…)
   useEffect(() => {
@@ -593,7 +643,7 @@ function HistoryList(): React.JSX.Element | null {
     return () => {
       live = false
     }
-  }, [gitRoot, git])
+  }, [gitRoot, git, refs])
 
   if (!gitRoot || !commits) return null
   return (

@@ -113,7 +113,9 @@ pub enum PtyMsg {
 
 struct Session {
     generation: u64,
-    writer: Box<dyn Write + Send>,
+    /// keystrokes go to a writer thread: a ConPTY input pipe whose process isn't reading blocks,
+    /// and that must never stall the command (Tauri runs sync commands on the UI thread)
+    input: std::sync::mpsc::Sender<Vec<u8>>,
     master: Box<dyn MasterPty + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
 }
@@ -182,11 +184,25 @@ pub async fn pty_spawn(opts: SpawnOptions, out: Channel<PtyMsg>) -> Res<()> {
     let mut child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader()?;
-    let writer = pair.master.take_writer()?;
+    let mut writer = pair.master.take_writer()?;
     let killer = child.clone_killer();
 
+    // in order, off the caller's thread; ends when the session (its sender) is dropped or a write fails
+    let (input, keys) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::Builder::new().name(format!("pty-write-{}", opts.id)).spawn(move || {
+        while let Ok(mut data) = keys.recv() {
+            // a paste arrives as many pieces: write what has queued up in one go
+            while let Ok(more) = keys.try_recv() {
+                data.extend(more);
+            }
+            if writer.write_all(&data).and_then(|_| writer.flush()).is_err() {
+                break;
+            }
+        }
+    })?;
+
     let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
-    SESSIONS.lock().insert(opts.id.clone(), Session { generation, writer, master: pair.master, killer });
+    SESSIONS.lock().insert(opts.id.clone(), Session { generation, input, master: pair.master, killer });
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Chunk>();
 
@@ -264,8 +280,11 @@ pub async fn pty_spawn(opts: SpawnOptions, out: Channel<PtyMsg>) -> Res<()> {
                     let mut s = SESSIONS.lock();
                     if s.get(&id).is_some_and(|x| x.generation == generation) { s.remove(&id) } else { None }
                 };
-                if mine.is_some() {
+                if let Some(sess) = mine {
+                    VISIBLE.lock().remove(&id);
                     let _ = out.send(PtyMsg::Exit { code });
+                    // closing a ConPTY can stall: not on an async worker
+                    std::thread::spawn(move || drop(sess));
                 }
                 break;
             }
@@ -278,19 +297,27 @@ pub async fn pty_spawn(opts: SpawnOptions, out: Channel<PtyMsg>) -> Res<()> {
 #[tauri::command]
 pub fn pty_write(id: String, data: String) -> bool {
     let mut s = SESSIONS.lock();
-    let Some(sess) = s.get_mut(&id) else { return false };
-    if sess.writer.write_all(data.as_bytes()).and_then(|_| sess.writer.flush()).is_ok() {
+    let Some(sess) = s.get(&id) else { return false };
+    if sess.input.send(data.into_bytes()).is_ok() {
         return true;
     }
-    s.remove(&id);
+    // the writer thread ended: the process is gone
+    let dead = s.remove(&id);
+    drop(s);
+    VISIBLE.lock().remove(&id);
+    std::thread::spawn(move || drop(dead));
     false
 }
 
 #[tauri::command]
-pub fn pty_resize(id: String, cols: u16, rows: u16) {
-    if let Some(s) = SESSIONS.lock().get(&id) {
-        let _ = s.master.resize(PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 });
-    }
+pub async fn pty_resize(id: String, cols: u16, rows: u16) {
+    // ResizePseudoConsole waits on conhost: keep it off the UI thread
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Some(s) = SESSIONS.lock().get(&id) {
+            let _ = s.master.resize(PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 });
+        }
+    })
+    .await;
 }
 
 #[tauri::command]

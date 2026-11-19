@@ -382,15 +382,6 @@ pub fn is_zero_id(v: Option<&Value>) -> bool {
     }
 }
 
-/// `v != "-1"` (loose).
-pub fn not_minus_one(v: Option<&Value>) -> bool {
-    match v {
-        Some(Value::String(s)) => s != "-1",
-        Some(Value::Number(n)) => n.as_f64() != Some(-1.0),
-        _ => true,
-    }
-}
-
 /// Milliseconds since the epoch, as JS `Date.now()`.
 pub fn now_ms() -> i64 {
     crate::core::now_ms() as i64
@@ -517,7 +508,6 @@ mod tests {
         assert!(jnum(Some(&json!("abc"))).is_nan());
         assert!(jnum(None).is_nan());
         assert!(is_zero_id(Some(&json!("0"))) && is_zero_id(Some(&json!(0))) && !is_zero_id(Some(&json!("10"))));
-        assert!(!not_minus_one(Some(&json!(-1))) && !not_minus_one(Some(&json!("-1"))) && not_minus_one(None));
         assert_eq!(decode_uri_component("a%20b%C3%A0").unwrap(), "a bà");
         assert!(decode_uri_component("%E0%A4%A").is_err());
     }

@@ -10,19 +10,22 @@ export function useChatImages(sessionId: string | undefined): string[] {
     if (!sessionId) return
     let alive = true
     let timer: ReturnType<typeof setTimeout> | undefined
+    // the backend sends the pictures again only when one was added (they are big data: URLs)
+    let version: number | undefined
     const load = (): void => {
-      // (missing until the app restarts after an update)
-      if (typeof window.api.sessions.images !== 'function') return
       window.api.sessions
-        .images(sessionId)
-        .then((list) => {
-          if (alive) setImages((prev) => (prev.length === list.length && prev[prev.length - 1] === list[list.length - 1] ? prev : list))
+        .images(sessionId, version)
+        .then((r) => {
+          if (!alive || !r.images) return
+          version = r.version
+          setImages(r.images)
         })
         .catch(() => {})
     }
     load()
-    // the transcript file changes as the chat goes on
-    const off = window.api.sessions.onChanged(() => {
+    // this chat's transcript changed (pings for other chats are ignored)
+    const off = window.api.sessions.onChanged((ids) => {
+      if (!ids.includes(sessionId)) return
       clearTimeout(timer)
       timer = setTimeout(load, 700)
     })

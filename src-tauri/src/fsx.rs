@@ -104,16 +104,30 @@ fn list_files(root: &Path, limit: usize) -> Vec<String> {
 
 static WATCHER: LazyLock<Mutex<Option<Debouncer<notify::RecommendedWatcher, RecommendedCache>>>> = LazyLock::new(|| Mutex::new(None));
 
-fn ignored(p: &Path) -> bool {
-    let mut prev_git = false;
-    for c in p.components() {
-        let s = c.as_os_str();
-        if s == "node_modules" || s == "out" || s == "dist" || (prev_git && s == "objects") {
-            return true;
-        }
-        prev_git = s == ".git";
+/// Folders whose churn (build output, caches) means nothing to the explorer or the Changes panel.
+/// A `cargo build` / `dotnet build` / `next dev` writes thousands of files there; each batch used to
+/// re-run `git status` and re-read the open explorer folders.
+const SKIP_WATCH: [&str; 18] = [
+    "node_modules", "out", "dist", "build", "target", "bin", "obj", ".vs", ".next", ".nuxt", ".turbo", ".angular",
+    ".svelte-kit", ".parcel-cache", ".gradle", "__pycache__", ".venv", "venv",
+];
+
+/// `p` relative to the watched root (a project that itself lives under e.g. `D:uild` still counts).
+fn ignored(root: &Path, p: &Path) -> bool {
+    let rel = p.strip_prefix(root).unwrap_or(p);
+    let parts: Vec<&std::ffi::OsStr> = rel.components().map(|c| c.as_os_str()).collect();
+    if let Some(i) = parts.iter().position(|s| *s == ".git") {
+        // inside .git only what changes the Changes panel: the branch, refs, the index (staging)
+        let rest = &parts[i + 1..];
+        let keep = match rest.first().and_then(|s| s.to_str()) {
+            Some("HEAD" | "index" | "packed-refs" | "MERGE_HEAD") => rest.len() == 1,
+            Some("refs") => true,
+            None => true,
+            _ => false,
+        };
+        return !keep || p.extension().is_some_and(|e| e == "lock");
     }
-    false
+    parts.iter().any(|s| SKIP_WATCH.iter().any(|k| *s == *k))
 }
 
 #[tauri::command]
@@ -121,12 +135,13 @@ pub async fn fs_watch(root: Option<String>) -> Res<()> {
     let mut slot = WATCHER.lock();
     *slot = None; // drops (stops) the previous watcher
     let Some(root) = root else { return Ok(()) };
-    let mut deb = new_debouncer(Duration::from_millis(200), None, |res: DebounceEventResult| {
+    let base = PathBuf::from(&root);
+    let mut deb = new_debouncer(Duration::from_millis(200), None, move |res: DebounceEventResult| {
         let Ok(events) = res else { return };
         let mut paths: Vec<String> = events
             .iter()
             .flat_map(|e| e.paths.iter())
-            .filter(|p| !ignored(p))
+            .filter(|p| !ignored(&base, p))
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
         paths.sort_unstable();

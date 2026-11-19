@@ -7,6 +7,7 @@ import { SlidePill } from './motion'
 import { ChangesView, ExplorerView } from './Sidebar'
 import { FileIcon, Logo } from './icons'
 import { EditorFontButton } from './EditorFont'
+import { RecentChats } from './Chrome'
 // heavy parts load on first use: Monaco (~4 MB) only when a file or diff opens
 const FileEditor = lazy(() => import('./MonacoViews').then((m) => ({ default: m.FileEditor })))
 const DiffView = lazy(() => import('./MonacoViews').then((m) => ({ default: m.DiffView })))
@@ -35,6 +36,7 @@ export function EditorArea(): React.JSX.Element {
   }, [view, key, browsers])
   return (
     <div className="center-area">
+      <RecentChats />
       <div className="center-switch" role="tablist">
         <SlidePill />
         <button role="tab" aria-selected={view === 'code'} className={view === 'code' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'code' })}>
@@ -140,6 +142,7 @@ function taskbarBadge(n: number): void {
 /** A chat's browser: its tab strip and one page per tab. */
 function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
   const b = useStore((s) => s.browsers[chatKey])
+  const shown = useStore((s) => s.centerView === 'web' && browserKey(s.activeChatId) === chatKey)
   const stripRef = useRef<HTMLDivElement>(null)
   // tabs on their way out: they shrink away first, then really close
   const [closing, setClosing] = useState<Set<string>>(new Set())
@@ -202,7 +205,7 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
       <div className="browser-deck">
         {b.tabs.map((t, i) => (
           <div key={t.id} className={`browser-tab-pane ${i === activeIdx ? 'on' : i < activeIdx ? 'left' : 'right'}`}>
-            <BrowserTab chatKey={chatKey} tabId={t.id} active={t.id === b.active} />
+            <BrowserTab chatKey={chatKey} tabId={t.id} active={t.id === b.active} onScreen={shown} />
           </div>
         ))}
       </div>
@@ -212,7 +215,9 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
 
 /** Left column of Source code: the project's files, or its Git changes (click one for the diff). */
 function CodeSide(): React.JSX.Element {
-  const [side, setSide] = useState<'files' | 'changes'>('files')
+  // in the store: Ctrl+Shift+E / Ctrl+Shift+G switch it
+  const side = useStore((s) => s.codeSide)
+  const setSide = (codeSide: 'files' | 'changes'): void => useStore.setState({ codeSide })
   const changed = useStore((s) => s.git.files.length)
   const hasRoot = useStore((s) => !!s.root)
   return (

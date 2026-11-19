@@ -9,6 +9,7 @@ interface FileModels {
   isDirty(model: editor.ITextModel): boolean
   disposeModel(path: string): void
   reloadIfClean(path: string): Promise<void>
+  saveModel(path: string): Promise<void>
   languageFor(path: string): string
 }
 
@@ -25,6 +26,8 @@ export function hasUnsaved(path: string): boolean {
 }
 
 export const disposeModel = (path: string): void => fm?.disposeModel(path)
+/** Save an open file (no-op before Monaco loaded: nothing can be unsaved then). */
+export const saveFile = async (path: string): Promise<void> => fm?.saveModel(path)
 export const reloadIfClean = async (path: string): Promise<void> => fm?.reloadIfClean(path)
 /** Monaco's language id for a file ('' until Monaco has loaded). */
 export const languageOf = (path: string): string => fm?.languageFor(path) ?? ''

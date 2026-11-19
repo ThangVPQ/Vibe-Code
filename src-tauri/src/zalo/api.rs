@@ -2,31 +2,23 @@
 //! (`zalo.js` + `apis/login.js`), QR login (`apis/loginQR.js`), `utils.request` (cookies,
 //! redirects) and the endpoints in `apis/*.js` — each method names the file it comes from.
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow, bail};
-use futures_util::future::join_all;
 use parking_lot::Mutex;
 use reqwest::{
     Method, Url,
     header::{LOCATION, SET_COOKIE},
-    multipart::{Form, Part},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use tokio::sync::oneshot;
 
 use super::{
     cookies::CookieJar,
     listen::{Msg, group_message},
     proto::{
         API_TYPE, API_VERSION, ParamsEncryptor, decode_aes, decrypt_resp, encode_aes, encode_aes_utf8_key, jnum, jstr, make_url,
-        md5_hex, not_minus_one, now_ms, sign_key, truthy, zalo_uuid,
+        now_ms, sign_key, truthy, zalo_uuid,
     },
 };
 
@@ -72,7 +64,6 @@ fn form_encode(pairs: &[(String, String)]) -> String {
 pub enum Body {
     Empty,
     Form(Vec<(String, String)>),
-    Multipart(Form),
 }
 
 pub struct Resp {
@@ -140,17 +131,12 @@ impl Http {
                     None => h.push((k, v)),
                 }
             }
-            let multipart = matches!(body, Some(Body::Multipart(_)));
             let mut req = self.client.request(method.clone(), url.clone());
             for (k, v) in h {
-                if multipart && k.eq_ignore_ascii_case("content-type") {
-                    continue;
-                }
                 req = req.header(k, v);
             }
             req = match body.take() {
                 Some(Body::Form(f)) => req.body(form_encode(&f)),
-                Some(Body::Multipart(m)) => req.multipart(m),
                 _ => req,
             };
             let resp = req.send().await?;
@@ -206,8 +192,6 @@ pub struct Api {
     extra_ver: Value,
     service_map: Value,
     pub ws_urls: Vec<String>,
-    /// uploads waiting for their `file_done` socket event (zca-js `ctx.uploadCallbacks`)
-    uploads: Mutex<HashMap<String, oneshot::Sender<Value>>>,
 }
 
 /// `Zalo.login(credentials)`.
@@ -236,7 +220,6 @@ pub async fn login(creds: &Credentials) -> Result<Arc<Api>> {
         ws_urls: info.get("zpw_ws").and_then(Value::as_array).map(|a| a.iter().filter_map(|u| u.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
         service_map: info.get("zpw_service_map_v3").cloned().unwrap_or(Value::Null),
         http,
-        uploads: Mutex::new(HashMap::new()),
     }))
 }
 
@@ -437,153 +420,8 @@ async fn long_poll(http: &Http, url: &str, pairs: &[(&str, &str)]) -> Result<Val
 
 /* ---------------- the API ---------------- */
 
-/// `addReaction`'s icon → rType table (source is always 6).
-fn reaction_type(icon: &str) -> i64 {
-    match icon {
-        ":>" => 0,
-        "/-strong" => 3,
-        "/-heart" => 5,
-        ":o" => 32,
-        ":-((" => 2,
-        ":-h" => 20,
-        ":-*" => 8,
-        ":')" => 7,
-        "/-shit" => 66,
-        "/-rose" => 120,
-        "/-break" => 65,
-        "/-weak" => 4,
-        ";xx" => 29,
-        ";-/" => 51,
-        ";-)" => 45,
-        "/-fade" => 121,
-        "/-li" => 67,
-        "/-bd" => 126,
-        "/-bome" => 127,
-        "/-ok" => 68,
-        "/-v" => 69,
-        "/-thanks" => 70,
-        "/-punch" => 71,
-        "/-share" => 72,
-        "_()_" => 73,
-        "/-no" => 131,
-        "/-bad" => 132,
-        "/-loveu" => 133,
-        "--b" => 1,
-        ":((" => 16,
-        "x-)" => 21,
-        "8-)" => 22,
-        ";-d" => 23,
-        "b-)" => 26,
-        ":--|" => 30,
-        "p-(" => 35,
-        ":-bye" => 36,
-        "|-)" => 38,
-        ":wipe" => 39,
-        ":-dig" => 42,
-        "&-(" => 44,
-        ":handclap" => 46,
-        ">-|" => 47,
-        ":-f" => 48,
-        ":-l" => 49,
-        ":-r" => 50,
-        ";-x" => 52,
-        ":-o" => 53,
-        ";-s" => 54,
-        ";-a" => 60,
-        ":-<" => 61,
-        ":))" => 62,
-        "$-)" => 63,
-        "/-beer" => 99,
-        _ => -1,
-    }
-}
-
-/// JS `parseInt(s)` written back as JSON, as `JSON.stringify` would (ids past 2^53 lose digits
-/// exactly like they do in Zalo Web).
-fn js_parse_int_json(s: &str) -> String {
-    let t = s.trim_start();
-    let (neg, digits) = match t.strip_prefix('-') {
-        Some(d) => (true, d),
-        None => (false, t.strip_prefix('+').unwrap_or(t)),
-    };
-    let digits: String = digits.chars().take_while(char::is_ascii_digit).collect();
-    if digits.is_empty() {
-        return "null".into();
-    }
-    let n: f64 = digits.parse().unwrap_or(f64::NAN);
-    let n = if neg { -n } else { n };
-    if n.abs() >= 1e21 { format!("{n:e}").replace("e", "e+") } else { format!("{n}") }
-}
-
-/// A message to send (`sendMessage`'s `MessageContent`).
-#[derive(Default)]
-pub struct Outgoing {
-    pub msg: String,
-    pub quote: Option<Quote>,
-    pub mentions: Vec<Mention>,
-    pub attachments: Vec<PathBuf>,
-    pub ttl: i64,
-}
-
-/// `SendMessageQuote`: the replied-to message as Zalo sent it.
-#[derive(Clone)]
-pub struct Quote {
-    pub content: Value,
-    pub msg_type: String,
-    pub property_ext: Option<Value>,
-    pub uid_from: String,
-    pub msg_id: String,
-    pub cli_msg_id: String,
-    pub ts: String,
-    pub ttl: Option<Value>,
-}
-
-#[derive(Clone)]
-pub struct Mention {
-    pub pos: i64,
-    pub uid: String,
-    pub len: i64,
-}
-
-#[derive(Debug, Default)]
-pub struct SendResult {
-    pub message: Option<Value>,
-    pub attachment: Vec<Value>,
-}
-
-/// What `sendSeenEvent` needs of one message.
-pub struct SeenMsg {
-    pub msg_id: String,
-    pub cli_msg_id: String,
-    pub uid_from: String,
-    pub id_to: String,
-    pub msg_type: String,
-    pub st: Option<Value>,
-    pub at: Option<Value>,
-    pub cmd: Option<Value>,
-}
-
-/// One request `sendMessage` makes.
-struct SendReq {
-    url: String,
-    body: Body,
-}
-
-fn file_ext(p: &Path) -> String {
-    p.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()
-}
-
-fn file_name(p: &Path) -> String {
-    p.file_name().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()
-}
-
 fn obj(pairs: Vec<(&str, Value)>) -> Value {
     Value::Object(pairs.into_iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.to_owned(), v)).collect::<Map<_, _>>())
-}
-
-/// `toid` for a person, `grid` for a group.
-fn dest(kind: ThreadType, thread_id: &str) -> (&'static str, Value) {
-    (if kind == ThreadType::Group { "grid" } else { "toid" }, json!(thread_id))
 }
 
 impl Api {
@@ -604,10 +442,6 @@ impl Api {
 
     fn enc(&self, params: &Value) -> Result<String> {
         encode_aes(&self.secret_key, &params.to_string()).map_err(|_| zerr("Failed to encrypt params"))
-    }
-
-    fn sharefile(&self, key: &str) -> &Value {
-        &self.settings["features"]["sharefile"][key]
     }
 
     /// `resolveResponse` / `handleZaloResponse`: unwrap (and decrypt) `data`.
@@ -647,13 +481,6 @@ impl Api {
         let body = Body::Form(vec![("params".into(), self.enc(params)?)]);
         let r = self.http.request(url, Method::POST, vec![], body).await?;
         self.resolve(&r, true)
-    }
-
-    /// The socket said an upload finished (`file_done`).
-    pub fn upload_done(&self, file_id: &str, data: Value) {
-        if let Some(tx) = self.uploads.lock().remove(file_id) {
-            let _ = tx.send(data);
-        }
     }
 
     /* ----- profile, friends, groups ----- */
@@ -700,18 +527,6 @@ impl Api {
         self.post_with(&url, &params).await
     }
 
-    /// getPinConversations.js
-    pub async fn get_pin_conversations(&self) -> Result<Value> {
-        let base = self.url(&format!("{}/api/pinconvers/list", self.svc("conversation")?), &[])?;
-        self.get_with(&base, &json!({ "imei": self.imei })).await
-    }
-
-    /// lastOnline.js
-    pub async fn last_online(&self, uid: &str) -> Result<Value> {
-        let base = self.url(&format!("{}/api/social/profile/lastOnline", self.svc("profile")?), &[])?;
-        self.get_with(&base, &json!({ "uid": uid, "conv_type": 1, "imei": self.imei })).await
-    }
-
     /// findUser.js (the phone goes international for Vietnamese accounts).
     pub async fn find_user(&self, phone: &str) -> Result<Value> {
         if phone.is_empty() {
@@ -754,675 +569,51 @@ impl Api {
         Ok((data, msgs))
     }
 
-    /* ----- stickers ----- */
+    /* ----- sending: sendMessage.js, text only ----- */
 
-    /// getStickers.js: sticker ids for a keyword.
-    pub async fn get_stickers(&self, keyword: &str) -> Result<Vec<i64>> {
-        if keyword.is_empty() {
-            return Err(zerr("Missing keyword"));
-        }
-        let mut url = Url::parse(&self.url(&format!("{}/api/message/sticker", self.svc("sticker")?), &[])?)?;
-        url.set_path(&format!("{}/suggest/stickers", url.path()));
-        let data = self.get_with(url.as_str(), &json!({ "keyword": keyword, "gif": 1, "guggy": 0, "imei": self.imei })).await?;
-        Ok(data["sugg_sticker"].as_array().into_iter().flatten().filter_map(|s| s.get("sticker_id").and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse().ok()))).collect())
-    }
-
-    /// getStickersDetail.js: details of each id (the ones that fail are left out).
-    pub async fn get_stickers_detail(&self, ids: &[i64]) -> Result<Vec<Value>> {
-        if ids.is_empty() {
-            return Err(zerr("Missing sticker id"));
-        }
-        let base = self.url(&format!("{}/api/message/sticker/sticker_detail", self.svc("sticker")?), &[])?;
-        let all = join_all(ids.iter().map(|id| {
-            let base = &base;
-            async move { self.get_with(base, &json!({ "sid": id })).await }
-        })).await;
-        Ok(all.into_iter().filter_map(Result::ok).collect())
-    }
-
-    /// sendSticker.js
-    pub async fn send_sticker(&self, id: i64, cate_id: i64, sticker_type: i64, thread_id: &str, kind: ThreadType) -> Result<Value> {
+    /// `sendMessage` for a plain text (`handleMessage` without quote or mentions): what the MCP
+    /// tool `zalo_send_message` needs. Returns Zalo's `data` (it carries the new `msgId`).
+    pub async fn send_text(&self, msg: &str, thread_id: &str, kind: ThreadType) -> Result<Value> {
         if thread_id.is_empty() {
             return Err(zerr("Missing threadId"));
         }
-        if id == 0 {
-            return Err(zerr("Missing sticker id"));
-        }
-        if sticker_type == 0 {
-            return Err(zerr("Missing sticker type"));
-        }
-        let url = match kind {
-            ThreadType::User => self.url(&format!("{}/api/message/sticker", self.svc("chat")?), &[("nretry", "0".into())])?,
-            ThreadType::Group => self.url(&format!("{}/api/group/sticker", self.svc("group")?), &[("nretry", "0".into())])?,
-        };
-        let (k, v) = dest(kind, thread_id);
-        let params = obj(vec![
-            ("stickerId", json!(id)),
-            ("cateId", json!(cate_id)),
-            ("type", json!(sticker_type)),
-            ("clientId", json!(now_ms())),
-            ("imei", json!(self.imei)),
-            ("zsource", json!(101)),
-            (k, v),
-        ]);
-        self.post_with(&url, &params).await
-    }
-
-    /* ----- message actions ----- */
-
-    /// addReaction.js (`icon` is a Zalo reaction code, "" removes mine).
-    pub async fn add_reaction(&self, icon: &str, msg_id: &str, cli_msg_id: &str, thread_id: &str, kind: ThreadType) -> Result<Value> {
-        let svc = self.svc("reaction")?;
-        let url = self.url(&format!("{svc}/api/{}/reaction", if kind == ThreadType::Group { "group" } else { "message" }), &[])?;
-        let message = format!(
-            r#"{{"rMsg":[{{"gMsgID":{},"cMsgID":{},"msgType":1}}],"rIcon":{},"rType":{},"source":6}}"#,
-            js_parse_int_json(msg_id),
-            js_parse_int_json(cli_msg_id),
-            Value::String(icon.to_owned()),
-            reaction_type(icon)
-        );
-        let mut params = json!({ "react_list": [{ "message": message, "clientId": now_ms() }] });
-        match kind {
-            ThreadType::User => params["toid"] = json!(thread_id),
-            ThreadType::Group => {
-                params["grid"] = json!(thread_id);
-                params["imei"] = json!(self.imei);
-            }
-        }
-        let mut data = self.post_with(&url, &params).await?;
-        if let Some(s) = data.get("msgIds").and_then(Value::as_str) {
-            data = json!({ "msgIds": serde_json::from_str::<Value>(s).unwrap_or(Value::Null) });
-        }
-        Ok(data)
-    }
-
-    /// undo.js: recall my message for everyone.
-    pub async fn undo(&self, msg_id: &str, cli_msg_id: &str, thread_id: &str, kind: ThreadType) -> Result<Value> {
-        let url = match kind {
-            ThreadType::User => self.url(&format!("{}/api/message/undo", self.svc("chat")?), &[])?,
-            ThreadType::Group => self.url(&format!("{}/api/group/undomsg", self.svc("group")?), &[])?,
-        };
-        let mut params = json!({ "msgId": msg_id, "clientId": now_ms(), "cliMsgIdUndo": cli_msg_id });
-        match kind {
-            ThreadType::Group => {
-                params["grid"] = json!(thread_id);
-                params["visibility"] = json!(0);
-                params["imei"] = json!(self.imei);
-            }
-            ThreadType::User => params["toid"] = json!(thread_id),
-        }
-        self.post_with(&url, &params).await
-    }
-
-    /// deleteMessage.js
-    pub async fn delete_message(&self, thread_id: &str, kind: ThreadType, msg_id: &str, cli_msg_id: &str, uid_from: &str, only_me: bool) -> Result<Value> {
-        let group = kind == ThreadType::Group;
-        if self.uid == uid_from && !only_me {
-            return Err(zerr("To delete your message for everyone, use undo api instead"));
-        }
-        if !group && !only_me {
-            return Err(zerr("Can't delete message for everyone in a private chat"));
-        }
-        let url = match kind {
-            ThreadType::User => self.url(&format!("{}/api/message/delete", self.svc("chat")?), &[])?,
-            ThreadType::Group => self.url(&format!("{}/api/group/deletemsg", self.svc("group")?), &[])?,
-        };
-        let (k, v) = dest(kind, thread_id);
-        let mut params = obj(vec![
-            (k, v),
-            ("cliMsgId", json!(now_ms())),
-            ("msgs", json!([{ "cliMsgId": cli_msg_id, "globalMsgId": msg_id, "ownerId": uid_from, "destId": thread_id }])),
-            ("onlyMe", json!(if only_me { 1 } else { 0 })),
-        ]);
-        if !group {
-            params["imei"] = json!(self.imei);
-        }
-        self.post_with(&url, &params).await
-    }
-
-    /// forwardMessage.js (text only, no reference).
-    pub async fn forward_message(&self, message: &str, thread_ids: &[String], kind: ThreadType) -> Result<Value> {
-        if message.is_empty() {
-            return Err(zerr("Missing message content"));
-        }
-        if thread_ids.is_empty() {
-            return Err(zerr("Missing thread IDs"));
-        }
-        let svc = self.svc("file")?;
-        let url = self.url(&format!("{svc}/api/{}/mforward", if kind == ThreadType::Group { "group" } else { "message" }), &[])?;
-        let client_id = now_ms().to_string();
-        let msg_info = json!({ "message": message }).to_string();
-        let params = match kind {
-            ThreadType::User => json!({
-                "toIds": thread_ids.iter().map(|t| json!({ "clientId": client_id, "toUid": t, "ttl": 0 })).collect::<Vec<_>>(),
-                "imei": self.imei,
-                "ttl": 0,
-                "msgType": "1",
-                "totalIds": thread_ids.len(),
-                "msgInfo": msg_info,
-                "decorLog": "null",
-            }),
-            ThreadType::Group => json!({
-                "grids": thread_ids.iter().map(|t| json!({ "clientId": client_id, "grid": t, "ttl": 0 })).collect::<Vec<_>>(),
-                "ttl": 0,
-                "msgType": "1",
-                "totalIds": thread_ids.len(),
-                "msgInfo": msg_info,
-                "decorLog": "null",
-            }),
-        };
-        self.post_with(&url, &params).await
-    }
-
-    /// sendSeenEvent.js: 1–50 messages of one conversation.
-    pub async fn send_seen_event(&self, msgs: &[SeenMsg], kind: ThreadType) -> Result<Value> {
-        if msgs.is_empty() || msgs.len() > 50 {
-            return Err(zerr("messages must contain between 1 and 50 messages."));
-        }
-        let group = kind == ThreadType::Group;
-        let thread_of = |m: &SeenMsg| if group { m.id_to.clone() } else { m.uid_from.clone() };
-        let thread_id = thread_of(&msgs[0]);
-        // zca-js sends 0 for any number it has and -1 for what is missing
-        let flag = |v: &Option<Value>| if v.as_ref().is_some_and(|v| v.is_number() || truthy(Some(v))) { 0 } else { -1 };
-        let mut data = Vec::new();
-        for m in msgs {
-            if thread_of(m) != thread_id {
-                return Err(zerr("All messages must belong to the same thread."));
-            }
-            data.push(json!({
-                "cmi": m.cli_msg_id,
-                "gmi": m.msg_id,
-                "si": m.uid_from,
-                "di": if m.id_to == self.uid { "0".to_owned() } else { m.id_to.clone() },
-                "mt": m.msg_type,
-                "st": flag(&m.st),
-                "at": flag(&m.at),
-                "cmd": flag(&m.cmd),
-                // zca-js: `parseInt(ts) || 0 === parseInt(ts) ? 0 : -1`, so always 0 for a number
-                "ts": 0,
-            }));
-        }
-        let mut infos = json!({ "data": data });
-        infos[if group { "grid" } else { "senderId" }] = json!(thread_id);
-        let mut params = json!({ "msgInfos": infos.to_string() });
-        if group {
-            params["imei"] = json!(self.imei);
-        }
-        let url = match kind {
-            ThreadType::User => self.url(&format!("{}/api/message/seenv2", self.svc("chat")?), &[("nretry", "0".into())])?,
-            ThreadType::Group => self.url(&format!("{}/api/group/seenv2", self.svc("group")?), &[("nretry", "0".into())])?,
-        };
-        self.post_with(&url, &params).await
-    }
-
-    /// sendTypingEvent.js
-    pub async fn send_typing_event(&self, thread_id: &str, kind: ThreadType) -> Result<Value> {
-        if thread_id.is_empty() {
-            return Err(zerr("Missing threadId"));
-        }
-        let (k, v) = dest(kind, thread_id);
-        let mut params = obj(vec![(k, v), ("imei", json!(self.imei))]);
-        let url = match kind {
-            ThreadType::User => {
-                params["destType"] = json!(3);
-                self.url(&format!("{}/api/message/typing", self.svc("chat")?), &[])?
-            }
-            ThreadType::Group => self.url(&format!("{}/api/group/typing", self.svc("group")?), &[])?,
-        };
-        self.post_with(&url, &params).await
-    }
-
-    /* ----- sending: sendMessage.js + uploadAttachment.js ----- */
-
-    fn max_file(&self) -> f64 {
-        self.sharefile("max_file").as_f64().unwrap_or(f64::INFINITY)
-    }
-
-    fn exceeds_max_size(&self, size: u64) -> bool {
-        self.sharefile("max_size_share_file_v3").as_f64().is_some_and(|mb| size as f64 > mb * 1024.0 * 1024.0)
-    }
-
-    fn max_size_mb(&self) -> String {
-        jstr(Some(self.sharefile("max_size_share_file_v3")))
-    }
-
-    /// `handleMentions` (only groups have mentions).
-    fn mentions(&self, kind: ThreadType, msg: &str, mentions: &[Mention]) -> Result<Vec<Value>> {
-        if kind != ThreadType::Group {
-            return Ok(vec![]);
-        }
-        let mut total = 0;
-        let list: Vec<Value> = mentions
-            .iter()
-            .filter(|m| m.pos >= 0 && !m.uid.is_empty() && m.len > 0)
-            .map(|m| {
-                total += m.len;
-                json!({ "pos": m.pos, "uid": m.uid, "len": m.len, "type": if m.uid == "-1" { 1 } else { 0 } })
-            })
-            .collect();
-        if total > msg.encode_utf16().count() as i64 {
-            return Err(zerr("Invalid mentions: total mention characters exceed message length"));
-        }
-        Ok(list)
-    }
-
-    /// `handleMessage`: a text (or quote) message.
-    fn text_request(&self, m: &Outgoing, thread_id: &str, kind: ThreadType) -> Result<SendReq> {
-        if m.msg.is_empty() {
+        if msg.is_empty() {
             return Err(zerr("Missing message content"));
         }
         let group = kind == ThreadType::Group;
-        let mentions = self.mentions(kind, &m.msg, &m.mentions)?;
-        if let Some(q) = &m.quote {
-            if !q.content.is_string() && q.msg_type == "webchat" {
-                return Err(zerr("This kind of `webchat` quote type is not available"));
-            }
-            if q.msg_type == "group.poll" {
-                return Err(zerr("The `group.poll` quote type is not available"));
-            }
-        }
-        let mention_info = (!mentions.is_empty() && group).then(|| json!(Value::Array(mentions).to_string()));
-        let mention_info = mention_info.unwrap_or(Value::Null);
-        let some_if = |cond: bool, v: Value| if cond { v } else { Value::Null };
-        let params = match &m.quote {
-            Some(q) => obj(vec![
-                ("toid", some_if(!group, json!(thread_id))),
-                ("grid", some_if(group, json!(thread_id))),
-                ("message", json!(m.msg)),
-                ("clientId", json!(now_ms())),
-                ("mentionInfo", mention_info.clone()),
-                ("qmsgOwner", json!(q.uid_from)),
-                ("qmsgId", json!(q.msg_id)),
-                ("qmsgCliId", json!(q.cli_msg_id)),
-                ("qmsgType", json!(client_message_type(&q.msg_type))),
-                ("qmsgTs", json!(q.ts)),
-                ("qmsg", match &q.content {
-                    Value::String(s) => json!(s),
-                    _ => prepare_qmsg(q),
-                }),
-                ("imei", some_if(!group, json!(self.imei))),
-                ("visibility", some_if(group, json!(0))),
-                ("qmsgAttach", if group { prepare_qmsg_attach(q).map(|a| json!(a.to_string())).unwrap_or(Value::Null) } else { Value::Null }),
-                ("qmsgTTL", q.ttl.clone().unwrap_or(Value::Null)),
-                ("ttl", json!(m.ttl)),
-            ]),
-            None => obj(vec![
-                ("message", json!(m.msg)),
-                ("clientId", json!(now_ms())),
-                ("mentionInfo", mention_info.clone()),
-                ("imei", some_if(!group, json!(self.imei))),
-                ("ttl", json!(m.ttl)),
-                ("visibility", some_if(group, json!(0))),
-                ("toid", some_if(!group, json!(thread_id))),
-                ("grid", some_if(group, json!(thread_id))),
-            ]),
-        };
-        let base = match kind {
-            ThreadType::User => self.url(&format!("{}/api/message", self.svc("chat")?), &[("nretry", "0".into())])?,
-            ThreadType::Group => self.url(&format!("{}/api/group", self.svc("group")?), &[("nretry", "0".into())])?,
+        let base = if group {
+            self.url(&format!("{}/api/group", self.svc("group")?), &[("nretry", "0".into())])?
+        } else {
+            self.url(&format!("{}/api/message", self.svc("chat")?), &[("nretry", "0".into())])?
         };
         let mut url = Url::parse(&base)?;
-        let tail = if m.quote.is_some() {
-            "quote"
-        } else if group {
-            if mention_info.is_null() { "sendmsg" } else { "mention" }
-        } else {
-            "sms"
-        };
-        url.set_path(&format!("{}/{tail}", url.path()));
-        Ok(SendReq { url: url.to_string(), body: Body::Form(vec![("params".into(), self.enc(&params)?)]) })
-    }
-
-    /// `send`: the requests at once, each resolved.
-    async fn send_all(&self, list: Vec<SendReq>) -> Result<Vec<Value>> {
-        let all = join_all(list.into_iter().map(|s| async move {
-            let r = self.http.request(&s.url, Method::POST, vec![], s.body).await?;
-            self.resolve(&r, true)
-        }))
-        .await;
-        all.into_iter().collect()
-    }
-
-    /// `sendMessage(message, threadId, type)`.
-    pub async fn send_message(&self, m: Outgoing, thread_id: &str, kind: ThreadType) -> Result<SendResult> {
-        if thread_id.is_empty() {
-            return Err(zerr("Missing threadId"));
-        }
-        if m.msg.is_empty() && m.attachments.is_empty() {
-            return Err(zerr("Missing message content"));
-        }
-        if m.attachments.len() as f64 > self.max_file() {
-            return Err(zerr(format!("Exceed maximum file of {}", jstr(Some(self.sharefile("max_file"))))));
-        }
-        let mut res = SendResult::default();
-        if !m.attachments.is_empty() {
-            let first_ext = file_ext(&m.attachments[0]);
-            let can_be_desc = m.attachments.len() == 1 && ["jpg", "jpeg", "png", "webp"].contains(&first_ext.as_str());
-            let mut msg = m.msg.clone();
-            let mut mentions = m.mentions.clone();
-            if (!can_be_desc && !msg.is_empty()) || (!msg.is_empty() && m.quote.is_some()) {
-                // text and files go separately
-                let req = self.text_request(&m, thread_id, kind)?;
-                res.message = self.send_all(vec![req]).await?.into_iter().next();
-                msg.clear();
-                mentions.clear();
-            }
-            let reqs = self.attachment_requests(&msg, &mentions, &m.attachments, m.quote.is_some(), m.ttl, thread_id, kind).await?;
-            res.attachment = self.send_all(reqs).await?;
-            return Ok(res);
-        }
-        let req = self.text_request(&m, thread_id, kind)?;
-        res.message = self.send_all(vec![req]).await?.into_iter().next();
-        Ok(res)
-    }
-
-    /// `handleAttachment`: upload the files, then one send request per file.
-    #[allow(clippy::too_many_arguments)]
-    async fn attachment_requests(&self, msg: &str, mentions: &[Mention], files: &[PathBuf], quoted: bool, ttl: i64, thread_id: &str, kind: ThreadType) -> Result<Vec<SendReq>> {
-        let group = kind == ThreadType::Group;
-        let first_ext = file_ext(&files[0]);
-        let can_be_desc = files.len() == 1 && ["jpg", "jpeg", "png", "webp"].contains(&first_ext.as_str());
-        let (gifs, others): (Vec<&PathBuf>, Vec<&PathBuf>) = files.iter().partition(|p| file_ext(p) == "gif");
-        let uploaded = if others.is_empty() { vec![] } else { self.upload_attachment(&others, thread_id, kind).await? };
-        let mention_list = self.mentions(kind, msg, mentions)?;
-        let mentions_ok = !mention_list.is_empty() && group && others.len() == 1;
-        let multi = others.len() > 1;
-        let layout_id = now_ms().to_string();
-        let mut client_id = now_ms();
-        let mut index = 0;
-        let some_if = |cond: bool, v: Value| if cond { v } else { Value::Null };
-        let svc = self.svc("file")?;
-        let attach_base = |k: ThreadType| format!("{svc}/api/{}/", if k == ThreadType::Group { "group" } else { "message" });
-        let mut out = Vec::new();
-        for a in &uploaded {
-            let file_type = a["fileType"].as_str().unwrap_or_default();
-            let thread = json!(thread_id);
-            let params = if file_type == "image" {
-                let p = obj(vec![
-                    ("photoId", a["photoId"].clone()),
-                    ("clientId", json!(client_id.to_string())),
-                    ("desc", json!(msg)),
-                    ("width", a["width"].clone()),
-                    ("height", a["height"].clone()),
-                    ("toid", some_if(!group, thread.clone())),
-                    ("grid", some_if(group, thread.clone())),
-                    ("rawUrl", a["normalUrl"].clone()),
-                    ("hdUrl", a["hdUrl"].clone()),
-                    ("thumbUrl", a["thumbUrl"].clone()),
-                    ("oriUrl", some_if(group, a["normalUrl"].clone())),
-                    ("normalUrl", some_if(!group, a["normalUrl"].clone())),
-                    ("hdSize", json!(jstr(a.get("totalSize")))),
-                    ("zsource", json!(-1)),
-                    ("ttl", json!(ttl)),
-                    ("jcp", json!(r#"{"convertible":"jxl"}"#)),
-                    ("groupLayoutId", some_if(multi, json!(layout_id))),
-                    ("isGroupLayout", some_if(multi, json!(1))),
-                    ("idInGroup", some_if(multi, json!(index))),
-                    ("totalItemInGroup", some_if(multi, json!(uploaded.len()))),
-                    ("extMsgProp", some_if(multi, json!(format!(r#"{{"groupMediaMsg":{{"groupLayoutId":"{layout_id}"}}}}"#)))),
-                    ("mentionInfo", some_if(mentions_ok && can_be_desc && !quoted, json!(Value::Array(mention_list.clone()).to_string()))),
-                ]);
-                client_id += 1;
-                if multi {
-                    index += 1;
-                }
-                p
-            } else {
-                let name = a["fileName"].as_str().unwrap_or_default();
-                obj(vec![
-                    ("fileId", a["fileId"].clone()),
-                    ("checksum", a["checksum"].clone()),
-                    ("checksumSha", json!("")),
-                    ("extention", json!(file_ext(Path::new(name)))),
-                    ("totalSize", a["totalSize"].clone()),
-                    ("fileName", json!(name)),
-                    ("clientId", a["clientFileId"].clone()),
-                    ("fType", json!(1)),
-                    ("fileCount", json!(0)),
-                    ("fdata", json!("{}")),
-                    ("toid", some_if(!group, thread.clone())),
-                    ("grid", some_if(group, thread.clone())),
-                    ("fileUrl", a["fileUrl"].clone()),
-                    ("zsource", json!(-1)),
-                    ("ttl", json!(ttl)),
-                ])
-            };
-            let path = if file_type == "image" { "photo_original/send?" } else { "asyncfile/msg?" };
-            let url = self.url(&format!("{}{path}", attach_base(kind)), &[("nretry", "0".into())])?;
-            out.push(SendReq { url, body: Body::Form(vec![("params".into(), self.enc(&params)?)]) });
-        }
-        for gif in gifs {
-            let (width, height) = image::image_dimensions(gif).map_err(|_| zerr("Failed to get gif metadata"))?;
-            let bytes = tokio::fs::read(gif).await?;
-            let name = file_name(gif);
-            if self.exceeds_max_size(bytes.len() as u64) {
-                return Err(zerr(format!("File {name} size exceed maximum size of {}MB", self.max_size_mb())));
-            }
-            let thumb = self.upthumb(&bytes, &attach_base(ThreadType::User)).await?;
-            let params = obj(vec![
-                ("clientId", json!(now_ms().to_string())),
-                ("fileName", json!(name)),
-                ("totalSize", json!(bytes.len())),
-                ("width", json!(width)),
-                ("height", json!(height)),
-                ("msg", json!(msg)),
-                ("type", json!(1)),
-                ("ttl", json!(ttl)),
-                ("visibility", some_if(group, json!(0))),
-                ("toid", some_if(!group, json!(thread_id))),
-                ("grid", some_if(group, json!(thread_id))),
-                ("thumb", thumb.get("url").cloned().unwrap_or(Value::Null)),
-                ("checksum", json!(md5_hex(&bytes))),
-                ("totalChunk", json!(1)),
-                ("chunkId", json!(1)),
-            ]);
-            let url = self.url(&format!("{}gif?", attach_base(kind)), &[("nretry", "0".into()), ("params", self.enc(&params)?), ("type", "1".into())])?;
-            let part = Part::bytes(bytes).file_name(name).mime_str("application/octet-stream")?;
-            out.push(SendReq { url, body: Body::Multipart(Form::new().part("chunkContent", part)) });
-        }
-        Ok(out)
-    }
-
-    /// `upthumb`: a GIF's thumbnail.
-    async fn upthumb(&self, bytes: &[u8], base: &str) -> Result<Value> {
-        let params = self.enc(&json!({ "clientId": now_ms(), "imei": self.imei }))?;
-        let url = self.url(&format!("{base}upthumb?"), &[("params", params)])?;
-        let part = Part::bytes(bytes.to_vec()).file_name("blob").mime_str("image/png")?;
-        let r = self.http.request(&url, Method::POST, vec![], Body::Multipart(Form::new().part("fileContent", part))).await?;
-        self.resolve(&r, true)
-    }
-
-    /// uploadAttachment.js: every chunk of every file at once; images come back with their URLs,
-    /// other files once the socket reports them done.
-    async fn upload_attachment(&self, files: &[&PathBuf], thread_id: &str, kind: ThreadType) -> Result<Vec<Value>> {
-        if files.len() as f64 > self.max_file() {
-            return Err(zerr(format!("Exceed maximum file of {}", jstr(Some(self.sharefile("max_file"))))));
-        }
-        if thread_id.is_empty() {
-            return Err(zerr("Missing threadId"));
-        }
-        let chunk_size = self.sharefile("chunk_size_file").as_u64().filter(|&n| n > 0).unwrap_or(3 * 1024 * 1024) as usize;
-        let group = kind == ThreadType::Group;
-        let svc = self.svc("file")?;
-        let url = format!("{svc}/api/{}/", if group { "group" } else { "message" });
-        let type_param = if group { "11" } else { "2" };
-        let restricted: Vec<String> = self.sharefile("restricted_ext_file").as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
-        let first_id = now_ms();
-
-        struct Prepared {
-            kind: &'static str,
-            name: String,
-            bytes: Vec<u8>,
-            size: u64,
-            width: u32,
-            height: u32,
-            params: Value,
-            chunks: usize,
-        }
-        let mut prepared = Vec::new();
-        for (client_id, path) in (first_id..).zip(files) {
-            if !path.exists() {
-                return Err(zerr("File not found"));
-            }
-            let ext = file_ext(path).to_lowercase();
-            let name = file_name(path);
-            if restricted.contains(&ext) {
-                return Err(zerr(format!("File extension \"{ext}\" is not allowed")));
-            }
-            let bytes = tokio::fs::read(path).await?;
-            let size = bytes.len() as u64;
-            let (file_kind, width, height) = match ext.as_str() {
-                "jpg" | "jpeg" | "png" | "webp" => {
-                    let (w, h) = image::image_dimensions(path).map_err(|_| zerr("Failed to get image metadata"))?;
-                    ("image", w, h)
-                }
-                "mp4" => ("video", 0, 0),
-                _ => ("others", 0, 0),
-            };
-            if self.exceeds_max_size(size) {
-                return Err(zerr(format!("File {name} size exceed maximum size of {}MB", self.max_size_mb())));
-            }
-            let chunks = (size as usize).div_ceil(chunk_size);
-            let (k, v) = dest(kind, thread_id);
-            let params = obj(vec![
-                (k, v),
-                ("totalChunk", json!(chunks)),
-                ("fileName", json!(name)),
-                ("clientId", json!(client_id)),
-                ("totalSize", json!(size)),
-                ("imei", json!(self.imei)),
-                ("isE2EE", json!(0)),
-                ("jxl", json!(0)),
-                ("chunkId", json!(1)),
-            ]);
-            prepared.push(Prepared { kind: file_kind, name, bytes, size, width, height, params, chunks });
-        }
-
-        let mut jobs = Vec::new();
-        for (index, p) in prepared.iter().enumerate() {
-            let checksum = if p.kind == "image" { String::new() } else { md5_hex(&p.bytes) };
-            for i in 0..p.chunks {
-                let mut params = p.params.clone();
-                params["chunkId"] = json!(i + 1);
-                let req_url = self.url(&format!("{url}{}", if p.kind == "image" { "photo_original/upload" } else { "asyncfile/upload" }), &[("type", type_param.into()), ("params", self.enc(&params)?)])?;
-                let slice = p.bytes[i * chunk_size..((i + 1) * chunk_size).min(p.bytes.len())].to_vec();
-                let part = Part::bytes(slice).file_name(p.name.clone()).mime_str("application/octet-stream")?;
-                let checksum = checksum.clone();
-                jobs.push(async move {
-                    let r = self.http.request(&req_url, Method::POST, vec![], Body::Multipart(Form::new().part("chunkContent", part))).await?;
-                    let res = self.resolve(&r, true)?;
-                    if !(not_minus_one(res.get("fileId")) && not_minus_one(res.get("photoId"))) {
-                        return Ok::<_, anyhow::Error>(None);
-                    }
-                    if p.kind == "image" {
-                        return Ok(Some((index, json!({
-                            "fileType": "image",
-                            "width": p.width,
-                            "height": p.height,
-                            "totalSize": p.size,
-                            "hdSize": p.size,
-                            "finished": res.get("finished").cloned().unwrap_or(Value::Null),
-                            "normalUrl": res.get("normalUrl").cloned().unwrap_or(Value::Null),
-                            "hdUrl": res.get("hdUrl").cloned().unwrap_or(Value::Null),
-                            "thumbUrl": res.get("thumbUrl").cloned().unwrap_or(Value::Null),
-                            "chunkId": res.get("chunkId").cloned().unwrap_or(Value::Null),
-                            "photoId": res.get("photoId").cloned().unwrap_or(Value::Null),
-                            "clientFileId": res.get("clientFileId").cloned().unwrap_or(Value::Null),
-                        }))));
-                    }
-                    // video / file: wait for the socket's `file_done`
-                    let file_id = jstr(res.get("fileId"));
-                    let (tx, rx) = oneshot::channel();
-                    self.uploads.lock().insert(file_id, tx);
-                    let ws = match tokio::time::timeout(Duration::from_secs(300), rx).await {
-                        Ok(Ok(ws)) => ws,
-                        // a later chunk of the same file took the wait over
-                        Ok(Err(_)) => return Ok(None),
-                        Err(_) => return Err(zerr(format!("Upload of {} timed out", p.name))),
-                    };
-                    let mut result = Map::new();
-                    result.insert("fileType".into(), json!(p.kind));
-                    if let Value::Object(m) = res {
-                        result.extend(m);
-                    }
-                    if let Value::Object(m) = ws {
-                        result.extend(m);
-                    }
-                    result.insert("totalSize".into(), json!(p.size));
-                    result.insert("fileName".into(), json!(p.name));
-                    result.insert("checksum".into(), json!(checksum));
-                    Ok(Some((index, Value::Object(result))))
-                });
-            }
-        }
-        let mut results: Vec<Option<Value>> = vec![None; prepared.len()];
-        for r in join_all(jobs).await {
-            if let Some((i, v)) = r? {
-                results[i] = Some(v);
-            }
-        }
-        results.into_iter().enumerate().map(|(i, r)| r.ok_or_else(|| zerr(format!("Upload of {} failed", prepared[i].name)))).collect()
+        url.set_path(&format!("{}/{}", url.path(), text_endpoint(group)));
+        self.post_with(url.as_str(), &text_params(msg, thread_id, group, &self.imei, now_ms())).await
     }
 }
 
-/// `getClientMessageType`
-fn client_message_type(msg_type: &str) -> i64 {
-    match msg_type {
-        "webchat" => 1,
-        "chat.voice" => 31,
-        "chat.photo" => 32,
-        "chat.sticker" => 36,
-        "chat.doodle" => 37,
-        "chat.recommended" | "chat.link" => 38,
-        "chat.video.msg" => 44,
-        "share.file" => 46,
-        "chat.gif" => 49,
-        "chat.location.new" => 43,
-        _ => 1,
-    }
+/// `handleMessage`'s last path segment for a plain text.
+fn text_endpoint(group: bool) -> &'static str {
+    if group { "sendmsg" } else { "sms" }
 }
 
-/// `prepareQMSG`: a quoted to-do's text.
-fn prepare_qmsg(q: &Quote) -> Value {
-    if q.msg_type == "chat.todo"
-        && let Some(params) = q.content.get("params").and_then(Value::as_str)
-        && let Ok(p) = serde_json::from_str::<Value>(params)
-    {
-        return p["item"]["content"].clone();
-    }
-    json!("")
-}
-
-/// `prepareQMSGAttach` (`None` = undefined: the field is left out).
-fn prepare_qmsg_attach(q: &Quote) -> Option<Value> {
-    if q.content.is_string() {
-        return q.property_ext.clone();
-    }
-    if q.msg_type == "chat.todo" {
-        return Some(json!({ "properties": { "color": 0, "size": 0, "type": 0, "subType": 0, "ext": r#"{"shouldParseLinkOrContact":0}"# } }));
-    }
-    let mut m = q.content.as_object().cloned().unwrap_or_default();
-    for (k, from) in [("thumbUrl", "thumb"), ("oriUrl", "href"), ("normalUrl", "href")] {
-        match q.content.get(from) {
-            Some(v) => m.insert(k.into(), v.clone()),
-            None => m.remove(k),
-        };
-    }
-    Some(Value::Object(m))
+/// `handleMessage`'s params for a plain text (no quote, no mentions).
+fn text_params(msg: &str, thread_id: &str, group: bool, imei: &str, client_id: i64) -> Value {
+    let some_if = |cond: bool, v: Value| if cond { v } else { Value::Null };
+    obj(vec![
+        ("message", json!(msg)),
+        ("clientId", json!(client_id)),
+        ("imei", some_if(!group, json!(imei))),
+        ("ttl", json!(0)),
+        ("visibility", some_if(group, json!(0))),
+        ("toid", some_if(!group, json!(thread_id))),
+        ("grid", some_if(group, json!(thread_id))),
+    ])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_int_like_js() {
-        // node: JSON.stringify(parseInt("7212345678901234567")) === "7212345678901235000"
-        assert_eq!(js_parse_int_json("7212345678901234567"), "7212345678901235000");
-        assert_eq!(js_parse_int_json("1731999999999"), "1731999999999");
-        assert_eq!(js_parse_int_json("12abc"), "12");
-        assert_eq!(js_parse_int_json("abc"), "null");
-    }
 
     #[test]
     fn loose_error_codes() {
@@ -1431,28 +622,22 @@ mod tests {
     }
 
     #[test]
-    fn quote_attach() {
-        let q = Quote {
-            content: json!({ "href": "https://f", "thumb": "https://t", "title": "a.png" }),
-            msg_type: "chat.photo".into(),
-            property_ext: None,
-            uid_from: "1".into(),
-            msg_id: "2".into(),
-            cli_msg_id: "3".into(),
-            ts: "4".into(),
-            ttl: Some(json!(0)),
-        };
-        assert_eq!(
-            prepare_qmsg_attach(&q).unwrap(),
-            json!({ "href": "https://f", "thumb": "https://t", "title": "a.png", "thumbUrl": "https://t", "oriUrl": "https://f", "normalUrl": "https://f" })
-        );
-        let text = Quote { content: json!("hi"), msg_type: "webchat".into(), ..q.clone() };
-        assert_eq!(prepare_qmsg_attach(&text), None);
-        assert_eq!(prepare_qmsg(&text), json!(""));
-        let todo = Quote { content: json!({ "params": r#"{"item":{"content":"do it"}}"# }), msg_type: "chat.todo".into(), ..q };
-        assert_eq!(prepare_qmsg(&todo), json!("do it"));
-        assert_eq!(client_message_type("chat.photo"), 32);
-        assert_eq!(reaction_type("/-heart"), 5);
-        assert_eq!(reaction_type("??"), -1);
+    fn text_to_a_person() {
+        let p = text_params("chào", "123", false, "imei-1", 42);
+        assert_eq!(p, json!({ "message": "chào", "clientId": 42, "imei": "imei-1", "ttl": 0, "toid": "123" }));
+        assert_eq!(text_endpoint(false), "sms");
+    }
+
+    #[test]
+    fn text_to_a_group() {
+        let p = text_params("hi", "g9", true, "imei-1", 7);
+        // groups: no imei, `grid` instead of `toid`, visibility 0
+        assert_eq!(p, json!({ "message": "hi", "clientId": 7, "ttl": 0, "visibility": 0, "grid": "g9" }));
+        assert_eq!(text_endpoint(true), "sendmsg");
+    }
+
+    #[test]
+    fn object_drops_nulls() {
+        assert_eq!(obj(vec![("a", json!(1)), ("b", Value::Null), ("c", json!(""))]), json!({ "a": 1, "c": "" }));
     }
 }

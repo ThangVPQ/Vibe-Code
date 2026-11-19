@@ -1,6 +1,5 @@
-//! Zalo Web's websocket: live messages, the recent history Zalo replays on request, reactions,
-//! recalls, read receipts, typing and upload completions. Port of zca-js `apis/listen.js` (only
-//! the events VIBE CODE uses) plus the message models (`models/Message.js`, `Reaction.js`, …).
+//! Zalo Web's websocket: live messages, the recent history Zalo replays on request and recalls.
+//! Port of zca-js `apis/listen.js` (only the events VIBE CODE uses) plus the message models (`models/Message.js`, `Reaction.js`, …).
 //!
 //! Only one web session per account may listen: a listener that was stopped never reconnects.
 
@@ -62,7 +61,7 @@ pub fn group_message(uid: &str, mut data: Value) -> Msg {
     Msg { kind: ThreadType::Group, thread_id, is_self, data }
 }
 
-/// `Reaction` / `Undo`: same id rules, the thread is the group or the other person.
+/// `Undo`: same id rules as messages, the thread is the group or the other person.
 #[derive(Clone, Debug)]
 pub struct Action {
     pub thread_id: String,
@@ -81,31 +80,14 @@ fn action(uid: &str, mut data: Value, is_group: bool) -> Action {
     Action { thread_id, data }
 }
 
-/// A read receipt: the other side saw my messages up to `msg_id`.
-#[derive(Clone, Debug)]
-pub struct Seen {
-    pub thread_id: String,
-    pub is_self: bool,
-    pub msg_id: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct Typing {
-    pub thread_id: String,
-    pub uid: String,
-}
-
 #[derive(Debug)]
 pub enum Event {
     /// the socket has its key: history can be requested now
     CipherKey,
     Message(Msg),
     OldMessages(Vec<Msg>, ThreadType),
-    Reaction(Action),
-    OldReactions(Vec<Action>),
+    /// a message recalled ("thu hồi")
     Undo(Action),
-    Seen(Vec<Seen>),
-    Typing(Typing),
     /// the socket closed for good (no retry): its close code
     Closed(u16),
     Error(String),
@@ -337,11 +319,6 @@ impl Listener {
         self.send_ws(1, cmd, 1, json!({ "first": true, "lastId": last_id, "preIds": [] }), true);
     }
 
-    pub fn request_old_reactions(&self, kind: ThreadType) {
-        let cmd = if kind == ThreadType::User { 610 } else { 611 };
-        self.send_ws(1, cmd, 1, json!({ "first": true, "lastId": Value::Null, "preIds": [] }), true);
-    }
-
     fn decode(&self, parsed: &Value) -> Result<Value, String> {
         let key = self.st.lock().cipher_key.clone();
         decode_event_data(parsed, key.as_deref()).map(|v| v.get("data").cloned().unwrap_or(Value::Null)).map_err(|e| e.to_string())
@@ -407,44 +384,6 @@ impl Listener {
                 }
             }
         }
-        if version == 1 && cmd == 601 && sub == 0 {
-            for c in list(&self.decode(parsed)?, "controls") {
-                let content = &c["content"];
-                if content["act_type"] == "file_done" {
-                    let file_id = jstr(content.get("fileId"));
-                    let data = json!({ "fileUrl": content["data"]["url"], "fileId": content["fileId"] });
-                    self.api.upload_done(&file_id, data);
-                }
-            }
-        }
-        if cmd == 612 {
-            let d = self.decode(parsed)?;
-            for (key, group) in [("reacts", false), ("reactGroups", true)] {
-                for mut r in list(&d, key) {
-                    if let Some(s) = r.get("content").and_then(Value::as_str) {
-                        r["content"] = serde_json::from_str(s).map_err(|e| e.to_string())?;
-                    }
-                    self.emit(Event::Reaction(action(&uid, r, group)));
-                }
-            }
-        }
-        if cmd == 610 || cmd == 611 {
-            let group = cmd == 611;
-            let d = self.decode(parsed)?;
-            let reacts = list(&d, if group { "reactGroups" } else { "reacts" })
-                .into_iter()
-                .map(|mut r| {
-                    // zca-js hands these over with `content` still a JSON string; parse it like live ones
-                    if let Some(s) = r.get("content").and_then(Value::as_str)
-                        && let Ok(v) = serde_json::from_str::<Value>(s)
-                    {
-                        r["content"] = v;
-                    }
-                    action(&uid, r, group)
-                })
-                .collect();
-            self.emit(Event::OldReactions(reacts));
-        }
         if cmd == 510 && sub == 1 {
             let msgs = list(&self.decode(parsed)?, "msgs").into_iter().map(|m| user_message(&uid, m)).collect();
             self.emit(Event::OldMessages(msgs, ThreadType::User));
@@ -452,42 +391,6 @@ impl Listener {
         if cmd == 511 && sub == 1 {
             let msgs = list(&self.decode(parsed)?, "groupMsgs").into_iter().map(|m| group_message(&uid, m)).collect();
             self.emit(Event::OldMessages(msgs, ThreadType::Group));
-        }
-        if cmd == 602 && sub == 0 {
-            for a in list(&self.decode(parsed)?, "actions") {
-                if a["act_type"] != "typing" {
-                    continue;
-                }
-                let data: Value = serde_json::from_str(&format!("{{{}}}", a["data"].as_str().unwrap_or_default())).map_err(|e| e.to_string())?;
-                let thread = match a["act"].as_str() {
-                    Some("typing") => data.get("uid"),
-                    Some("gtyping") => data.get("gid"),
-                    _ => continue,
-                };
-                self.emit(Event::Typing(Typing { thread_id: jstr(thread), uid: jstr(data.get("uid")) }));
-            }
-        }
-        if cmd == 502 && sub == 0 {
-            let seen: Vec<Seen> = list(&self.decode(parsed)?, "seens")
-                .iter()
-                .map(|s| Seen { thread_id: jstr(s.get("idTo")), is_self: false, msg_id: jstr(s.get("msgId")) })
-                .collect();
-            if !seen.is_empty() {
-                self.emit(Event::Seen(seen));
-            }
-        }
-        if cmd == 522 && sub == 0 {
-            let seen: Vec<Seen> = list(&self.decode(parsed)?, "groupSeens")
-                .iter()
-                .map(|s| Seen {
-                    thread_id: jstr(s.get("groupId")),
-                    is_self: s["seenUids"].as_array().is_some_and(|a| a.iter().any(|u| jstr(Some(u)) == uid)),
-                    msg_id: jstr(s.get("msgId")),
-                })
-                .collect();
-            if !seen.is_empty() {
-                self.emit(Event::Seen(seen));
-            }
         }
         if version == 1 && cmd == 3000 && sub == 0 {
             // another Zalo Web session took over

@@ -16,7 +16,8 @@ export function useChatTasks(sessionId: string | undefined): ChatTask[] {
         .tasks(sessionId)
         .then((list) => {
           if (!alive) return
-          setTasks(list)
+          // same list (a poll while nothing changed): no re-render
+          setTasks((prev) => (JSON.stringify(prev) === JSON.stringify(list) ? prev : list))
           // running ones write output without touching the transcript: keep looking
           clearInterval(poll)
           if (list.some((t) => t.status === 'running')) poll = setInterval(load, 3000)
@@ -24,7 +25,8 @@ export function useChatTasks(sessionId: string | undefined): ChatTask[] {
         .catch(() => {})
     }
     load()
-    const off = window.api.sessions.onChanged(() => {
+    const off = window.api.sessions.onChanged((ids) => {
+      if (!ids.includes(sessionId)) return
       clearTimeout(timer)
       timer = setTimeout(load, 700)
     })

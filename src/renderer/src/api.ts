@@ -30,14 +30,9 @@ import type {
   WebSuggestion,
   WindowMode,
   WindowState,
-  ZaloMessage,
   ZaloState,
-  ZaloSticker,
   ZaloTask,
-  ZaloTasksState,
-  ZaloThread,
-  ZaloThreadInfo,
-  ZaloTyping
+  ZaloTasksState
 } from '../../shared/types'
 
 type Off = () => void
@@ -134,10 +129,12 @@ export const api = {
   },
   sessions: {
     list: (): Promise<ProjectGroup[]> => invoke('sessions_list'),
-    images: (sessionId: string): Promise<string[]> => invoke('sessions_images', { sessionId }),
+    /** `since`: the version already shown — then `images` is null unless a picture was added */
+    images: (sessionId: string, since?: number): Promise<{ version: number; images: string[] | null }> => invoke('sessions_images', { sessionId, since }),
     context: (sessionId: string): Promise<{ used: number; model: string } | null> => invoke('sessions_context', { sessionId }),
     tasks: (sessionId: string): Promise<ChatTask[]> => invoke('sessions_tasks', { sessionId }),
-    onChanged: (cb: () => void): Off => on('sessions:changed', cb)
+    /** ids of the sessions whose transcript changed (empty: only project folders came or went) */
+    onChanged: (cb: (ids: string[]) => void): Off => on('sessions:changed', cb)
   },
   db: {
     list: (): Promise<DbConnection[]> => invoke('db_list'),
@@ -163,23 +160,7 @@ export const api = {
     cancel: (): Promise<void> => invoke('zalo_cancel'),
     reconnect: (): Promise<ZaloState> => invoke('zalo_reconnect'),
     logout: (): Promise<void> => invoke('zalo_logout'),
-    threads: (query?: string): Promise<ZaloThread[]> => invoke('zalo_threads', { query }),
-    messages: (threadId: string, limit?: number, before?: number): Promise<ZaloMessage[]> => invoke('zalo_messages', { threadId, limit, before }),
     syncAll: (): Promise<number> => invoke('zalo_sync_all'),
-    loadOlder: (threadId: string): Promise<number> => invoke('zalo_load_older', { threadId }),
-    send: (threadId: string, text: string, replyTo?: string): Promise<string> => invoke('zalo_send', { threadId, text, replyTo }),
-    uiThreads: (): Promise<ZaloThread[]> => invoke('zalo_ui_threads'),
-    contacts: (): Promise<ZaloThread[]> => invoke('zalo_contacts'),
-    setActive: (threadId: string | null): Promise<void> => invoke('zalo_set_active', { threadId }),
-    info: (threadId: string): Promise<ZaloThreadInfo> => invoke('zalo_info', { threadId }),
-    sendFiles: (threadId: string, paths: string[], caption?: string): Promise<void> => invoke('zalo_send_files', { threadId, paths, caption }),
-    sendSticker: (threadId: string, s: ZaloSticker): Promise<void> => invoke('zalo_send_sticker', { threadId, s }),
-    stickers: (keyword: string): Promise<ZaloSticker[]> => invoke('zalo_stickers', { keyword }),
-    react: (threadId: string, msgId: string, icon: string): Promise<void> => invoke('zalo_react', { threadId, msgId, icon }),
-    recall: (threadId: string, msgId: string): Promise<void> => invoke('zalo_recall', { threadId, msgId }),
-    deleteForMe: (threadId: string, msgId: string): Promise<void> => invoke('zalo_delete_for_me', { threadId, msgId }),
-    forward: (fromThread: string, msgId: string, toThread: string): Promise<void> => invoke('zalo_forward', { fromThread, msgId, toThread }),
-    typing: (threadId: string): void => void invoke('zalo_typing', { threadId }),
     tasks: (): Promise<ZaloTasksState> => invoke('zalo_tasks'),
     analyzeTasks: (): Promise<ZaloTasksState> => invoke('zalo_tasks_analyze'),
     setTaskStatus: (id: string, status: ZaloTask['status']): Promise<ZaloTasksState> => invoke('zalo_task_status', { id, status }),
@@ -189,8 +170,8 @@ export const api = {
     tasksViewing: (viewing: boolean): void => void invoke('zalo_tasks_viewing', { viewing }),
     onShowTasks: (cb: () => void): Off => on('zalo:showTasks', cb),
     onState: (cb: (s: ZaloState) => void): Off => on('zalo:state', cb),
-    onChanged: (cb: (ids: string[]) => void): Off => on('zalo:changed', cb),
-    onTyping: (cb: (t: ZaloTyping) => void): Off => on('zalo:typing', cb)
+    /** names / avatars changed (the task list shows them) */
+    onChanged: (cb: (ids: string[]) => void): Off => on('zalo:changed', cb)
   },
   win: {
     state: (): Promise<WindowState> => invoke('win_state'),

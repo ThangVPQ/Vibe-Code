@@ -1,5 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { SlidePill } from './motion'
 import {
   ChevronDown,
@@ -28,13 +28,15 @@ import {
   Moon,
   Sun
 } from 'lucide-react'
-import { basename, useStore, type SidebarView } from '../store'
-import { defaultAgent, installedAgents, openBrowser, openFile, openFolder, openSession, setDefaultAgent, toggleBottom, toggleTheme } from '../actions'
+import { basename, useStore, type Chat, type SidebarView } from '../store'
+import { shortAgo } from './Sidebar'
+import { defaultAgent, installedAgents, openBrowser, openFile, openFolder, openSession, selectChat, setDefaultAgent, toggleBottom, toggleTheme } from '../actions'
 import { agentDef } from '../../../shared/agents'
 import { languageOf } from '../fileModelsLite'
-import { FileIcon, Logo } from './icons'
-import type { UsageLimit } from '../../../shared/types'
+import { FileIcon, Logo, StatusDot } from './icons'
+import type { ProjectGroup, SessionInfo, UsageLimit } from '../../../shared/types'
 import { revealIn } from '../scroll'
+import { COMMANDS, type Command } from '../shortcuts'
 
 /* ================================ Title bar ================================ */
 
@@ -253,6 +255,73 @@ function WindowControls(): React.JSX.Element | null {
   )
 }
 
+/* ================================ Recent chats strip ================================ */
+
+const RECENT_MAX = 8
+
+interface RecentItem {
+  key: string
+  title: string
+  project: string
+  updated: number
+  /** open in this window */
+  chat?: Chat
+  /** in Claude's history (resumable) */
+  session?: SessionInfo
+}
+
+/** The newest chats of every project: open ones not in the history yet, then the history. */
+function recentItems(projects: ProjectGroup[], chats: Chat[]): RecentItem[] {
+  const live = new Map(chats.filter((c) => c.sessionId).map((c) => [c.sessionId!, c]))
+  const history: RecentItem[] = projects.flatMap((g) =>
+    g.sessions.map((s) => {
+      const chat = live.get(s.id)
+      return { key: s.id, title: chat?.pinnedTitle ? chat.title : s.title || chat?.title || 'Chat', project: g.name, updated: s.updated, chat, session: s }
+    })
+  )
+  const known = new Set(history.map((r) => r.key))
+  const fresh: RecentItem[] = chats
+    .filter((c) => !c.sessionId || !known.has(c.sessionId))
+    .map((c) => ({ key: c.id, title: c.title, project: basename(c.cwd), updated: c.createdAt, chat: c }))
+  return [...fresh, ...history].sort((a, b) => b.updated - a.updated).slice(0, RECENT_MAX)
+}
+
+/** Above the Source code / Web tabs: the latest chats of every project as tabs; click one to open it. */
+export function RecentChats(): React.JSX.Element | null {
+  const projects = useStore((s) => s.projects)
+  const chats = useStore((s) => s.chats)
+  const activeChatId = useStore((s) => s.activeChatId)
+  // "5m ago" stays current
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  const items = useMemo(() => recentItems(projects, chats), [projects, chats])
+  if (!items.length) return null
+  return (
+    <div className="recent-chats" role="tablist" aria-label="Recent chats" onWheel={(e) => (e.currentTarget.scrollLeft += e.deltaY)}>
+      {items.map((it) => {
+        const active = !!it.chat && it.chat.id === activeChatId
+        return (
+          <button
+            key={it.key}
+            role="tab"
+            aria-selected={active}
+            className={`recent-tab${active ? ' active' : ''}`}
+            title={`${it.title}\n${it.project} · ${new Date(it.updated).toLocaleString()}`}
+            onClick={() => (it.chat ? selectChat(it.chat.id) : it.session && void openSession(it.session))}
+          >
+            {it.chat ? <StatusDot status={it.chat.status} attention={it.chat.attention} /> : <span className="sess-bullet" />}
+            <span className="recent-tab-title">{it.title}</span>
+            <span className="recent-tab-time">{shortAgo(it.updated)}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /* ================================ Activity bar ================================ */
 
 export function ActivityBar(): React.JSX.Element {
@@ -429,10 +498,9 @@ function AgentPicker(): React.JSX.Element {
 
 /* ================================ Quick open ================================ */
 
-function fuzzy(query: string, text: string): number {
-  if (!query) return 1
-  const q = query.toLowerCase()
-  const t = text.toLowerCase()
+/** `q` and `t` already lower-cased. */
+function fuzzy(q: string, t: string): number {
+  if (!q) return 1
   const name = t.slice(t.lastIndexOf('/') + 1)
   if (name.startsWith(q)) return 1000 - name.length
   if (name.includes(q)) return 800 - name.length
@@ -448,36 +516,72 @@ function fuzzy(query: string, text: string): number {
   return score
 }
 
+/**
+ * Ctrl+P: files. With ">" first (Ctrl+Shift+P / F1): every command and its shortcut.
+ * "@" jumps to a symbol in the open file, ":" to a line.
+ */
 export function QuickOpen(): React.JSX.Element {
-  const root = useStore((s) => s.root)!
+  const root = useStore((s) => s.root)
   const [files, setFiles] = useState<string[]>([])
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(() => useStore.getState().quickOpenQuery)
   const [sel, setSel] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
+  const commandMode = q.startsWith('>')
 
   useEffect(() => {
-    window.api.fs.listFiles(root).then(setFiles)
+    if (root) window.api.fs.listFiles(root).then(setFiles)
   }, [root])
 
-  const results = useMemo(() => {
-    return files
-      .map((f) => ({ f, s: fuzzy(q, f) }))
-      .filter((x) => x.s >= 0)
+  // lower-cased once per project, not once per file per keystroke
+  const lower = useMemo(() => files.map((f) => f.toLowerCase()), [files])
+  // typing stays responsive in big projects: the list catches up a frame later
+  const dq = useDeferredValue(q)
+  const fileHits = useMemo(() => {
+    if (dq.startsWith('>')) return []
+    const needle = dq.trim().toLowerCase()
+    if (!needle) return files.slice(0, 60)
+    const hits: { f: string; s: number }[] = []
+    for (let i = 0; i < files.length; i++) {
+      const sc = fuzzy(needle, lower[i])
+      if (sc >= 0) hits.push({ f: files[i], s: sc })
+    }
+    return hits
       .sort((a, b) => b.s - a.s)
       .slice(0, 60)
       .map((x) => x.f)
-  }, [files, q])
+  }, [files, lower, dq])
+  const commandHits = useMemo(() => {
+    if (!commandMode) return []
+    const needle = q.slice(1).trim().toLowerCase()
+    if (!needle) return COMMANDS
+    return COMMANDS.map((c) => ({ c, s: fuzzy(needle, c.label.toLowerCase()) }))
+      .filter((x) => x.s >= 0)
+      .sort((a, b) => b.s - a.s)
+      .map((x) => x.c)
+  }, [commandMode, q])
+  const count = commandMode ? commandHits.length : fileHits.length
 
   useEffect(() => setSel(0), [q])
   useEffect(() => {
     revealIn(listRef.current, listRef.current?.children[sel], { block: 'nearest' })
   }, [sel])
 
-  const close = (): void => useStore.setState({ quickOpen: false })
-  const pick = (rel: string): void => {
+  const close = (): void => useStore.setState({ quickOpen: false, quickOpenQuery: '' })
+  const pickFile = (rel: string): void => {
+    if (!root) return
     const sep = window.api.platform === 'win32' ? '\\' : '/'
     openFile(root.replace(/[\\/]$/, '') + sep + rel.replace(/[\\/]/g, sep))
     close()
+  }
+  const runCommand = (c: Command): void => {
+    close()
+    // after the palette is gone, so focus lands where the command puts it
+    setTimeout(c.run)
+  }
+  const pick = (i: number): void => {
+    if (commandMode) {
+      if (commandHits[i]) runCommand(commandHits[i])
+    } else if (fileHits[i]) pickFile(fileHits[i])
   }
 
   return (
@@ -487,41 +591,51 @@ export function QuickOpen(): React.JSX.Element {
           <Search size={15} />
           <input
             autoFocus
-            placeholder="Search files by name…"
+            placeholder={commandMode ? 'Type a command…' : 'Search files by name…  (> commands · @ symbol · : line)'}
             value={q}
             onChange={(e) => {
-              // "@" → search functions/symbols in the open file instead
-              if (e.target.value.startsWith('@')) {
+              const v = e.target.value
+              // "@" → symbols in the open file, ":" → go to line (as in VS Code)
+              if (v === '@' || v === ':') {
                 close()
-                setTimeout(() => window.dispatchEvent(new Event('go-to-symbol')))
-              } else setQ(e.target.value)
+                setTimeout(() => window.dispatchEvent(new Event(v === '@' ? 'go-to-symbol' : 'go-to-line')))
+              } else setQ(v)
             }}
             onKeyDown={(e) => {
               if (e.key === 'Escape') close()
               if (e.key === 'ArrowDown') {
                 e.preventDefault()
-                setSel((s) => Math.min(s + 1, results.length - 1))
+                setSel((s) => Math.min(s + 1, count - 1))
               }
               if (e.key === 'ArrowUp') {
                 e.preventDefault()
                 setSel((s) => Math.max(s - 1, 0))
               }
-              if (e.key === 'Enter' && results[sel]) pick(results[sel])
+              if (e.key === 'Enter') pick(sel)
             }}
           />
         </div>
         <div className="palette-list" ref={listRef}>
-          {results.map((r, i) => {
-            const name = r.split('/').pop()!
-            return (
-              <div key={r} className={`palette-row${i === sel ? ' sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => pick(r)}>
-                <FileIcon name={name} />
-                <span className="palette-name">{name}</span>
-                <span className="palette-dir">{r.slice(0, -name.length - 1)}</span>
-              </div>
-            )
-          })}
-          {results.length === 0 && <div className="palette-empty">{files.length ? 'No matching files' : 'Indexing…'}</div>}
+          {commandMode
+            ? commandHits.map((c, i) => (
+                <div key={c.id} className={`palette-row${i === sel ? ' sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => runCommand(c)}>
+                  <span className="palette-name">{c.label}</span>
+                  {c.keys && <kbd className="palette-keys">{c.keys}</kbd>}
+                </div>
+              ))
+            : fileHits.map((r, i) => {
+                const name = r.split('/').pop()!
+                return (
+                  <div key={r} className={`palette-row${i === sel ? ' sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => pickFile(r)}>
+                    <FileIcon name={name} />
+                    <span className="palette-name">{name}</span>
+                    <span className="palette-dir">{r.slice(0, -name.length - 1)}</span>
+                  </div>
+                )
+              })}
+          {count === 0 && (
+            <div className="palette-empty">{commandMode ? 'No matching commands' : !root ? 'Open a folder first' : files.length ? 'No matching files' : 'Indexing…'}</div>
+          )}
         </div>
       </div>
     </div>

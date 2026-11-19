@@ -174,7 +174,7 @@ pub async fn call_tool(name: &str, args: Value) -> anyhow::Result<String> {
         }
         "zalo_send_message" => {
             let group = args.get("group").and_then(Value::as_bool);
-            let id = send_text(&arg_str(&args, "threadId"), &arg_str(&args, "text"), group, None).await?;
+            let id = send_text(&arg_str(&args, "threadId"), &arg_str(&args, "text"), group).await?;
             Ok(format!("Sent (msgId {id})."))
         }
         _ => anyhow::bail!("Unknown tool {name}"),

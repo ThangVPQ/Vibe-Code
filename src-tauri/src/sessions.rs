@@ -89,8 +89,8 @@ pub async fn sessions_list() -> Res<Vec<ProjectGroup>> {
 }
 
 #[tauri::command]
-pub async fn sessions_images(session_id: String) -> Res<Vec<String>> {
-    Ok(tokio::task::spawn_blocking(move || session_images(&session_id)).await?)
+pub async fn sessions_images(session_id: String, since: Option<u64>) -> Res<SessionImages> {
+    Ok(tokio::task::spawn_blocking(move || session_images(&session_id, since)).await?)
 }
 
 #[tauri::command]
@@ -457,13 +457,17 @@ fn watch_sessions() {
         return;
     }
     let root = projects_dir();
-    let (tx, rx) = mpsc::channel::<()>();
+    // the session ids whose transcript changed ("" for a project folder coming or going)
+    let (tx, rx) = mpsc::channel::<String>();
     let filter_root = root.clone();
     let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         if let Ok(ev) = res
             && relevant(&filter_root, &ev)
         {
-            let _ = tx.send(());
+            for p in &ev.paths {
+                let id = if p.extension().is_some_and(|e| e == "jsonl") { p.file_stem().map(|s| s.to_string_lossy().into_owned()) } else { None };
+                let _ = tx.send(id.unwrap_or_default());
+            }
         }
     });
     let Ok(mut watcher) = watcher else { return };
@@ -475,15 +479,20 @@ fn watch_sessions() {
     thread::Builder::new()
         .name("sessions-watch".into())
         .spawn(move || {
-            while rx.recv().is_ok() {
+            while let Ok(first) = rx.recv() {
+                let mut ids: HashSet<String> = HashSet::from([first]);
                 loop {
                     match rx.recv_timeout(Duration::from_millis(600)) {
-                        Ok(()) => continue,
+                        Ok(id) => {
+                            ids.insert(id);
+                        }
                         Err(RecvTimeoutError::Timeout) => break,
                         Err(RecvTimeoutError::Disconnected) => return,
                     }
                 }
-                emit("sessions:changed", [(); 0]);
+                // listeners for one chat (its images, tasks, context) skip pings for other chats
+                ids.remove("");
+                emit("sessions:changed", (ids.into_iter().collect::<Vec<_>>(),));
             }
         })
         .ok();
@@ -502,12 +511,61 @@ fn find_session_file(session_id: &str) -> Option<PathBuf> {
     fs::read_dir(&root).ok()?.flatten().map(|e| root.join(e.file_name()).join(&name)).find(|f| f.exists())
 }
 
-fn read_session_text(session_id: &str) -> Option<String> {
+/* ---------------- reading a transcript as it grows ---------------- */
+
+/// A transcript only ever grows. Images and background tasks used to re-read (and re-parse) the
+/// whole file - often tens of MB - every time any chat wrote a line; now each remembers how far
+/// it got and parses only the new lines.
+struct Scan<S> {
+    file: PathBuf,
+    offset: u64,
+    last_use: u64,
+    state: S,
+}
+
+type ScanCache<S> = LazyLock<Mutex<HashMap<String, Scan<S>>>>;
+
+/// open chats' scans kept; the least recently used goes first
+const SCAN_KEEP: usize = 8;
+static SCAN_CLOCK: AtomicUsize = AtomicUsize::new(0);
+
+/// Feed the lines added since the last call to `feed` (a rewritten / shorter file starts over),
+/// then hand the state to `done`, all under the cache's lock.
+fn scan<S: Default, R>(cache: &ScanCache<S>, session_id: &str, feed: impl Fn(&mut S, &str), done: impl FnOnce(&S) -> R) -> Option<R> {
     if !valid_id(session_id) {
         return None;
     }
-    let bytes = fs::read(find_session_file(session_id)?).ok()?;
-    Some(String::from_utf8_lossy(&bytes).into_owned())
+    let mut map = cache.lock();
+    let stale = map.get(session_id).is_none_or(|s| !s.file.exists());
+    if stale {
+        let file = find_session_file(session_id)?;
+        map.insert(session_id.to_owned(), Scan { file, offset: 0, last_use: 0, state: S::default() });
+    }
+    let sc = map.get_mut(session_id)?;
+    sc.last_use = SCAN_CLOCK.fetch_add(1, AtomicOrdering::Relaxed) as u64;
+    let len = fs::metadata(&sc.file).ok()?.len();
+    if len < sc.offset {
+        sc.offset = 0;
+        sc.state = S::default();
+    }
+    if len > sc.offset {
+        let mut f = File::open(&sc.file).ok()?;
+        f.seek(SeekFrom::Start(sc.offset)).ok()?;
+        let mut buf = Vec::with_capacity((len - sc.offset).min(64 * 1024 * 1024) as usize);
+        f.take(len - sc.offset).read_to_end(&mut buf).ok()?;
+        // only whole lines: the one Claude is still writing waits for the next call
+        if let Some(end) = buf.iter().rposition(|b| *b == b'\n') {
+            sc.offset += end as u64 + 1;
+            feed(&mut sc.state, &String::from_utf8_lossy(&buf[..end]));
+        }
+    }
+    let out = done(&sc.state);
+    if map.len() > SCAN_KEEP
+        && let Some(old) = map.iter().min_by_key(|(_, s)| s.last_use).map(|(k, _)| k.clone())
+    {
+        map.remove(&old);
+    }
+    Some(out)
 }
 
 /* ---------------- images in a session ---------------- */
@@ -530,15 +588,40 @@ enum Found {
     Path(String),
 }
 
+#[derive(Default)]
 struct ImageWalk {
+    /// the newest pictures only (inline ones are big)
     found: Vec<Found>,
     seen: HashSet<String>,
+    /// pictures found so far: the list's version
+    total: u64,
 }
 
 impl ImageWalk {
     fn add(&mut self, key: String, item: Found) {
         if self.seen.insert(key) {
             self.found.push(item);
+            self.total += 1;
+            if self.found.len() > MAX_IMAGES * 2 {
+                self.found.drain(..self.found.len() - MAX_IMAGES);
+            }
+        }
+    }
+
+    fn feed(&mut self, text: &str) {
+        static EXT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\.(png|jpe?g|gif|webp)").unwrap());
+        for line in text.split('\n') {
+            if !line.contains("image") && !EXT_RE.is_match(line) {
+                continue;
+            }
+            // partial line while Claude is writing
+            let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
+            let from_user = row.get("type").and_then(Value::as_str) == Some("user");
+            match row.get("message").and_then(|m| m.get("content")) {
+                Some(Value::String(s)) => self.walk(&serde_json::json!([{ "type": "text", "text": s }]), from_user),
+                Some(c) => self.walk(c, from_user),
+                None => {}
+            }
         }
     }
 
@@ -577,44 +660,58 @@ impl ImageWalk {
     }
 }
 
+static IMAGE_SCANS: ScanCache<ImageWalk> = LazyLock::new(Default::default);
+
+#[derive(Serialize)]
+pub struct SessionImages {
+    /// changes whenever a picture is added
+    version: u64,
+    /// `None` when the caller already has this version (nothing re-encoded or sent)
+    images: Option<Vec<String>>,
+}
+
 /// Every image in a chat, oldest first: pictures pasted into the conversation, screenshots tools
 /// returned, and image files named in the user's messages. Returned as data: URLs.
-fn session_images(session_id: &str) -> Vec<String> {
-    static EXT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\.(png|jpe?g|gif|webp)").unwrap());
-    let Some(text) = read_session_text(session_id) else { return Vec::new() };
-    let mut w = ImageWalk { found: Vec::new(), seen: HashSet::new() };
-    for line in text.split('\n') {
-        if !line.contains("image") && !EXT_RE.is_match(line) {
-            continue;
+fn session_images(session_id: &str, since: Option<u64>) -> SessionImages {
+    let picked = scan(&IMAGE_SCANS, session_id, ImageWalk::feed, |w| {
+        if since == Some(w.total) {
+            return (w.total, None);
         }
-        // partial line while Claude is writing
-        let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
-        let from_user = row.get("type").and_then(Value::as_str) == Some("user");
-        match row.get("message").and_then(|m| m.get("content")) {
-            Some(Value::String(s)) => w.walk(&serde_json::json!([{ "type": "text", "text": s }]), from_user),
-            Some(c) => w.walk(c, from_user),
-            None => {}
-        }
-    }
-    let skip = w.found.len().saturating_sub(MAX_IMAGES);
-    let mut out = Vec::new();
-    for item in w.found.into_iter().skip(skip) {
-        match item {
-            Found::Data(d) => out.push(d),
-            Found::Path(p) => {
-                let Some(mime) = p.rsplit('.').next().and_then(image_mime) else { continue };
-                // the file may be gone (e.g. temp paste cleaned up)
-                let Ok(st) = fs::metadata(&p) else { continue };
-                if !st.is_file() || st.len() > MAX_FILE_BYTES {
-                    continue;
-                }
-                if let Ok(bytes) = fs::read(&p) {
-                    out.push(format!("data:{mime};base64,{}", B64.encode(bytes)));
+        let skip = w.found.len().saturating_sub(MAX_IMAGES);
+        let items: Vec<Found> = w
+            .found
+            .iter()
+            .skip(skip)
+            .map(|f| match f {
+                Found::Data(d) => Found::Data(d.clone()),
+                Found::Path(p) => Found::Path(p.clone()),
+            })
+            .collect();
+        (w.total, Some(items))
+    });
+    let Some((version, items)) = picked else { return SessionImages { version: 0, images: Some(Vec::new()) } };
+    // files are read and encoded outside the lock
+    let images = items.map(|items| {
+        let mut out = Vec::new();
+        for item in items {
+            match item {
+                Found::Data(d) => out.push(d),
+                Found::Path(p) => {
+                    let Some(mime) = p.rsplit('.').next().and_then(image_mime) else { continue };
+                    // the file may be gone (e.g. temp paste cleaned up)
+                    let Ok(st) = fs::metadata(&p) else { continue };
+                    if !st.is_file() || st.len() > MAX_FILE_BYTES {
+                        continue;
+                    }
+                    if let Ok(bytes) = fs::read(&p) {
+                        out.push(format!("data:{mime};base64,{}", B64.encode(bytes)));
+                    }
                 }
             }
         }
-    }
-    out
+        out
+    });
+    SessionImages { version, images }
 }
 
 /* ---------------- context window ---------------- */
@@ -656,96 +753,109 @@ fn session_context(session_id: &str) -> Option<Context> {
 
 /* ---------------- background tasks ---------------- */
 
+struct Call {
+    command: String,
+    description: String,
+}
+
+#[derive(Default)]
+struct TaskScan {
+    calls: HashMap<String, Call>,
+    /// insertion-ordered map: a re-set task keeps its first position, like a JS Map
+    tasks: Vec<ChatTask>,
+    task_index: HashMap<String, usize>,
+    ended: HashMap<String, (String, i64)>,
+}
+
+impl TaskScan {
+    fn feed(&mut self, text: &str) {
+        static OUTPUT_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"Output is being written to: ([^\n\r\u{2028}\u{2029}]+?\.output)").unwrap());
+        static NOTE_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(?s)<task-id>([^<]+)</task-id>.*?<status>([^<]+)</status>").unwrap());
+        let TaskScan { calls, tasks, task_index, ended } = self;
+        for line in text.split('\n') {
+            if !line.contains("run_in_background") && !line.contains("backgroundTaskId") && !line.contains("<task-notification>") {
+                continue;
+            }
+            let Ok(row) = serde_json::from_str::<Obj>(line) else { continue };
+            let at = match row.get("timestamp") {
+                None | Some(Value::Null) => None,
+                Some(v) => parse_date(&js_string(v)),
+            }
+            .unwrap_or(0);
+            let content = row.get("message").and_then(|m| m.get("content")).and_then(Value::as_array);
+
+            if is_type(&row, "assistant")
+                && let Some(content) = content
+            {
+                for b in content {
+                    let Some(b) = b.as_object() else { continue };
+                    let input = b.get("input").and_then(Value::as_object);
+                    if is_type(b, "tool_use")
+                        && let Some(id) = str_of(b, "id").filter(|id| !id.is_empty())
+                        && truthy(input.and_then(|i| i.get("run_in_background")))
+                    {
+                        calls.insert(
+                            id.to_owned(),
+                            Call {
+                                command: js_string_coalesce(input, &["command", "prompt"]),
+                                description: js_string_coalesce(input, &["description"]),
+                            },
+                        );
+                    }
+                }
+            }
+
+            let task_id = row.get("toolUseResult").and_then(|r| r.get("backgroundTaskId")).and_then(Value::as_str).filter(|s| !s.is_empty());
+            if let Some(task_id) = task_id
+                && let Some(content) = content
+            {
+                let r = content.iter().filter_map(Value::as_object).find(|b| is_type(b, "tool_result"));
+                let msg = match r.and_then(|r| r.get("content")) {
+                    Some(Value::String(s)) => s.clone(),
+                    Some(v) if !v.is_null() => v.to_string(),
+                    _ => "\"\"".to_owned(),
+                };
+                let call = calls.get(r.and_then(|r| str_of(r, "tool_use_id")).unwrap_or(""));
+                let task = ChatTask {
+                    id: task_id.to_owned(),
+                    command: call.map(|c| c.command.clone()).unwrap_or_default(),
+                    description: call.map(|c| c.description.clone()).unwrap_or_default(),
+                    status: "running".into(),
+                    started_at: at,
+                    ended_at: None,
+                    output_file: OUTPUT_RE.captures(&msg).map(|c| c[1].to_owned()),
+                    output: None,
+                };
+                match task_index.get(task_id) {
+                    Some(&i) => tasks[i] = task,
+                    None => {
+                        task_index.insert(task_id.to_owned(), tasks.len());
+                        tasks.push(task);
+                    }
+                }
+            }
+
+            // the notification shows up several times (queued, delivered): the first one is when it ended
+            let note = str_of(&row, "content").unwrap_or(line);
+            for c in NOTE_RE.captures_iter(note) {
+                ended.entry(c[1].to_owned()).or_insert_with(|| (c[2].to_owned(), at));
+            }
+        }
+
+    }
+}
+
+static TASK_SCANS: ScanCache<TaskScan> = LazyLock::new(Default::default);
+
 /// Background tasks Claude started in a chat (Bash/PowerShell with run_in_background), with their
 /// status from the task notifications and the last part of their output file.
 fn session_tasks(session_id: &str) -> Vec<ChatTask> {
-    static OUTPUT_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"Output is being written to: ([^\n\r\u{2028}\u{2029}]+?\.output)").unwrap());
-    static NOTE_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?s)<task-id>([^<]+)</task-id>.*?<status>([^<]+)</status>").unwrap());
     static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*m").unwrap());
-
-    let Some(text) = read_session_text(session_id) else { return Vec::new() };
-    struct Call {
-        command: String,
-        description: String,
-    }
-    let mut calls: HashMap<String, Call> = HashMap::new();
-    // insertion-ordered map: a re-set task keeps its first position, like a JS Map
-    let mut tasks: Vec<ChatTask> = Vec::new();
-    let mut task_index: HashMap<String, usize> = HashMap::new();
-    let mut ended: HashMap<String, (String, i64)> = HashMap::new();
-
-    for line in text.split('\n') {
-        if !line.contains("run_in_background") && !line.contains("backgroundTaskId") && !line.contains("<task-notification>") {
-            continue;
-        }
-        let Ok(row) = serde_json::from_str::<Obj>(line) else { continue };
-        let at = match row.get("timestamp") {
-            None | Some(Value::Null) => None,
-            Some(v) => parse_date(&js_string(v)),
-        }
-        .unwrap_or(0);
-        let content = row.get("message").and_then(|m| m.get("content")).and_then(Value::as_array);
-
-        if is_type(&row, "assistant")
-            && let Some(content) = content
-        {
-            for b in content {
-                let Some(b) = b.as_object() else { continue };
-                let input = b.get("input").and_then(Value::as_object);
-                if is_type(b, "tool_use")
-                    && let Some(id) = str_of(b, "id").filter(|id| !id.is_empty())
-                    && truthy(input.and_then(|i| i.get("run_in_background")))
-                {
-                    calls.insert(
-                        id.to_owned(),
-                        Call {
-                            command: js_string_coalesce(input, &["command", "prompt"]),
-                            description: js_string_coalesce(input, &["description"]),
-                        },
-                    );
-                }
-            }
-        }
-
-        let task_id = row.get("toolUseResult").and_then(|r| r.get("backgroundTaskId")).and_then(Value::as_str).filter(|s| !s.is_empty());
-        if let Some(task_id) = task_id
-            && let Some(content) = content
-        {
-            let r = content.iter().filter_map(Value::as_object).find(|b| is_type(b, "tool_result"));
-            let msg = match r.and_then(|r| r.get("content")) {
-                Some(Value::String(s)) => s.clone(),
-                Some(v) if !v.is_null() => v.to_string(),
-                _ => "\"\"".to_owned(),
-            };
-            let call = calls.get(r.and_then(|r| str_of(r, "tool_use_id")).unwrap_or(""));
-            let task = ChatTask {
-                id: task_id.to_owned(),
-                command: call.map(|c| c.command.clone()).unwrap_or_default(),
-                description: call.map(|c| c.description.clone()).unwrap_or_default(),
-                status: "running".into(),
-                started_at: at,
-                ended_at: None,
-                output_file: OUTPUT_RE.captures(&msg).map(|c| c[1].to_owned()),
-                output: None,
-            };
-            match task_index.get(task_id) {
-                Some(&i) => tasks[i] = task,
-                None => {
-                    task_index.insert(task_id.to_owned(), tasks.len());
-                    tasks.push(task);
-                }
-            }
-        }
-
-        // the notification shows up several times (queued, delivered): the first one is when it ended
-        let note = str_of(&row, "content").unwrap_or(line);
-        for c in NOTE_RE.captures_iter(note) {
-            ended.entry(c[1].to_owned()).or_insert_with(|| (c[2].to_owned(), at));
-        }
-    }
-
+    let Some((mut tasks, ended)) = scan(&TASK_SCANS, session_id, TaskScan::feed, |s| (s.tasks.clone(), s.ended.clone())) else {
+        return Vec::new();
+    };
     tasks.reverse();
     for t in &mut tasks {
         if let Some((status, at)) = ended.get(&t.id) {

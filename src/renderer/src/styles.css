@@ -1849,6 +1849,16 @@ button.sb-item:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.palette-keys {
+  margin-left: auto;
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-faint);
+  font: 11px/16px "JetBrains Mono", Consolas, monospace;
+  white-space: nowrap;
+}
 .palette-empty {
   padding: 22px;
   text-align: center;
@@ -2763,24 +2773,6 @@ button.sb-item:hover {
 .browser-address:focus {
   border-color: var(--accent);
 }
-.browser-progress {
-  position: absolute;
-  top: 38px;
-  left: 0;
-  height: 2px;
-  width: 40%;
-  background: var(--accent);
-  animation: browser-load 1s ease-in-out infinite;
-  z-index: 2;
-}
-@keyframes browser-load {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(250%);
-  }
-}
 .browser-view {
   flex: 1;
   min-height: 0;
@@ -2799,6 +2791,59 @@ button.sb-item:hover {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+/* the latest chats of every project, above the center tabs */
+.recent-chats {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 4px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--border);
+}
+.recent-chats::-webkit-scrollbar {
+  display: none;
+}
+.recent-tab {
+  flex: 0 1 auto;
+  min-width: 110px;
+  max-width: 220px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.recent-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.recent-tab.active {
+  background: var(--bg-active);
+  border-color: var(--border-strong);
+  color: var(--text);
+  font-weight: 600;
+}
+.recent-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-tab-time {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
 }
 .center-switch {
   flex: none;

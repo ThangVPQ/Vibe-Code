@@ -59,11 +59,28 @@ fn emit_nav(label: &str, nav: WebNav) {
 
 /* ---------------- commands ---------------- */
 
+/// Tabs whose page is still being created, and those of them closed meanwhile: a tab closed before
+/// `web_open` finished would otherwise leave its page (a whole WebView2 renderer) alive for good.
+static OPENING: LazyLock<Mutex<(std::collections::HashSet<String>, std::collections::HashSet<String>)>> = LazyLock::new(Default::default);
+
 #[tauri::command]
 pub async fn web_open(label: String, chat_id: String, url: String, user_agent: Option<String>) -> Res<()> {
-    if TABS.lock().contains_key(&label) {
+    if TABS.lock().contains_key(&label) || !OPENING.lock().0.insert(label.clone()) {
         return Ok(());
     }
+    let res = open_tab(label.clone(), chat_id, url, user_agent).await;
+    let closed = {
+        let mut o = OPENING.lock();
+        o.0.remove(&label);
+        o.1.remove(&label)
+    };
+    if closed {
+        web_close(label);
+    }
+    res
+}
+
+async fn open_tab(label: String, chat_id: String, url: String, user_agent: Option<String>) -> Res<()> {
     let window = app().get_window(crate::core::MAIN).ok_or_else(|| err("no main window"))?;
     let parsed = url.parse().map_err(|_| err(format!("bad URL: {url}")))?;
     let popup_label = label.clone();
@@ -192,6 +209,13 @@ pub async fn web_set_user_agent(label: String, user_agent: Option<String>) -> Re
 #[tauri::command]
 pub fn web_close(label: String) {
     let tab = TABS.lock().remove(&label);
+    if tab.is_none() {
+        let mut o = OPENING.lock();
+        if o.0.contains(&label) {
+            o.1.insert(label);
+        }
+        return;
+    }
     if let Some(t) = tab {
         ACTIVE.lock().retain(|_, l| *l != label);
         let _ = t.webview.close();

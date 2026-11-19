@@ -20,17 +20,32 @@ Visual Studio C++ Build Tools. Running needs Git and the `claude` CLI on PATH
 
 ## Shortcuts
 
+All commands with their keys are listed in the command palette (**Ctrl+Shift+P** or **F1**).
+Bindings follow VS Code / Windows Terminal. Keys that mean something in a terminal (Ctrl+B, Ctrl+W,
+Ctrl+J, Ctrl+O, Ctrl+L, Ctrl+T…, used by readline and Claude Code) go to the terminal while it has
+the cursor.
+
 | Keys | Action |
 |---|---|
 | Alt+` (global) | Show / hide VIBE CODE (drop-down slides over any app) |
+| Ctrl+Shift+P / F1 | Command palette |
+| Ctrl+P | Go to file (`@` symbol, `:` line, `>` commands) |
+| Ctrl+Shift+O / Ctrl+G | Go to symbol / line in the open file |
 | Ctrl+Shift+N | New chat |
-| Alt+1…9 | Switch chat |
-| Ctrl+P | Go to file |
+| Alt+1…9 · Ctrl+Alt+← / → | Switch chat · previous / next chat |
+| Ctrl+Shift+L | Put the cursor in the open chat |
+| Ctrl+1 / 2 / 3 / 4 | Source code / Web / Database / Zalo tab |
 | Ctrl+Shift+E / G / C | Explorer / Changes / Chats |
-| Ctrl+` | Toggle terminal |
+| Ctrl+` · Ctrl+J · Ctrl+Shift+` | Toggle terminal · toggle panel · new terminal |
 | Ctrl+B | Toggle sidebar |
-| Ctrl+S / Ctrl+W | Save / close editor tab |
+| Ctrl+S · Ctrl+W (Ctrl+F4) · Ctrl+Shift+T | Save · close editor tab · reopen closed tab |
+| Ctrl+Tab / Ctrl+Shift+Tab (Ctrl+PgDn / PgUp) | Next / previous editor tab |
+| Ctrl+O | Open folder |
+| Ctrl+C (with selection) / Ctrl+Shift+C · Ctrl+V | Copy / paste in a terminal |
+| Ctrl+= / Ctrl+− / Ctrl+0 | Terminal font size |
 | Shift+Enter (in chat) | Newline in Claude prompt |
+
+F5 / Ctrl+R never reload the app window (that would blank every chat).
 
 ## Drop-down (Guake) mode
 

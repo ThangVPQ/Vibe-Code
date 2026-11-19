@@ -1,9 +1,13 @@
-//! Personal Zalo account (port of src/main/zalo.ts; the protocol is a Rust port of zca-js).
+//! Personal Zalo account (the protocol is a Rust port of zca-js).
 //!
 //! Login is a QR scan; the session (imei + cookies + user agent) is kept encrypted so the next
 //! launch logs in by itself. Zalo has no "list my conversations with history" call for 1-to-1
 //! chats, so we keep our own cache: everything the listener receives (live messages and the recent
-//! history Zalo replays on connect) lands in userData/zalo/cache.json.
+//! history Zalo replays on connect) is stored here and read by Claude's `zalo_*` tools and by the
+//! task list (`zalo_tasks`).
+//!
+//! On disk: `zalo/cache.json` holds the conversations, names and avatars; each conversation's
+//! messages live in their own `zalo/msgs/<id>.json`, written only when that conversation changed.
 
 mod api;
 mod cookies;
@@ -13,8 +17,7 @@ mod tools;
 mod types;
 
 use std::{
-    cmp::Ordering as CmpOrdering,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, LazyLock, Weak,
         atomic::{AtomicU64, Ordering},
@@ -24,7 +27,7 @@ use std::{
 
 use indexmap::{IndexMap, IndexSet};
 use parking_lot::{Mutex, MutexGuard};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{sync::mpsc, task::AbortHandle};
 
@@ -32,21 +35,21 @@ pub use tools::{INSTRUCTIONS, call_tool, tools};
 pub use types::*;
 
 use crate::core::{self, Res, emit};
-use api::{Api, Credentials, Outgoing, QrEvent, Quote, SeenMsg, ThreadType};
+use api::{Api, Credentials, QrEvent, ThreadType};
 use listen::{Action, Event, Listener, Msg};
 use proto::{jnum, jstr, now_ms, truthy};
 
-const MAX_PER_THREAD: usize = 3000;
+/// messages kept per conversation (the tools read ≤ 500, the task list ≤ 400)
+const MAX_PER_THREAD: usize = 1000;
+/// pages of history asked from the socket after connecting, per kind (people / groups)
 const OLD_PAGES: u32 = 15;
+const CACHE_VERSION: u32 = 2;
 
 fn dir() -> PathBuf {
     core::user_data().join("zalo")
 }
 fn cred_file() -> PathBuf {
     dir().join("session.bin")
-}
-fn cache_file() -> PathBuf {
-    dir().join("cache.json")
 }
 
 /* ---------------- state ---------------- */
@@ -55,27 +58,21 @@ fn cache_file() -> PathBuf {
 struct Store {
     loaded: bool,
     threads: IndexMap<String, ZaloThread>,
+    /// each conversation's messages, oldest first
     messages: IndexMap<String, Vec<ZaloMessage>>,
     /// userId / groupId → display name (friends, groups, senders seen)
     names: IndexMap<String, String>,
     /// userId / groupId → avatar url
     avatars: IndexMap<String, String>,
-    /// ids of my friends (for the contact list)
-    friends: IndexSet<String>,
-    /// stickerId → image url
-    stickers: IndexMap<i64, String>,
-    /// when this app was last online with Zalo: replayed messages newer than that arrived while away
-    synced_at: i64,
-    away_from: i64,
-    /// the conversation open in the Zalo tab (its messages count as read)
-    active: Option<String>,
     state: ZaloState,
     retries: u32,
     replay_pages: [u32; 2],
     /// profiles asked for (never asked twice)
     profile_queue: IndexSet<String>,
     profile_timer: bool,
-    last_typing: i64,
+    /// conversations whose messages must be written; `meta_dirty`: cache.json must be
+    dirty: IndexSet<String>,
+    meta_dirty: bool,
 }
 
 static STORE: LazyLock<Mutex<Store>> = LazyLock::new(Default::default);
@@ -85,7 +82,7 @@ fn store() -> MutexGuard<'static, Store> {
     let mut s = STORE.lock();
     if !s.loaded {
         s.loaded = true;
-        load_cache(&mut s);
+        load_cache(&dir(), &mut s);
     }
     s
 }
@@ -107,7 +104,7 @@ fn session() -> Option<Arc<Session>> {
     SESSION.lock().clone()
 }
 
-/// The logged-in API, online or not (zalo.ts' `api`).
+/// The logged-in API, online or not.
 fn api_any() -> Option<Arc<Api>> {
     session().map(|s| s.api.clone())
 }
@@ -137,115 +134,131 @@ fn spawn<F: Future<Output = ()> + Send + 'static>(f: F) {
     tauri::async_runtime::spawn(f);
 }
 
-fn window_focused() -> bool {
-    core::main_window().and_then(|w| w.is_focused().ok()).unwrap_or(false)
+/* ---------------- cache on disk ---------------- */
+
+/// cache.json: everything but the messages.
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct Meta {
+    version: u32,
+    threads: Vec<ZaloThread>,
+    names: IndexMap<String, String>,
+    avatars: IndexMap<String, String>,
+    /// version 1 kept every conversation's messages in here too
+    #[serde(skip_serializing_if = "Option::is_none")]
+    messages: Option<IndexMap<String, Vec<ZaloMessage>>>,
 }
 
-/* ---------------- cache ---------------- */
-
-fn load_cache(s: &mut Store) {
-    let Ok(text) = std::fs::read_to_string(cache_file()) else { return };
-    let Ok(c) = serde_json::from_str::<Value>(&text) else { return };
-    for t in c["threads"].as_array().into_iter().flatten() {
-        if let Ok(t) = serde_json::from_value::<ZaloThread>(t.clone()) {
-            s.threads.insert(t.id.clone(), t);
-        }
-    }
-    for (k, v) in c["messages"].as_object().into_iter().flatten() {
-        let list: Vec<ZaloMessage> = v.as_array().into_iter().flatten().filter_map(|m| serde_json::from_value(m.clone()).ok()).collect();
-        s.messages.insert(k.clone(), list);
-    }
-    for (k, v) in c["names"].as_object().into_iter().flatten() {
-        if let Some(v) = v.as_str() {
-            s.names.insert(k.clone(), v.to_owned());
-        }
-    }
-    for (k, v) in c["avatars"].as_object().into_iter().flatten() {
-        if let Some(v) = v.as_str() {
-            s.avatars.insert(k.clone(), v.to_owned());
-        }
-    }
-    for id in c["friends"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-        s.friends.insert(id.to_owned());
-    }
-    for (k, v) in c["stickers"].as_object().into_iter().flatten() {
-        if let (Ok(id), Some(v)) = (k.parse::<i64>(), v.as_str()) {
-            s.stickers.insert(id, v.to_owned());
-        }
-    }
-    s.synced_at = c["syncedAt"].as_i64().unwrap_or(0);
-    s.away_from = s.synced_at;
+/// A conversation's file name: Zalo ids are digits (groups may carry a letter); anything else is
+/// hex-encoded so it can never leave the folder.
+fn thread_file(dir: &Path, id: &str) -> PathBuf {
+    let safe = !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    // "~" never occurs in a kept-as-is id, so an encoded name can't collide with one
+    let name = if safe { id.to_owned() } else { format!("~{}", id.bytes().map(|b| format!("{b:02x}")).collect::<String>()) };
+    dir.join("msgs").join(format!("{name}.json"))
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CacheOut<'a> {
-    threads: Vec<&'a ZaloThread>,
-    messages: &'a IndexMap<String, Vec<ZaloMessage>>,
-    names: &'a IndexMap<String, String>,
-    avatars: &'a IndexMap<String, String>,
-    friends: &'a IndexSet<String>,
-    stickers: &'a IndexMap<i64, String>,
-    synced_at: i64,
+/// The newest `MAX_PER_THREAD`, oldest first.
+fn keep_newest(list: &mut Vec<ZaloMessage>) {
+    if list.len() > MAX_PER_THREAD {
+        list.drain(..list.len() - MAX_PER_THREAD);
+    }
 }
 
-async fn write_cache() {
-    let data = {
-        let mut s = store();
-        if s.state.status == "online" {
-            s.synced_at = now_ms();
-        }
-        serde_json::to_vec(&CacheOut {
-            threads: s.threads.values().filter(|t| t.contact != Some(true)).collect(),
-            messages: &s.messages,
-            names: &s.names,
-            avatars: &s.avatars,
-            friends: &s.friends,
-            stickers: &s.stickers,
-            synced_at: s.synced_at,
-        })
-    };
-    if let Ok(data) = data {
-        let _ = core::write_atomic(cache_file(), data).await;
+fn load_cache(dir: &Path, s: &mut Store) {
+    let Some(meta) = std::fs::read(dir.join("cache.json")).ok().and_then(|b| serde_json::from_slice::<Meta>(&b).ok()) else { return };
+    for t in meta.threads {
+        s.threads.insert(t.id.clone(), t);
     }
+    s.names = meta.names;
+    s.avatars = meta.avatars;
+    match meta.messages {
+        // the old single-file cache: split it up on the next save
+        Some(all) => {
+            for (id, mut list) in all {
+                list.sort_by_key(|m| m.ts);
+                keep_newest(&mut list);
+                s.dirty.insert(id.clone());
+                s.messages.insert(id, list);
+            }
+            s.meta_dirty = true;
+        }
+        None => {
+            let ids: Vec<String> = s.threads.keys().cloned().collect();
+            for id in ids {
+                let Ok(b) = std::fs::read(thread_file(dir, &id)) else { continue };
+                if let Ok(mut list) = serde_json::from_slice::<Vec<ZaloMessage>>(&b) {
+                    keep_newest(&mut list);
+                    s.messages.insert(id, list);
+                }
+            }
+        }
+    }
+}
+
+/// What the next save writes: (file, bytes) pairs, encoded under the lock (only what changed).
+fn take_writes(dir: &Path, s: &mut Store) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = Vec::new();
+    for id in std::mem::take(&mut s.dirty) {
+        let list = s.messages.get(&id).map(Vec::as_slice).unwrap_or_default();
+        if let Ok(b) = serde_json::to_vec(list) {
+            out.push((thread_file(dir, &id), b));
+        }
+    }
+    if std::mem::take(&mut s.meta_dirty) {
+        let meta = Meta {
+            version: CACHE_VERSION,
+            threads: s.threads.values().cloned().collect(),
+            names: s.names.clone(),
+            avatars: s.avatars.clone(),
+            messages: None,
+        };
+        if let Ok(b) = serde_json::to_vec(&meta) {
+            out.push((dir.join("cache.json"), b));
+        }
+    }
+    out
 }
 
 #[derive(Default)]
 struct Timers {
-    ids: IndexSet<String>,
-    changed_pending: bool,
     save_pending: bool,
+    ui_pending: bool,
 }
-static TIMERS: LazyLock<Mutex<Timers>> = LazyLock::new(Default::default);
+static TIMERS: Mutex<Timers> = Mutex::new(Timers { save_pending: false, ui_pending: false });
 
-/// Something changed in these conversations: tell the window soon, write the disk a little later.
-fn changed(ids: impl IntoIterator<Item = String>) {
+/// Write what changed a little later (many messages arriving together make one save).
+fn schedule_save() {
     let mut t = TIMERS.lock();
-    t.ids.extend(ids);
-    if !t.changed_pending {
-        t.changed_pending = true;
-        spawn(async {
-            tokio::time::sleep(Duration::from_millis(120)).await;
-            let list: Vec<String> = {
-                let mut t = TIMERS.lock();
-                t.changed_pending = false;
-                t.ids.drain(..).collect()
-            };
-            emit("zalo:changed", (list,));
-        });
+    if t.save_pending {
+        return;
     }
-    if !t.save_pending {
-        t.save_pending = true;
-        spawn(async {
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            TIMERS.lock().save_pending = false;
-            write_cache().await;
-        });
-    }
+    t.save_pending = true;
+    spawn(async {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        TIMERS.lock().save_pending = false;
+        let writes = {
+            let mut s = store();
+            take_writes(&dir(), &mut s)
+        };
+        for (path, data) in writes {
+            let _ = core::write_atomic(path, data).await;
+        }
+    });
 }
 
-fn all_thread_ids() -> Vec<String> {
-    store().threads.keys().cloned().collect()
+/// Names / avatars changed: the task list re-reads them (once for a burst).
+fn notify_ui() {
+    let mut t = TIMERS.lock();
+    if t.ui_pending {
+        return;
+    }
+    t.ui_pending = true;
+    spawn(async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        TIMERS.lock().ui_pending = false;
+        emit("zalo:changed", (Vec::<String>::new(),));
+    });
 }
 
 /* ---------------- parsing Zalo messages ---------------- */
@@ -282,8 +295,8 @@ fn vnum(v: Option<&Value>) -> Option<f64> {
     (n.is_finite() && n > 0.0).then_some(n)
 }
 
-/// What an attachment message carries, in one shape for the UI.
-fn parse_attachment(msg_type: &str, content: &Value, stickers: &IndexMap<i64, String>) -> Option<ZaloAttachment> {
+/// What an attachment message carries, in one shape.
+fn parse_attachment(msg_type: &str, content: &Value) -> Option<ZaloAttachment> {
     if !content.is_object() {
         return None;
     }
@@ -307,18 +320,7 @@ fn parse_attachment(msg_type: &str, content: &Value, stickers: &IndexMap<i64, St
         return k("gif", ZaloAttachment { width: vnum(p.get("width")), height: vnum(p.get("height")), ..base });
     }
     if t == "sticker" {
-        let id = vnum(c.get("id"))? as i64;
-        let cat = c.get("catId").filter(|v| !v.is_null()).or_else(|| c.get("cateId"));
-        let num0 = |v: Option<&Value>| {
-            let n = jnum(v);
-            if n.is_finite() { n as i64 } else { 0 }
-        };
-        return Some(ZaloAttachment {
-            kind: "sticker".into(),
-            sticker: Some(StickerRef { id, cate_id: num0(cat), kind: num0(c.get("type")) }),
-            url: stickers.get(&id).cloned(),
-            ..Default::default()
-        });
+        return vnum(c.get("id")).map(|_| ZaloAttachment { kind: "sticker".into(), ..Default::default() });
     }
     if t == "file" {
         return k("file", ZaloAttachment { size: vnum(p.get("fileSize")), ext: vstr(p.get("fileExt")).map(|e| e.to_lowercase()), ..base });
@@ -378,13 +380,13 @@ fn first_chars(s: &str, n: usize) -> String {
 }
 
 fn refresh_thread_last(s: &mut Store, thread_id: &str) {
-    let Some(last) = s.messages.get(thread_id).and_then(|a| a.last()).cloned() else { return };
-    let Some(t) = s.threads.get_mut(thread_id) else { return };
-    t.last_ts = last.ts;
-    let who = if t.group && !last.mine { format!("{}: ", last.from_name) } else { String::new() };
-    t.last = who + &first_chars(&preview_of(&last), 200);
-    t.last_self = Some(last.mine);
-    t.last_status = if last.mine { last.status.clone() } else { None };
+    let Some(last) = s.messages.get(thread_id).and_then(|a| a.last()) else { return };
+    let who = if last.group && !last.mine { format!("{}: ", last.from_name) } else { String::new() };
+    let (ts, line) = (last.ts, who + &first_chars(&preview_of(last), 200));
+    if let Some(t) = s.threads.get_mut(thread_id) {
+        t.last_ts = ts;
+        t.last = line;
+    }
 }
 
 fn to_message(s: &Store, m: &Msg) -> ZaloMessage {
@@ -392,7 +394,7 @@ fn to_message(s: &Store, m: &Msg) -> ZaloMessage {
     let group = m.kind == ThreadType::Group;
     let content = d.get("content").cloned().unwrap_or(Value::Null);
     let msg_type = jstr(d.get("msgType"));
-    let att = parse_attachment(&msg_type, &content, &s.stickers);
+    let att = parse_attachment(&msg_type, &content);
     let uid_from = jstr(d.get("uidFrom"));
     let from_id = if m.is_self { s.state.me.as_ref().map(|me| me.id.clone()).unwrap_or_else(|| uid_from.clone()) } else { uid_from.clone() };
     let q = d.get("quote").filter(|q| truthy(Some(q)));
@@ -404,8 +406,8 @@ fn to_message(s: &Store, m: &Msg) -> ZaloMessage {
     let attach_text = |q: &Value| if truthy(q.get("attach")) { "[tệp đính kèm]".to_owned() } else { String::new() };
     let qmsg = |q: &Value| q.get("msg").filter(|v| truthy(Some(v))).map(|v| jstr(Some(v)));
     ZaloMessage {
-        id: jstr(d.get("msgId")),
-        cli_msg_id: jstr(d.get("cliMsgId")),
+        // no id at all: "" (jstr would give "undefined", and every such message would share it)
+        id: d.get("msgId").filter(|v| !v.is_null()).map(|v| jstr(Some(v))).unwrap_or_default(),
         thread_id: m.thread_id.clone(),
         group,
         from_id,
@@ -416,7 +418,7 @@ fn to_message(s: &Store, m: &Msg) -> ZaloMessage {
         },
         mine: m.is_self,
         ts: if ts.is_finite() && ts != 0.0 { ts as i64 } else { now_ms() },
-        kind: msg_type.clone(),
+        kind: msg_type,
         text: content_text(att.as_ref(), &content),
         att,
         mentions: mentions.filter(|m| !m.is_empty()),
@@ -428,134 +430,131 @@ fn to_message(s: &Store, m: &Msg) -> ZaloMessage {
             from: q.get("fromD").map(|v| jstr(Some(v))).unwrap_or_default(),
             text: qmsg(q).unwrap_or_else(|| attach_text(q)),
         }),
-        status: m.is_self.then(|| "sent".into()),
-        reactions: None,
         recalled: None,
-        raw: Some(Raw {
-            content,
-            msg_type,
-            property_ext: d.get("propertyExt").cloned(),
-            uid_from,
-            id_to: jstr(d.get("idTo")),
-            ttl: d.get("ttl").cloned(),
-            st: d.get("st").cloned(),
-            at: d.get("at").cloned(),
-            cmd: d.get("cmd").cloned(),
-        }),
     }
 }
 
-/// Store messages. `live`: just arrived (counts as unread).
+/// Put `msg` in its place (the list stays sorted by time). `None`: already there.
+///
+/// Messages arrive almost always newest-last, so this is a binary search plus a look at the few
+/// messages with the same timestamp — not a scan of the whole conversation per message.
+fn insert_sorted(list: &mut Vec<ZaloMessage>, msg: ZaloMessage) -> Option<usize> {
+    let from = list.partition_point(|x| x.ts < msg.ts);
+    let to = from + list[from..].partition_point(|x| x.ts == msg.ts);
+    if list[from..to].iter().any(|x| x.id == msg.id) {
+        return None;
+    }
+    list.insert(to, msg);
+    Some(to)
+}
+
+/// What [`ingest_into`] leaves for afterwards (outside the lock).
+#[derive(Default, Debug, PartialEq)]
+struct Ingested {
+    /// conversations that got new messages
+    touched: IndexSet<String>,
+    /// group members whose avatar we don't have yet
+    profiles: IndexSet<String>,
+}
+
+/// Store messages in `s`: sorted, without duplicates, capped per conversation; conversations
+/// are created as they first show up and named from what the messages tell.
+fn ingest_into(s: &mut Store, list: &[Msg]) -> Ingested {
+    let mut out = Ingested::default();
+    for m in list {
+        let msg = to_message(s, m);
+        if msg.id.is_empty() {
+            continue;
+        }
+        let d_name = m.data.get("dName").and_then(Value::as_str).filter(|n| !n.is_empty());
+        if !m.is_self
+            && let Some(n) = d_name
+            && s.names.get(&msg.from_id).is_none_or(|old| old != n)
+        {
+            s.names.insert(msg.from_id.clone(), n.to_owned());
+            s.meta_dirty = true;
+        }
+        let (group, from_id, mine) = (msg.group, msg.from_id.clone(), msg.mine);
+        let arr = s.messages.entry(m.thread_id.clone()).or_default();
+        let Some(pos) = insert_sorted(arr, msg) else { continue };
+        let newest = pos + 1 == arr.len();
+        keep_newest(arr);
+        if !s.threads.contains_key(&m.thread_id) {
+            let t = ZaloThread {
+                id: m.thread_id.clone(),
+                group,
+                name: s.names.get(&m.thread_id).cloned().unwrap_or_default(),
+                avatar: s.avatars.get(&m.thread_id).cloned(),
+                ..Default::default()
+            };
+            s.threads.insert(m.thread_id.clone(), t);
+        }
+        if let Some(t) = s.threads.get_mut(&m.thread_id)
+            && t.name.is_empty()
+            && !group
+            && !mine
+            && let Some(n) = d_name
+        {
+            t.name = n.to_owned();
+        }
+        if newest {
+            refresh_thread_last(s, &m.thread_id);
+        }
+        if group && !mine && !s.avatars.contains_key(&from_id) {
+            out.profiles.insert(from_id);
+        }
+        s.dirty.insert(m.thread_id.clone());
+        s.meta_dirty = true;
+        out.touched.insert(m.thread_id.clone());
+    }
+    out
+}
+
+/// Store messages. `live`: just arrived (the task list looks at them right away).
 fn ingest(list: Vec<Msg>, live: bool) {
     if list.is_empty() {
         return;
     }
-    let win_focused = window_focused();
-    let mut seen_now: IndexSet<String> = IndexSet::new();
-    let mut stickers = Vec::new();
-    let mut profiles = Vec::new();
-    let mut touched: IndexSet<String> = IndexSet::new();
-    {
-        let mut s = store();
-        for m in &list {
-            let msg = to_message(&s, m);
-            if !m.is_self
-                && let Some(n) = m.data.get("dName").and_then(Value::as_str).filter(|n| !n.is_empty())
-            {
-                s.names.insert(msg.from_id.clone(), n.to_owned());
-            }
-            let arr = s.messages.entry(m.thread_id.clone()).or_default();
-            if arr.iter().any(|x| x.id == msg.id) {
-                continue;
-            }
-            arr.push(msg.clone());
-            let n = arr.len();
-            if n > 1 && arr[n - 2].ts > msg.ts {
-                arr.sort_by_key(|x| x.ts);
-            }
-            if arr.len() > MAX_PER_THREAD {
-                let extra = arr.len() - MAX_PER_THREAD;
-                arr.drain(..extra);
-            }
-            let replied_later = arr.iter().any(|x| x.mine && x.ts > msg.ts);
-            let name_hint = s.names.get(&m.thread_id).cloned();
-            let avatar_hint = s.avatars.get(&m.thread_id).cloned();
-            let t = s.threads.entry(m.thread_id.clone()).or_insert_with(|| ZaloThread { id: m.thread_id.clone(), group: msg.group, ..Default::default() });
-            t.contact = None;
-            if t.name.is_empty() && !msg.group && !m.is_self
-                && let Some(n) = m.data.get("dName").and_then(Value::as_str).filter(|n| !n.is_empty())
-            {
-                t.name = n.to_owned();
-            }
-            if t.name.is_empty() {
-                t.name = name_hint.unwrap_or_default();
-            }
-            if t.avatar.is_none() && avatar_hint.is_some() {
-                t.avatar = avatar_hint;
-            }
-            if msg.ts >= t.last_ts {
-                refresh_thread_last(&mut s, &m.thread_id);
-            }
-            // replayed history: unread if it came in while the app was away and I haven't replied since
-            let away = !live && s.away_from > 0 && msg.ts > s.away_from && !replied_later;
-            let focused = win_focused && s.active.as_deref() == Some(m.thread_id.as_str());
-            let t = s.threads.get_mut(&m.thread_id).expect("inserted above");
-            if msg.mine && msg.ts >= t.last_ts {
-                t.unread = Some(0);
-            } else if (live || away) && !msg.mine {
-                if focused {
-                    seen_now.insert(m.thread_id.clone());
-                } else {
-                    t.unread = Some(t.unread.unwrap_or(0) + 1);
-                }
-            }
-            if let Some(a) = &msg.att
-                && a.kind == "sticker"
-                && a.url.is_none()
-                && let Some(st) = &a.sticker
-            {
-                stickers.push((m.thread_id.clone(), msg.id.clone(), st.id));
-            }
-            if msg.group && !m.is_self && !s.avatars.contains_key(&msg.from_id) {
-                profiles.push(msg.from_id.clone());
-            }
-            touched.insert(m.thread_id.clone());
-        }
-    }
-    for t in seen_now {
-        mark_seen(&t);
-    }
-    for (thread, msg_id, sticker) in stickers {
-        spawn(resolve_sticker(thread, msg_id, sticker));
-    }
-    for uid in profiles {
+    let got = ingest_into(&mut store(), &list);
+    for uid in got.profiles {
         want_profile(uid);
     }
-    let ids: Vec<String> = touched.into_iter().collect();
-    changed(ids.clone());
-    if live && !ids.is_empty() {
-        crate::zalo_tasks::on_ingest(ids);
+    if got.touched.is_empty() {
+        return;
+    }
+    schedule_save();
+    if live {
+        crate::zalo_tasks::on_ingest(got.touched.into_iter().collect());
     }
 }
 
 /// Conversations with something addressed to me since `since`: every personal chat with an
 /// incoming message, and groups where someone @mentioned me or replied to me — with my own later
-/// messages, so it's clear what I answered.
-pub fn work_feed(since: i64, max_threads: usize, max_msgs: usize) -> Vec<WorkThread> {
-    let s = store();
-    let me = s.state.me.as_ref().map(|m| m.id.clone());
+/// messages, so it's clear what I answered. `only`: just these conversations.
+pub fn work_feed(since: i64, max_threads: usize, max_msgs: usize, only: Option<&[String]>) -> Vec<WorkThread> {
+    work_feed_in(&store(), since, max_threads, max_msgs, only)
+}
+
+fn work_feed_in(s: &Store, since: i64, max_threads: usize, max_msgs: usize, only: Option<&[String]>) -> Vec<WorkThread> {
+    let me = s.state.me.as_ref().map(|m| m.id.as_str());
     let mut out = Vec::new();
-    for t in s.threads.values() {
+    let threads: Box<dyn Iterator<Item = &ZaloThread>> = match only {
+        Some(ids) => Box::new(ids.iter().filter_map(|id| s.threads.get(id))),
+        None => Box::new(s.threads.values()),
+    };
+    for t in threads {
         let Some(arr) = s.messages.get(&t.id).filter(|a| !a.is_empty()) else { continue };
         if arr[arr.len() - 1].ts < since {
             continue;
         }
+        // only the recent part is looked at (the list is sorted by time)
+        let recent_from = arr.partition_point(|m| m.ts < since);
         let mine: IndexSet<&str> = arr.iter().filter(|m| m.mine).map(|m| m.id.as_str()).collect();
-        let recent: Vec<&ZaloMessage> = arr.iter().filter(|m| m.ts >= since && m.recalled != Some(true)).collect();
+        let recent: Vec<&ZaloMessage> = arr[recent_from..].iter().filter(|m| m.recalled != Some(true)).collect();
         let to_me = |m: &ZaloMessage| {
             !m.mine
                 && (!t.group
-                    || m.mentions.as_ref().is_some_and(|l| l.iter().any(|x| Some(&x.uid) == me.as_ref()))
+                    || m.mentions.as_ref().is_some_and(|l| l.iter().any(|x| Some(x.uid.as_str()) == me))
                     || m.reply.as_ref().is_some_and(|r| mine.contains(r.id.as_str())))
         };
         let Some(first) = recent.iter().position(|m| to_me(m)) else { continue };
@@ -596,10 +595,10 @@ pub fn avatar_of(user_id: &str) -> Option<String> {
     a
 }
 
-/* ---------------- profiles & stickers, fetched lazily ---------------- */
+/* ---------------- profiles, fetched lazily ---------------- */
 
 fn want_profile(uid: String) {
-    if api_any().is_none() {
+    if uid.is_empty() || api_any().is_none() {
         return;
     }
     let mut s = store();
@@ -624,92 +623,41 @@ async fn flush_profiles() {
         return;
     }
     let Ok(r) = a.get_user_info(&ids).await else { return };
-    {
-        let mut s = store();
-        for (k, p) in r["changed_profiles"].as_object().into_iter().flatten() {
-            let id = k.strip_suffix("_0").unwrap_or(k).to_owned();
-            let avatar = vstr(p.get("avatar"));
-            let name = p.get("displayName").and_then(Value::as_str).filter(|n| !n.is_empty()).or_else(|| p.get("zaloName").and_then(Value::as_str)).map(str::to_owned);
-            if let Some(av) = &avatar {
-                s.avatars.insert(id.clone(), av.clone());
+    if apply_profiles(&mut store(), &r) {
+        schedule_save();
+        notify_ui();
+    }
+}
+
+/// `getUserInfo`'s answer into names / avatars. Whether anything changed.
+fn apply_profiles(s: &mut Store, r: &Value) -> bool {
+    let mut any = false;
+    for (k, p) in r["changed_profiles"].as_object().into_iter().flatten() {
+        let id = k.strip_suffix("_0").unwrap_or(k).to_owned();
+        let avatar = vstr(p.get("avatar"));
+        let name = vstr(p.get("displayName")).or_else(|| vstr(p.get("zaloName")));
+        if let Some(av) = &avatar {
+            s.avatars.insert(id.clone(), av.clone());
+            any = true;
+        }
+        if let Some(n) = &name {
+            s.names.insert(id.clone(), n.clone());
+            any = true;
+        }
+        if let Some(t) = s.threads.get_mut(&id) {
+            if avatar.is_some() {
+                t.avatar = avatar;
             }
-            if let Some(n) = name.clone().filter(|n| !n.is_empty()) {
-                s.names.insert(id.clone(), n);
-            }
-            if let Some(t) = s.threads.get_mut(&id) {
-                if avatar.is_some() {
-                    t.avatar = avatar;
-                }
-                if t.name.is_empty() {
-                    t.name = name.unwrap_or_default();
-                }
+            if t.name.is_empty() {
+                t.name = name.unwrap_or_default();
             }
         }
     }
-    changed(all_thread_ids());
+    s.meta_dirty |= any;
+    any
 }
 
-async fn resolve_sticker(thread_id: String, msg_id: String, sticker_id: i64) {
-    let Some(a) = api_any() else { return };
-    if !store().stickers.contains_key(&sticker_id) {
-        let Ok(list) = a.get_stickers_detail(&[sticker_id]).await else { return };
-        let url = list.first().and_then(|d| vstr(d.get("stickerWebpUrl")).or_else(|| vstr(d.get("stickerUrl"))));
-        if let Some(url) = url {
-            store().stickers.insert(sticker_id, url);
-        }
-    }
-    let done = {
-        let mut s = store();
-        let url = s.stickers.get(&sticker_id).cloned();
-        match (url, s.messages.get_mut(&thread_id).and_then(|a| a.iter_mut().find(|m| m.id == msg_id)).and_then(|m| m.att.as_mut())) {
-            (Some(url), Some(att)) => {
-                att.url = Some(url);
-                true
-            }
-            _ => false,
-        }
-    };
-    if done {
-        changed([thread_id]);
-    }
-}
-
-/* ---------------- live events: reactions, recalls, seen, typing ---------------- */
-
-fn find_msg<'a>(s: &'a mut Store, thread_id: &str, msg_id: &str) -> Option<&'a mut ZaloMessage> {
-    s.messages.get_mut(thread_id)?.iter_mut().find(|m| m.id == msg_id)
-}
-
-fn set_reaction(m: &mut ZaloMessage, uid: &str, icon: &str) {
-    let mut reactions = m.reactions.take().unwrap_or_default();
-    for v in reactions.values_mut() {
-        v.retain(|u| u != uid);
-    }
-    reactions.retain(|_, v| !v.is_empty());
-    if !icon.is_empty() {
-        reactions.entry(icon.to_owned()).or_default().push(uid.to_owned());
-    }
-    m.reactions = (!reactions.is_empty()).then_some(reactions);
-}
-
-fn apply_reaction(r: &Action) {
-    let d = &r.data;
-    let uid = jstr(d.get("uidFrom"));
-    let icon = d["content"].get("rIcon").filter(|v| truthy(Some(v))).map(|v| jstr(Some(v))).unwrap_or_default();
-    let mut hit = false;
-    {
-        let mut s = store();
-        for target in d["content"]["rMsg"].as_array().into_iter().flatten() {
-            if let Some(m) = find_msg(&mut s, &r.thread_id, &jstr(target.get("gMsgID"))) {
-                set_reaction(m, &uid, &icon);
-                hit = true;
-            }
-        }
-    }
-    if hit {
-        changed([r.thread_id.clone()]);
-    }
-}
+/* ---------------- recalls ---------------- */
 
 fn recall_locally(m: &mut ZaloMessage) {
     m.recalled = Some(true);
@@ -718,76 +666,15 @@ fn recall_locally(m: &mut ZaloMessage) {
     m.reply = None;
 }
 
-fn apply_undo(u: &Action) {
+/// A message was recalled. Whether it was one we have.
+fn apply_undo_in(s: &mut Store, u: &Action) -> bool {
     let id = jstr(u.data["content"].get("globalMsgId"));
-    {
-        let mut s = store();
-        let Some(m) = find_msg(&mut s, &u.thread_id, &id) else { return };
-        recall_locally(m);
-        m.reactions = None;
-        refresh_thread_last(&mut s, &u.thread_id);
-    }
-    changed([u.thread_id.clone()]);
-}
-
-/// My messages up to `msg_id` in this thread were read by the other side.
-fn mark_mine_seen(thread_id: &str, msg_id: &str) {
-    {
-        let mut s = store();
-        let Some(arr) = s.messages.get_mut(thread_id) else { return };
-        let up_to = arr.iter().find(|m| m.id == msg_id).map(|m| m.ts).unwrap_or(i64::MAX);
-        for m in arr.iter_mut() {
-            if m.mine && m.ts <= up_to && m.status.as_deref() == Some("sent") {
-                m.status = Some("seen".into());
-            }
-        }
-        refresh_thread_last(&mut s, thread_id);
-    }
-    changed([thread_id.to_owned()]);
-}
-
-/// Tell Zalo (and the sender) we read this conversation.
-fn mark_seen(thread_id: &str) {
-    let (was_unread, online, group, unseen) = {
-        let mut s = store();
-        let mut was = false;
-        if let Some(t) = s.threads.get_mut(thread_id)
-            && t.unread.unwrap_or(0) > 0
-        {
-            t.unread = Some(0);
-            was = true;
-        }
-        let group = s.threads.get(thread_id).is_some_and(|t| t.group);
-        let list: Vec<&ZaloMessage> = s.messages.get(thread_id).map(|a| a.iter().filter(|m| !m.mine && m.raw.is_some()).collect()).unwrap_or_default();
-        let unseen: Vec<SeenMsg> = list[list.len().saturating_sub(20)..]
-            .iter()
-            .map(|m| {
-                let r = m.raw.as_ref().expect("filtered");
-                SeenMsg {
-                    msg_id: m.id.clone(),
-                    cli_msg_id: m.cli_msg_id.clone(),
-                    uid_from: r.uid_from.clone(),
-                    id_to: r.id_to.clone(),
-                    msg_type: r.msg_type.clone(),
-                    st: r.st.clone(),
-                    at: r.at.clone(),
-                    cmd: r.cmd.clone(),
-                }
-            })
-            .collect();
-        (was, s.state.status == "online", group, unseen)
-    };
-    if was_unread {
-        changed([thread_id.to_owned()]);
-    }
-    let Some(a) = api_any() else { return };
-    if !online || unseen.is_empty() {
-        return;
-    }
-    let kind = if group { ThreadType::Group } else { ThreadType::User };
-    spawn(async move {
-        let _ = a.send_seen_event(&unseen, kind).await;
-    });
+    let Some(m) = s.messages.get_mut(&u.thread_id).and_then(|a| a.iter_mut().rev().find(|m| m.id == id)) else { return false };
+    recall_locally(m);
+    refresh_thread_last(s, &u.thread_id);
+    s.dirty.insert(u.thread_id.clone());
+    s.meta_dirty = true;
+    true
 }
 
 /* ---------------- session ---------------- */
@@ -819,11 +706,7 @@ fn after_login(a: Arc<Api>) {
     };
     let id = NEXT_SESSION.fetch_add(1, Ordering::SeqCst);
     *SESSION.lock() = Some(Arc::new(Session { id, api: a.clone(), listener: listener.clone() }));
-    {
-        let mut s = store();
-        s.retries = 0;
-        s.away_from = s.synced_at;
-    }
+    store().retries = 0;
     let uid = a.uid.clone();
     set_state(|s| {
         s.status = "online";
@@ -836,15 +719,13 @@ fn after_login(a: Arc<Api>) {
     spawn(async move {
         if let Ok(r) = acc.fetch_account_info().await {
             let p = &r["profile"];
-            let name = p.get("displayName").and_then(Value::as_str).filter(|n| !n.is_empty()).or_else(|| p.get("zaloName").and_then(Value::as_str)).unwrap_or_default().to_owned();
+            let name = vstr(p.get("displayName")).or_else(|| vstr(p.get("zaloName"))).unwrap_or_default();
             let avatar = p.get("avatar").and_then(Value::as_str).unwrap_or_default().to_owned();
             set_state(|s| s.me = Some(ZaloSelf { id: uid, name, avatar }));
         }
     });
     let n = a.clone();
     spawn(async move { load_names(&n).await });
-    let p = a.clone();
-    spawn(async move { load_pins(&p).await });
     spawn(run_events(id, Arc::downgrade(&listener), rx));
     if let Err(e) = listener.start(true) {
         set_state(|s| {
@@ -858,8 +739,25 @@ fn is_current(id: u64) -> bool {
     session().is_some_and(|s| s.id == id)
 }
 
+/// Live messages that arrive together, as one batch: one lock, one save, one task-list look.
+fn next_batch(first: Event, rx: &mut mpsc::UnboundedReceiver<Event>) -> (Vec<Msg>, Option<Event>) {
+    let Event::Message(m) = first else { return (Vec::new(), Some(first)) };
+    let mut batch = vec![m];
+    while batch.len() < 500 {
+        match rx.try_recv() {
+            Ok(Event::Message(m)) => batch.push(m),
+            Ok(other) => return (batch, Some(other)),
+            Err(_) => break,
+        }
+    }
+    (batch, None)
+}
+
 async fn run_events(id: u64, listener: Weak<Listener>, mut rx: mpsc::UnboundedReceiver<Event>) {
-    while let Some(ev) = rx.recv().await {
+    while let Some(first) = rx.recv().await {
+        let (live, rest) = next_batch(first, &mut rx);
+        ingest(live, true);
+        let Some(ev) = rest else { continue };
         match ev {
             Event::CipherKey => {
                 if is_current(id)
@@ -870,11 +768,7 @@ async fn run_events(id: u64, listener: Weak<Listener>, mut rx: mpsc::UnboundedRe
             }
             Event::Message(m) => ingest(vec![m], true),
             Event::OldMessages(list, kind) => {
-                let oldest = list.iter().fold(None::<&Msg>, |x, y| match x {
-                    Some(x) if jnum(x.data.get("ts")) <= jnum(y.data.get("ts")) => Some(x),
-                    _ => Some(y),
-                });
-                let oldest = oldest.map(|m| jstr(m.data.get("msgId")));
+                let oldest = list.iter().min_by(|x, y| jnum(x.data.get("ts")).total_cmp(&jnum(y.data.get("ts")))).map(|m| jstr(m.data.get("msgId")));
                 let n = list.len();
                 ingest(list, false);
                 if n > 0 {
@@ -889,17 +783,10 @@ async fn run_events(id: u64, listener: Weak<Listener>, mut rx: mpsc::UnboundedRe
                     }
                 }
             }
-            Event::Reaction(r) => apply_reaction(&r),
-            Event::OldReactions(list) => list.iter().for_each(apply_reaction),
-            Event::Undo(u) => apply_undo(&u),
-            Event::Seen(list) => {
-                for s in list.iter().filter(|s| !s.is_self) {
-                    mark_mine_seen(&s.thread_id, &s.msg_id);
+            Event::Undo(u) => {
+                if apply_undo_in(&mut store(), &u) {
+                    schedule_save();
                 }
-            }
-            Event::Typing(t) => {
-                let name = store().names.get(&t.uid).cloned().unwrap_or_default();
-                emit("zalo:typing", (ZaloTyping { thread_id: t.thread_id, uid: t.uid, name },));
             }
             Event::Closed(code) => {
                 on_closed(id, code);
@@ -956,17 +843,18 @@ fn request_replay(l: &Listener) {
     store().replay_pages = [0, 0];
     l.request_old_messages(ThreadType::User, None);
     l.request_old_messages(ThreadType::Group, None);
-    l.request_old_reactions(ThreadType::User);
-    l.request_old_reactions(ThreadType::Group);
 }
 
-/// "Đồng bộ tất cả": names, pins, the socket replay again, and the latest page of every group.
+fn message_count() -> i64 {
+    store().messages.values().map(Vec::len).sum::<usize>() as i64
+}
+
+/// "Đồng bộ tất cả": names, the socket replay again, and the latest page of every group.
 /// Returns how many new messages came in.
 pub async fn sync_all() -> anyhow::Result<i64> {
     let a = need()?;
-    let total = || store().messages.values().map(Vec::len).sum::<usize>() as i64;
-    let before = total();
-    tokio::join!(load_names(&a), load_pins(&a));
+    let before = message_count();
+    load_names(&a).await;
     if let Some(s) = session() {
         request_replay(&s.listener);
     }
@@ -977,93 +865,67 @@ pub async fn sync_all() -> anyhow::Result<i64> {
             ingest(msgs, false);
         }
     }
-    Ok(total() - before)
+    Ok(message_count() - before)
 }
 
-/// Friend and group names / avatars, so threads show who they are.
+/// Friend and group names / avatars, so conversations show who they are.
 async fn load_names(a: &Api) {
     if let Ok(list) = a.get_all_friends().await {
-        {
-            let mut s = store();
-            s.friends.clear();
-            for f in &list {
-                let id = jstr(f.get("userId"));
-                s.friends.insert(id.clone());
-                let name = f.get("displayName").and_then(Value::as_str).filter(|n| !n.is_empty()).or_else(|| f.get("zaloName").and_then(Value::as_str)).unwrap_or_default();
-                s.names.insert(id.clone(), name.to_owned());
-                if let Some(av) = f.get("avatar").and_then(Value::as_str).filter(|v| !v.is_empty()) {
-                    s.avatars.insert(id, av.to_owned());
-                }
-            }
-            let Store { threads, names, avatars, .. } = &mut *s;
-            for t in threads.values_mut().filter(|t| !t.group) {
-                if let Some(n) = names.get(&t.id) {
-                    t.name = n.clone();
-                }
-                if let Some(av) = avatars.get(&t.id) {
-                    t.avatar = Some(av.clone());
-                }
-            }
-        }
-        changed(all_thread_ids());
+        apply_friends(&mut store(), &list);
+        schedule_save();
+        notify_ui();
     }
     let Ok(groups) = a.get_all_groups().await else { return };
     let ids: Vec<String> = groups["gridVerMap"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
     for chunk in ids.chunks(50) {
-        let Ok(info) = a.get_group_info(chunk).await else { return };
-        let mut s = store();
-        for (gid, g) in info["gridInfoMap"].as_object().into_iter().flatten() {
-            let name = jstr(g.get("name"));
-            let avt = vstr(g.get("avt"));
-            s.names.insert(gid.clone(), name.clone());
-            if let Some(av) = &avt {
-                s.avatars.insert(gid.clone(), av.clone());
-            }
-            let t = s.threads.entry(gid.clone()).or_insert_with(|| ZaloThread { id: gid.clone(), group: true, ..Default::default() });
-            t.name = name;
-            t.avatar = avt;
-            t.members = g.get("totalMember").and_then(Value::as_i64);
-        }
+        let Ok(info) = a.get_group_info(chunk).await else { break };
+        apply_groups(&mut store(), &info);
     }
-    changed(all_thread_ids());
+    schedule_save();
+    notify_ui();
 }
 
-async fn load_pins(a: &Api) {
-    let Ok(r) = a.get_pin_conversations().await else { return };
-    let pinned: IndexMap<String, bool> = r["conversations"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(|c| (c.strip_prefix(['u', 'g']).unwrap_or(c).to_owned(), c.starts_with('g')))
-        .collect();
-    let mut want = Vec::new();
-    {
-        let mut s = store();
-        for t in s.threads.values_mut() {
-            t.pinned = pinned.contains_key(&t.id).then_some(true);
+fn apply_friends(s: &mut Store, list: &[Value]) {
+    for f in list {
+        let id = jstr(f.get("userId"));
+        if id.is_empty() {
+            continue;
         }
-        for (id, group) in &pinned {
-            if !s.threads.contains_key(id) {
-                let t = ZaloThread {
-                    id: id.clone(),
-                    group: *group,
-                    name: s.names.get(id).cloned().unwrap_or_default(),
-                    avatar: s.avatars.get(id).cloned(),
-                    pinned: Some(true),
-                    ..Default::default()
-                };
-                s.threads.insert(id.clone(), t);
-            }
-            if !group && !s.avatars.contains_key(id) {
-                want.push(id.clone());
-            }
+        let name = vstr(f.get("displayName")).or_else(|| vstr(f.get("zaloName"))).unwrap_or_default();
+        s.names.insert(id.clone(), name);
+        if let Some(av) = vstr(f.get("avatar")) {
+            s.avatars.insert(id, av);
         }
     }
-    for id in want {
-        want_profile(id);
+    let Store { threads, names, avatars, .. } = s;
+    for t in threads.values_mut().filter(|t| !t.group) {
+        if let Some(n) = names.get(&t.id).filter(|n| !n.is_empty()) {
+            t.name = n.clone();
+        }
+        if let Some(av) = avatars.get(&t.id) {
+            t.avatar = Some(av.clone());
+        }
     }
-    changed(pinned.into_keys());
+    s.meta_dirty = true;
+}
+
+/// Group names / avatars. Groups we have no messages of aren't added as conversations (an
+/// account can be in hundreds); their names are still known for when a message comes.
+fn apply_groups(s: &mut Store, info: &Value) {
+    for (gid, g) in info["gridInfoMap"].as_object().into_iter().flatten() {
+        let name = jstr(g.get("name"));
+        let avt = vstr(g.get("avt"));
+        s.names.insert(gid.clone(), name.clone());
+        if let Some(av) = &avt {
+            s.avatars.insert(gid.clone(), av.clone());
+        }
+        if let Some(t) = s.threads.get_mut(gid) {
+            t.group = true;
+            t.name = name;
+            t.avatar = avt;
+        }
+    }
+    s.meta_dirty = true;
 }
 
 /// Start: log in with the saved session, if any.
@@ -1196,7 +1058,9 @@ pub async fn logout() {
         s.messages.clear();
         s.names.clear();
         s.avatars.clear();
-        s.friends.clear();
+        s.profile_queue.clear();
+        s.dirty.clear();
+        s.meta_dirty = false;
     }
     let _ = tokio::fs::remove_dir_all(dir()).await;
     set_state(|s| {
@@ -1208,7 +1072,7 @@ pub async fn logout() {
     emit("zalo:changed", (Vec::<String>::new(),));
 }
 
-/* ---------------- reading ---------------- */
+/* ---------------- reading (Claude's tools, the task list) ---------------- */
 
 fn type_of(thread_id: &str, group: Option<bool>) -> ThreadType {
     let g = group.unwrap_or_else(|| store().threads.get(thread_id).is_some_and(|t| t.group));
@@ -1216,98 +1080,25 @@ fn type_of(thread_id: &str, group: Option<bool>) -> ThreadType {
 }
 
 pub fn list_threads(query: &str, limit: usize) -> Vec<ZaloThread> {
+    list_threads_in(&store(), query, limit)
+}
+
+fn list_threads_in(s: &Store, query: &str, limit: usize) -> Vec<ZaloThread> {
     let q = query.trim().to_lowercase();
-    let s = store();
-    let mut list: Vec<ZaloThread> = s.threads.values().filter(|t| q.is_empty() || t.name.to_lowercase().contains(&q) || t.id.contains(&q)).cloned().collect();
+    let mut list: Vec<&ZaloThread> = s.threads.values().filter(|t| q.is_empty() || t.name.to_lowercase().contains(&q) || t.id.contains(&q)).collect();
     list.sort_by_key(|t| std::cmp::Reverse(t.last_ts));
-    list.truncate(limit);
-    list
-}
-
-/// Conversations for the Zalo tab: everything with a name, pinned and newest first.
-pub fn ui_threads() -> Vec<ZaloThread> {
-    let s = store();
-    let mut list: Vec<ZaloThread> = s.threads.values().filter(|t| !t.name.is_empty() || t.last_ts != 0).cloned().collect();
-    list.sort_by(|a, b| (b.pinned == Some(true)).cmp(&(a.pinned == Some(true))).then(b.last_ts.cmp(&a.last_ts)));
-    list
-}
-
-/// Vietnamese collation, close to `localeCompare(…, 'vi')`: letters with breve / circumflex / horn
-/// and đ sort after their base letter; tones (̀ ̉ ̃ ́ ̣) and case only break ties.
-fn vi_key(s: &str) -> (Vec<u32>, Vec<u8>, Vec<u8>) {
-    use unicode_normalization::UnicodeNormalization;
-    let (mut primary, mut tones, mut case) = (Vec::new(), Vec::new(), Vec::new());
-    for c in s.nfd() {
-        let modifier = match c {
-            '\u{0306}' => Some(1),
-            '\u{0302}' => Some(2),
-            '\u{031B}' => Some(3),
-            _ => None,
-        };
-        let tone = match c {
-            '\u{0300}' => Some(1),
-            '\u{0309}' => Some(2),
-            '\u{0303}' => Some(3),
-            '\u{0301}' => Some(4),
-            '\u{0323}' => Some(5),
-            _ => None,
-        };
-        if let Some(m) = modifier {
-            if let Some(p) = primary.last_mut() {
-                *p += m;
-            }
-        } else if let Some(t) = tone {
-            if let Some(x) = tones.last_mut() {
-                *x = t;
-            }
-        } else {
-            let (base, extra) = match c {
-                'đ' => ('d', 1),
-                'Đ' => ('D', 1),
-                c => (c, 0),
-            };
-            let lower = base.to_lowercase().next().unwrap_or(base);
-            primary.push(lower as u32 * 4 + extra);
-            tones.push(0);
-            case.push(u8::from(base != lower));
-        }
-    }
-    (primary, tones, case)
-}
-
-fn vi_cmp(a: &str, b: &str) -> CmpOrdering {
-    vi_key(a).cmp(&vi_key(b)).then_with(|| a.cmp(b))
-}
-
-/// Friends, for the contact list (with their thread if one exists).
-pub fn contacts() -> Vec<ZaloThread> {
-    let s = store();
-    let mut list: Vec<ZaloThread> = s
-        .friends
-        .iter()
-        .map(|id| {
-            s.threads.get(id).cloned().unwrap_or_else(|| ZaloThread {
-                id: id.clone(),
-                name: s.names.get(id).cloned().unwrap_or_else(|| id.clone()),
-                avatar: s.avatars.get(id).cloned(),
-                contact: Some(true),
-                ..Default::default()
-            })
-        })
-        .collect();
-    drop(s);
-    list.sort_by(|a, b| vi_cmp(&a.name, &b.name));
-    list
+    list.into_iter().take(limit).cloned().collect()
 }
 
 pub fn get_messages(thread_id: &str, limit: usize, before: Option<i64>) -> Vec<ZaloMessage> {
-    let s = store();
+    get_messages_in(&store(), thread_id, limit, before)
+}
+
+fn get_messages_in(s: &Store, thread_id: &str, limit: usize, before: Option<i64>) -> Vec<ZaloMessage> {
     let all = s.messages.get(thread_id).map(Vec::as_slice).unwrap_or_default();
-    let list: Vec<&ZaloMessage> = match before.filter(|b| *b != 0) {
-        Some(b) => all.iter().filter(|m| m.ts < b).collect(),
-        None => all.iter().collect(),
-    };
-    list[list.len().saturating_sub(limit)..].iter().map(|m| (*m).clone()).collect()
+    // sorted by time: everything before `before` is a prefix
+    let end = before.filter(|b| *b != 0).map_or(all.len(), |b| all.partition_point(|m| m.ts < b));
+    all[end.saturating_sub(limit)..end].to_vec()
 }
 
 /// Older messages of a group from Zalo's cloud (1-to-1 chats only have what the socket replayed).
@@ -1334,211 +1125,30 @@ pub async fn load_older(thread_id: &str, pages: usize) -> anyhow::Result<i64> {
 }
 
 pub fn search_messages(query: &str, thread_id: Option<&str>, limit: usize) -> Vec<ZaloMessage> {
-    let q = query.to_lowercase();
-    let s = store();
-    let mut list: Vec<ZaloMessage> = match thread_id {
-        Some(t) => s.messages.get(t).map(|a| a.iter().collect::<Vec<_>>()).unwrap_or_default(),
-        None => s.messages.values().flatten().collect(),
-    }
-    .into_iter()
-    .filter(|m| m.text.to_lowercase().contains(&q) || m.from_name.to_lowercase().contains(&q))
-    .cloned()
-    .collect();
-    list.sort_by_key(|m| std::cmp::Reverse(m.ts));
-    list.truncate(limit);
-    list
+    search_messages_in(&store(), query, thread_id, limit)
 }
 
-pub async fn thread_info(thread_id: &str) -> ZaloThreadInfo {
-    let mut info = {
-        let s = store();
-        let t = s.threads.get(thread_id);
-        ZaloThreadInfo {
-            id: thread_id.to_owned(),
-            name: t.map(|t| t.name.clone()).filter(|n| !n.is_empty()).or_else(|| s.names.get(thread_id).cloned().filter(|n| !n.is_empty())).unwrap_or_else(|| thread_id.to_owned()),
-            avatar: t.and_then(|t| t.avatar.clone()).or_else(|| s.avatars.get(thread_id).cloned()),
-            group: t.is_some_and(|t| t.group),
-            members: t.and_then(|t| t.members),
-            ..Default::default()
-        }
+fn search_messages_in(s: &Store, query: &str, thread_id: Option<&str>, limit: usize) -> Vec<ZaloMessage> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let lists: Vec<&Vec<ZaloMessage>> = match thread_id {
+        Some(t) => s.messages.get(t).into_iter().collect(),
+        None => s.messages.values().collect(),
     };
-    let Some(a) = api_any() else { return info };
-    if info.group {
-        if let Ok(r) = a.get_group_info(&[thread_id.to_owned()]).await
-            && let Some(g) = r["gridInfoMap"].get(thread_id)
-        {
-            info.members = g.get("totalMember").and_then(Value::as_i64);
-            info.desc = vstr(g.get("desc"));
-            info.avatar = vstr(g.get("fullAvt")).or_else(|| vstr(g.get("avt"))).or(info.avatar);
-        }
-    } else {
-        let ids = [thread_id.to_owned()];
-        let (p, o) = tokio::join!(a.get_user_info(&ids), a.last_online(thread_id));
-        if let Some(p) = p.ok().and_then(|r| r["changed_profiles"].as_object().and_then(|m| m.values().next().cloned())) {
-            info.avatar = vstr(p.get("avatar")).or(info.avatar);
-            info.phone = vstr(p.get("phoneNumber"));
-            info.desc = vstr(p.get("status"));
-        }
-        if let Ok(o) = o
-            && truthy(o["settings"].get("show_online_status"))
-        {
-            let lo = jnum(o.get("lastOnline"));
-            info.last_online = lo.is_finite().then_some(lo);
-            let ms = lo * if lo < 1e12 { 1000.0 } else { 1.0 };
-            info.online = Some(lo.is_finite() && lo != 0.0 && (now_ms() as f64 - ms) < 180_000.0);
-        }
-    }
-    info
+    let mut hits: Vec<&ZaloMessage> = lists.into_iter().flatten().filter(|m| m.text.to_lowercase().contains(&q) || m.from_name.to_lowercase().contains(&q)).collect();
+    hits.sort_by_key(|m| std::cmp::Reverse(m.ts));
+    hits.into_iter().take(limit).cloned().collect()
 }
 
-/* ---------------- sending & actions ---------------- */
+/* ---------------- sending ---------------- */
 
-fn quote_of(thread_id: &str, reply_to: Option<&str>) -> Option<Quote> {
-    let mut s = store();
-    let m = find_msg(&mut s, thread_id, reply_to?)?;
-    let r = m.raw.as_ref()?;
-    Some(Quote {
-        content: r.content.clone(),
-        msg_type: r.msg_type.clone(),
-        property_ext: r.property_ext.clone(),
-        uid_from: r.uid_from.clone(),
-        msg_id: m.id.clone(),
-        cli_msg_id: m.cli_msg_id.clone(),
-        ts: m.ts.to_string(),
-        ttl: r.ttl.clone(),
-    })
-}
-
-pub async fn send_text(thread_id: &str, text: &str, group: Option<bool>, reply_to: Option<&str>) -> anyhow::Result<String> {
+/// A text to a person or group; the new message's id.
+pub async fn send_text(thread_id: &str, text: &str, group: Option<bool>) -> anyhow::Result<String> {
     let a = need()?;
-    let quote = quote_of(thread_id, reply_to);
-    let r = a.send_message(Outgoing { msg: text.to_owned(), quote, ..Default::default() }, thread_id, type_of(thread_id, group)).await?;
-    Ok(r.message.as_ref().and_then(|m| m.get("msgId")).map(|v| jstr(Some(v))).unwrap_or_default())
-}
-
-pub async fn send_files(thread_id: &str, paths: Vec<String>, caption: String) -> anyhow::Result<()> {
-    let a = need()?;
-    let attachments = paths.into_iter().map(PathBuf::from).collect();
-    a.send_message(Outgoing { msg: caption, attachments, ..Default::default() }, thread_id, type_of(thread_id, None)).await?;
-    Ok(())
-}
-
-pub async fn send_sticker(thread_id: &str, s: ZaloSticker) -> anyhow::Result<()> {
-    let a = need()?;
-    store().stickers.insert(s.id, s.url.clone());
-    a.send_sticker(s.id, s.cate_id, s.kind, thread_id, type_of(thread_id, None)).await?;
-    Ok(())
-}
-
-pub async fn search_stickers(keyword: &str) -> anyhow::Result<Vec<ZaloSticker>> {
-    let a = need()?;
-    let k = keyword.trim();
-    let mut ids = a.get_stickers(if k.is_empty() { "hi" } else { k }).await?;
-    ids.truncate(48);
-    if ids.is_empty() {
-        return Ok(vec![]);
-    }
-    let list = a.get_stickers_detail(&ids).await?;
-    let num = |v: Option<&Value>| jnum(v) as i64;
-    Ok(list
-        .iter()
-        .map(|d| ZaloSticker {
-            id: num(d.get("id")),
-            cate_id: num(d.get("cateId")),
-            kind: num(d.get("type")),
-            url: vstr(d.get("stickerWebpUrl")).or_else(|| vstr(d.get("stickerUrl"))).unwrap_or_default(),
-        })
-        .filter(|s| !s.url.is_empty())
-        .collect())
-}
-
-fn msg_ids(thread_id: &str, msg_id: &str) -> Option<(String, String, bool, String)> {
-    let mut s = store();
-    let m = find_msg(&mut s, thread_id, msg_id)?;
-    Some((m.id.clone(), m.cli_msg_id.clone(), m.mine, m.raw.as_ref().map(|r| r.uid_from.clone()).unwrap_or_else(|| m.from_id.clone())))
-}
-
-pub async fn react(thread_id: &str, msg_id: &str, icon: &str) -> anyhow::Result<()> {
-    let a = need()?;
-    let (id, cli, _, _) = msg_ids(thread_id, msg_id).ok_or_else(|| anyhow::anyhow!("Không tìm thấy tin nhắn."))?;
-    a.add_reaction(icon, &id, &cli, thread_id, type_of(thread_id, None)).await?;
-    // the listener echoes my reaction too; apply it now so the chip shows at once
-    let me = self_id().unwrap_or_default();
-    if let Some(m) = find_msg(&mut store(), thread_id, msg_id) {
-        set_reaction(m, &me, icon);
-    }
-    changed([thread_id.to_owned()]);
-    Ok(())
-}
-
-/// Recall my message for everyone.
-pub async fn recall(thread_id: &str, msg_id: &str) -> anyhow::Result<()> {
-    let a = need()?;
-    let (id, cli, mine, _) = msg_ids(thread_id, msg_id).filter(|m| m.2).ok_or_else(|| anyhow::anyhow!("Chỉ thu hồi được tin nhắn của bạn."))?;
-    debug_assert!(mine);
-    a.undo(&id, &cli, thread_id, type_of(thread_id, None)).await?;
-    {
-        let mut s = store();
-        if let Some(m) = find_msg(&mut s, thread_id, msg_id) {
-            recall_locally(m);
-        }
-        refresh_thread_last(&mut s, thread_id);
-    }
-    changed([thread_id.to_owned()]);
-    Ok(())
-}
-
-/// Delete a message on my side only.
-pub async fn delete_for_me(thread_id: &str, msg_id: &str) -> anyhow::Result<()> {
-    let a = need()?;
-    let Some((id, cli, _, uid_from)) = msg_ids(thread_id, msg_id) else { return Ok(()) };
-    a.delete_message(thread_id, type_of(thread_id, None), &id, &cli, &uid_from, true).await?;
-    {
-        let mut s = store();
-        if let Some(arr) = s.messages.get_mut(thread_id) {
-            arr.retain(|m| m.id != msg_id);
-        }
-        refresh_thread_last(&mut s, thread_id);
-    }
-    changed([thread_id.to_owned()]);
-    Ok(())
-}
-
-pub async fn forward(from_thread: &str, msg_id: &str, to_thread: &str) -> anyhow::Result<()> {
-    let a = need()?;
-    let m = {
-        let mut s = store();
-        find_msg(&mut s, from_thread, msg_id).cloned()
-    };
-    let m = m.ok_or_else(|| anyhow::anyhow!("Không tìm thấy tin nhắn."))?;
-    let kind = type_of(to_thread, None);
-    let Some(content) = m.raw.as_ref().and_then(|r| r.content.as_str()) else {
-        // attachments: send the link again (Zalo's forward call takes text only)
-        let text = m.att.as_ref().and_then(|a| a.url.clone()).unwrap_or(m.text.clone());
-        a.send_message(Outgoing { msg: text, ..Default::default() }, to_thread, kind).await?;
-        return Ok(());
-    };
-    let r = a.forward_message(content, &[to_thread.to_owned()], kind).await?;
-    if let Some(f) = r["fail"].as_array().and_then(|f| f.first()) {
-        anyhow::bail!("Chuyển tiếp lỗi ({}).", jstr(f.get("error_code")));
-    }
-    Ok(())
-}
-
-pub fn typing(thread_id: &str) {
-    let Some(a) = api_any() else { return };
-    {
-        let mut s = store();
-        if now_ms() - s.last_typing < 3000 {
-            return;
-        }
-        s.last_typing = now_ms();
-    }
-    let kind = type_of(thread_id, None);
-    let id = thread_id.to_owned();
-    spawn(async move {
-        let _ = a.send_typing_event(&id, kind).await;
-    });
+    let r = a.send_text(text, thread_id, type_of(thread_id, group)).await?;
+    Ok(r.get("msgId").map(|v| jstr(Some(v))).unwrap_or_default())
 }
 
 /// "HH:MM:SS dd/mm/yyyy" in local time (`toLocaleString('vi-VN', {hour12: false})`).
@@ -1547,7 +1157,7 @@ pub fn fmt_time(ts: i64) -> String {
     chrono::Local.timestamp_millis_opt(ts).single().map(|d| d.format("%H:%M:%S %d/%m/%Y").to_string()).unwrap_or_default()
 }
 
-/* ---------------- commands ---------------- */
+/* ---------------- commands (the Zalo tab) ---------------- */
 
 #[tauri::command]
 pub async fn zalo_state() -> ZaloState {
@@ -1575,153 +1185,9 @@ pub async fn zalo_logout() {
 }
 
 #[tauri::command]
-pub async fn zalo_threads(query: Option<String>) -> Vec<ZaloThread> {
-    list_threads(&query.unwrap_or_default(), 200)
-}
-
-#[tauri::command]
-pub async fn zalo_messages(thread_id: String, limit: Option<u32>, before: Option<i64>) -> Vec<ZaloMessage> {
-    get_messages(&thread_id, limit.unwrap_or(50) as usize, before)
-}
-
-#[tauri::command]
 pub async fn zalo_sync_all() -> Res<i64> {
     Ok(sync_all().await?)
 }
 
-#[tauri::command]
-pub async fn zalo_load_older(thread_id: String) -> Res<i64> {
-    Ok(load_older(&thread_id, 3).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_send(thread_id: String, text: String, reply_to: Option<String>) -> Res<String> {
-    Ok(send_text(&thread_id, &text, None, reply_to.as_deref()).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_ui_threads() -> Vec<ZaloThread> {
-    ui_threads()
-}
-
-#[tauri::command]
-pub async fn zalo_contacts() -> Vec<ZaloThread> {
-    contacts()
-}
-
-/// The conversation open in the tab (none: null): its messages are read as they come.
-#[tauri::command]
-pub async fn zalo_set_active(thread_id: Option<String>) {
-    store().active = thread_id.clone();
-    if let Some(t) = thread_id {
-        mark_seen(&t);
-    }
-}
-
-#[tauri::command]
-pub async fn zalo_info(thread_id: String) -> ZaloThreadInfo {
-    thread_info(&thread_id).await
-}
-
-#[tauri::command]
-pub async fn zalo_send_files(thread_id: String, paths: Vec<String>, caption: Option<String>) -> Res<()> {
-    Ok(send_files(&thread_id, paths, caption.unwrap_or_default()).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_send_sticker(thread_id: String, s: ZaloSticker) -> Res<()> {
-    Ok(send_sticker(&thread_id, s).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_stickers(keyword: String) -> Res<Vec<ZaloSticker>> {
-    Ok(search_stickers(&keyword).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_react(thread_id: String, msg_id: String, icon: String) -> Res<()> {
-    Ok(react(&thread_id, &msg_id, &icon).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_recall(thread_id: String, msg_id: String) -> Res<()> {
-    Ok(recall(&thread_id, &msg_id).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_delete_for_me(thread_id: String, msg_id: String) -> Res<()> {
-    Ok(delete_for_me(&thread_id, &msg_id).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_forward(from_thread: String, msg_id: String, to_thread: String) -> Res<()> {
-    Ok(forward(&from_thread, &msg_id, &to_thread).await?)
-}
-
-#[tauri::command]
-pub async fn zalo_typing(thread_id: String) {
-    typing(&thread_id)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn vietnamese_order_like_locale_compare() {
-        // node: [...].sort((a, b) => a.localeCompare(b, 'vi'))
-        let mut v = vec!["Đức", "Dung", "An", "Ăn", "Âu", "bảo", "Bao", "Ba", "1a", "Zed", "Ơn", "Ôn", "On", "ánh", "anh"];
-        v.sort_by(|a, b| vi_cmp(a, b));
-        assert_eq!(v, ["1a", "An", "anh", "ánh", "Ăn", "Âu", "Ba", "Bao", "bảo", "Dung", "Đức", "On", "Ôn", "Ơn", "Zed"]);
-    }
-
-    #[test]
-    fn attachments_parse_like_zalo_ts() {
-        let st = IndexMap::new();
-        let photo = parse_attachment("chat.photo", &json!({ "href": "https://h", "thumb": "https://t", "params": "{\"hd\":\"https://hd\",\"width\":1920,\"height\":\"1080\"}" }), &st).unwrap();
-        assert_eq!(photo.kind, "photo");
-        assert_eq!(photo.url.as_deref(), Some("https://hd"));
-        assert_eq!((photo.width, photo.height), (Some(1920.0), Some(1080.0)));
-        assert_eq!(serde_json::to_value(&photo).unwrap(), json!({ "kind": "photo", "url": "https://hd", "thumb": "https://t", "width": 1920, "height": 1080 }));
-        let file = parse_attachment("share.file", &json!({ "title": "a.PDF", "href": "https://f", "params": { "fileSize": "2048", "fileExt": "PDF" } }), &st).unwrap();
-        assert_eq!((file.kind.as_str(), file.size, file.ext.as_deref()), ("file", Some(2048.0), Some("pdf")));
-        let voice = parse_attachment("chat.voice", &json!({ "href": "https://v", "params": "{\"duration\":2500}" }), &st).unwrap();
-        assert_eq!(voice.duration, Some(2.5));
-        let sticker = parse_attachment("chat.sticker", &json!({ "id": 42, "catId": 7, "type": 3 }), &st).unwrap();
-        assert_eq!(sticker.sticker, Some(StickerRef { id: 42, cate_id: 7, kind: 3 }));
-        let card = parse_attachment("chat.recommended", &json!({ "action": "recommened.user", "title": "Bob", "params": "{\"phone\":\"0909\"}" }), &st).unwrap();
-        assert_eq!((card.kind.as_str(), card.desc.as_deref()), ("card", Some("0909")));
-        assert!(parse_attachment("webchat", &json!("hello"), &st).is_none());
-        assert_eq!(content_text(Some(&file), &json!({})), "[file] a.PDF https://f");
-        assert_eq!(content_text(None, &json!({})), "[tin nhắn]");
-    }
-
-    #[test]
-    fn message_from_socket() {
-        let s = Store::default();
-        let m = listen::group_message(
-            "me",
-            json!({
-                "msgId": "7300000000000000001", "cliMsgId": "1731", "uidFrom": "55", "idTo": "g1", "dName": "Lan",
-                "ts": "1731999999999", "msgType": "webchat", "content": "chào", "ttl": 0, "st": 3, "at": 0, "cmd": 521,
-                "quote": { "fromD": "Tôi", "msg": "hỏi", "globalMsgId": 99, "ownerId": 1 },
-                "mentions": [{ "uid": "me", "pos": 0, "len": 3 }]
-            }),
-        );
-        let z = to_message(&s, &m);
-        let v = serde_json::to_value(&z).unwrap();
-        assert_eq!(v["id"], "7300000000000000001");
-        assert_eq!(v["fromName"], "Lan");
-        assert_eq!(v["ts"], 1731999999999i64);
-        assert_eq!(v["text"], "chào");
-        assert_eq!(v["quote"], "Tôi: hỏi");
-        assert_eq!(v["reply"], json!({ "id": "99", "from": "Tôi", "text": "hỏi" }));
-        assert_eq!(v["mentions"], json!([{ "uid": "me", "pos": 0, "len": 3 }]));
-        assert_eq!(v["raw"]["idTo"], "g1");
-        assert!(v.get("status").is_none() && v.get("att").is_none());
-        // cache round trip
-        let back: ZaloMessage = serde_json::from_value(v.clone()).unwrap();
-        assert_eq!(serde_json::to_value(&back).unwrap(), v);
-    }
-}
+mod tests;
