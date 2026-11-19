@@ -41,14 +41,15 @@ import { COMMANDS, type Command } from '../shortcuts'
 
 /** Empty parts of the title bar move the window (the drop-down stays pinned to the top edge). */
 const NO_DRAG = 'button, input, a, kbd, .menu, .search-box, .folder-switch, .win-controls'
+// A double-click is handled here (e.detail === 2), not in onDoubleClick: once the first click
+// has started a native drag, Windows maximizes on the second click by itself, and a separate
+// dblclick handler then toggled it straight back — the window flickered and the
+// maximize/restore button showed the wrong state.
 function dragWindow(e: React.MouseEvent): void {
   if (e.button !== 0 || (e.target as HTMLElement).closest(NO_DRAG)) return
   if (useStore.getState().win?.mode === 'dropdown') return
-  void getCurrentWindow().startDragging()
-}
-function maximizeFromTitle(e: React.MouseEvent): void {
-  if ((e.target as HTMLElement).closest(NO_DRAG) || useStore.getState().win?.mode === 'dropdown') return
-  window.api.win.toggleMaximize()
+  if (e.detail === 2) window.api.win.toggleMaximize()
+  else void getCurrentWindow().startDragging()
 }
 
 export function TitleBar(): React.JSX.Element {
@@ -64,7 +65,7 @@ export function TitleBar(): React.JSX.Element {
   }, [menu])
 
   return (
-    <div className={window.api.platform === 'darwin' ? 'titlebar mac' : 'titlebar'} onMouseDown={dragWindow} onDoubleClick={maximizeFromTitle}>
+    <div className={window.api.platform === 'darwin' ? 'titlebar mac' : 'titlebar'} onMouseDown={dragWindow}>
       <div className="titlebar-left">
         <Logo size={18} />
         <span className="app-name">VIBE <b>CODE</b></span>
