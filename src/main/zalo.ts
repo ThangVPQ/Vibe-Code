@@ -285,7 +285,64 @@ function ingest(list: Message[], live = false): void {
     touched.add(m.threadId)
   }
   changed(...touched)
+  if (live && touched.size) ingestHook?.([...touched])
 }
+
+let ingestHook: ((threadIds: string[]) => void) | null = null
+/** Called with the conversations that just got live messages. */
+export function onIngest(cb: (threadIds: string[]) => void): void {
+  ingestHook = cb
+}
+
+export interface WorkMsg {
+  id: string
+  ts: number
+  from: string
+  self: boolean
+  /** sent to me: a personal chat, an @mention of me, or a reply to my message */
+  toMe: boolean
+  text: string
+}
+export interface WorkThread {
+  threadId: string
+  name: string
+  group: boolean
+  msgs: WorkMsg[]
+}
+
+/**
+ * Conversations with something addressed to me since `since`: every personal chat with an incoming message,
+ * and groups where someone @mentioned me or replied to me — with my own later messages, so it's clear what I answered.
+ */
+export function workFeed(since: number, maxThreads = 40, maxMsgs = 40): WorkThread[] {
+  loadCache()
+  const me = state.self?.id
+  const out: WorkThread[] = []
+  for (const t of threads.values()) {
+    const arr = messages.get(t.id)
+    if (!arr?.length || arr[arr.length - 1].ts < since) continue
+    const mine = new Set(arr.filter((m) => m.self).map((m) => m.id))
+    const recent = arr.filter((m) => m.ts >= since && !m.recalled)
+    const toMe = (m: ZaloMessage): boolean =>
+      !m.self && (!t.group || !!m.mentions?.some((x) => x.uid === me) || (!!m.reply && mine.has(m.reply.id)))
+    const first = recent.findIndex(toMe)
+    if (first < 0) continue
+    // personal: the whole recent chat; group: messages to me + what I wrote after the first one
+    const pick = recent.slice(first).filter((m) => !t.group || m.self || toMe(m))
+    const msgs = pick.slice(-maxMsgs).map((m) => ({
+      id: m.id,
+      ts: m.ts,
+      from: m.self ? 'Tôi' : m.fromName,
+      self: m.self,
+      toMe: toMe(m),
+      text: ((m.reply ? `[trả lời ${m.reply.from}: "${m.reply.text.slice(0, 80)}"] ` : '') + (m.text || previewOf(m))).slice(0, 600)
+    }))
+    out.push({ threadId: t.id, name: t.name || t.id, group: t.group, msgs })
+  }
+  return out.sort((a, b) => b.msgs[b.msgs.length - 1].ts - a.msgs[a.msgs.length - 1].ts).slice(0, maxThreads)
+}
+
+export const selfId = (): string | undefined => state.self?.id
 
 function notify(t: ZaloThread, m: ZaloMessage): void {
   if (!prefs.notify || !Notification.isSupported()) return

@@ -44,6 +44,8 @@ interface State {
   claude: ClaudeInfo | null
   /** which coding agents (Claude, Codex, Grok…) are installed */
   agents: AgentInfo[]
+  /** AI picked as "in use" — a plain New chat starts with it */
+  preferredAgent: AgentId | null
   git: GitState
   fsTick: number
   /** every project + session Claude Code knows about (shared with the Claude app) */
@@ -96,6 +98,13 @@ export const useStore = create<State>((set) => ({
   recent: [],
   claude: null,
   agents: [],
+  preferredAgent: (() => {
+    try {
+      return (localStorage.getItem('vibe.newChatAgent') as AgentId | null) ?? null
+    } catch {
+      return null
+    }
+  })(),
   git: { isRepo: false, root: null, branch: null, files: [] },
   fsTick: 0,
   projects: [],

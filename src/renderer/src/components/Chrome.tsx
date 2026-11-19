@@ -28,7 +28,8 @@ import {
   Sun
 } from 'lucide-react'
 import { basename, useStore, type SidebarView } from '../store'
-import { openBrowser, openFile, openFolder, openSession, toggleBottom, toggleTheme } from '../actions'
+import { defaultAgent, installedAgents, openBrowser, openFile, openFolder, openSession, setDefaultAgent, toggleBottom, toggleTheme } from '../actions'
+import { agentDef } from '../../../shared/agents'
 import { languageFor } from '../monaco'
 import { FileIcon, Logo } from './icons'
 import type { UsageLimit } from '../../../shared/types'
@@ -341,13 +342,71 @@ export function StatusBar(): React.JSX.Element {
       <div className="statusbar-right">
         {tab && <span className="sb-item">{languageFor(tab.path)}</span>}
         {tab && <span className="sb-item">UTF-8</span>}
-        {claude && (
-          <span className={`sb-item ${claude.found ? 'ok' : 'warn'}`} title={claude.path ?? ''}>
-            {claude.found ? <CircleCheck size={12} /> : <CircleAlert size={12} />}
-            {claude.found ? 'Claude Code' : 'Claude Code not found'}
-          </span>
-        )}
+        {claude && <AgentPicker />}
       </div>
+    </div>
+  )
+}
+
+/** Status-bar "AI in use" picker — a plain New chat starts with the agent chosen here. */
+function AgentPicker(): React.JSX.Element {
+  const claude = useStore((s) => s.claude)
+  useStore((s) => s.agents)
+  useStore((s) => s.preferredAgent)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const list = installedAgents()
+  const cur = defaultAgent()
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const esc = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', close, true)
+    window.addEventListener('keydown', esc, true)
+    return () => {
+      window.removeEventListener('mousedown', close, true)
+      window.removeEventListener('keydown', esc, true)
+    }
+  }, [open])
+
+  if (!cur)
+    return (
+      <span className="sb-item warn" title={claude?.path ?? ''}>
+        <CircleAlert size={12} /> No AI agent found
+      </span>
+    )
+  return (
+    <div className="sb-agent" ref={ref}>
+      <button className="sb-item ok" title="AI in use — New chat starts with this agent" onClick={() => setOpen((o) => !o)}>
+        <CircleCheck size={12} /> {agentDef(cur).label}
+        {list.length > 1 && <ChevronUp size={11} />}
+      </button>
+      {open && list.length > 0 && (
+        <div className="menu sb-agent-menu">
+          <div className="menu-sep">AI in use</div>
+          {list.map((id) => {
+            const a = agentDef(id)
+            return (
+              <button
+                key={id}
+                className="menu-item"
+                onClick={() => {
+                  setDefaultAgent(id)
+                  setOpen(false)
+                }}
+              >
+                <span className="menu-item-main">{a.label}</span>
+                {id === cur ? <Check size={12} /> : <span className="menu-item-sub">{a.cmd}</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

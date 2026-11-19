@@ -301,25 +301,26 @@ export function installedAgents(): AgentId[] {
 
 const AGENT_KEY = 'vibe.newChatAgent'
 
-/** What a plain "New chat" runs: the agent last picked from a menu while it's still installed, else the first installed. */
+/** What a plain "New chat" runs: the agent picked as "in use" while it's still installed, else the first installed. */
 export function defaultAgent(): AgentId | undefined {
   const ok = installedAgents()
-  let last: string | null = null
-  try {
-    last = localStorage.getItem(AGENT_KEY)
-  } catch {
-    /* storage unavailable */
-  }
+  const last = st().preferredAgent
   return ok.find((id) => id === last) ?? ok[0]
 }
 
-/** New chat with an agent picked from a menu; that agent becomes the default for the next plain "New chat". */
-export function newChatWith(agent: AgentId): void {
+/** Mark an agent as the one in use: plain "New chat" starts with it from now on. */
+export function setDefaultAgent(agent: AgentId): void {
   try {
     localStorage.setItem(AGENT_KEY, agent)
   } catch {
     /* storage unavailable */
   }
+  useStore.setState({ preferredAgent: agent })
+}
+
+/** New chat with an agent picked from a menu; that agent becomes the default for the next plain "New chat". */
+export function newChatWith(agent: AgentId): void {
+  setDefaultAgent(agent)
   newChat({ agent })
 }
 

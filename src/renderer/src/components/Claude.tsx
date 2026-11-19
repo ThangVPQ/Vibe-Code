@@ -427,6 +427,7 @@ function Picker(props: { title: string; options: Opt[]; value: string; warn?: bo
 function NoChat(): React.JSX.Element {
   const agents = useStore((s) => s.agents)
   const claudeFound = useStore((s) => !!s.claude?.found)
+  useStore((s) => s.preferredAgent)
   const def = agentDef(defaultAgent())
   const others = AGENTS.filter((a) => a.id !== def.id && (a.id === 'claude' ? claudeFound : agents.some((x) => x.id === a.id && x.found)))
   return (

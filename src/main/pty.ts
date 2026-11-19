@@ -57,7 +57,7 @@ function quoteArg(a: string): string {
  * chat: Claude then treats it as a child session and stops saving transcripts. Chats should start
  * like `claude` typed in a fresh terminal, so drop them.
  */
-function cleanEnv(): NodeJS.ProcessEnv {
+export function cleanEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env }
   if (!env.CLAUDECODE && !env.CLAUDE_CODE_SESSION_ID) return env
   for (const k of Object.keys(env)) {

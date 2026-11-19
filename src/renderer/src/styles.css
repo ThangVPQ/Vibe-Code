@@ -1709,6 +1709,18 @@ button.sb-item:hover {
 .sb-item.ok svg {
   color: var(--green);
 }
+.sb-agent {
+  position: relative;
+}
+.sb-agent-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  top: auto;
+  left: auto;
+  min-width: 200px;
+  z-index: 1000;
+}
 .sb-item.warn {
   color: var(--yellow);
 }

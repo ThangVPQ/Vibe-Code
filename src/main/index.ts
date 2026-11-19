@@ -58,8 +58,9 @@ import { listSessions, sessionImages, sessionContext, sessionTasks, watchSession
 import { attachView, startBrowserMcp } from './browserMcp'
 import * as db from './mssql'
 import * as zalo from './zalo'
+import * as zaloTasks from './zaloTasks'
 import * as webData from './webData'
-import type { AppSettings, DbConnectionInput, PtySpawnOptions, UsageLimit, WindowMode, ZaloSticker } from '../shared/types'
+import type { AppSettings, DbConnectionInput, PtySpawnOptions, UsageLimit, WindowMode, ZaloSticker, ZaloTask } from '../shared/types'
 
 let win: BrowserWindow | null = null
 
@@ -183,6 +184,10 @@ function registerIpc(): void {
   ipcMain.handle('zalo:deleteForMe', (_e, threadId: string, msgId: string) => zalo.deleteForMe(threadId, msgId))
   ipcMain.handle('zalo:forward', (_e, fromThread: string, msgId: string, toThread: string) => zalo.forward(fromThread, msgId, toThread))
   ipcMain.on('zalo:typing', (_e, threadId: string) => zalo.typing(threadId))
+  ipcMain.handle('zalo:tasks', () => zaloTasks.getTasks())
+  ipcMain.handle('zalo:tasksAnalyze', () => zaloTasks.analyze())
+  ipcMain.handle('zalo:taskStatus', (_e, id: string, status: ZaloTask['status']) => zaloTasks.setStatus(id, status))
+  ipcMain.handle('zalo:taskRemove', (_e, id: string) => zaloTasks.removeTask(id))
   ipcMain.handle('zalo:prefs', (_e, p?: { notify?: boolean }) => (p ? zalo.setPrefs(p) : zalo.getPrefs()))
 
   // Claude session store (shared with the Claude desktop app / CLI)
@@ -327,6 +332,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc()
     createWindow()
     zalo.initZalo(() => win)
+    zaloTasks.initZaloTasks(() => win)
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

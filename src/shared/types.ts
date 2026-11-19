@@ -336,3 +336,29 @@ export interface ChatTask {
   /** the end of its output */
   output?: string
 }
+
+/** One item of the Zalo "Việc của tôi" checklist, summarised by Claude from messages sent to me. */
+export interface ZaloTask {
+  id: string
+  title: string
+  detail?: string
+  threadId: string
+  threadName: string
+  group: boolean
+  /** the message that asked for it */
+  msgId?: string
+  from: string
+  ts: number
+  /** todo: not answered · doing: answered, not finished · done: reported done / resolved */
+  status: 'todo' | 'doing' | 'done'
+  /** status set by hand — Claude won't move it back */
+  manual?: boolean
+  updatedAt: number
+}
+
+export interface ZaloTasksState {
+  tasks: ZaloTask[]
+  running: boolean
+  analyzedAt: number
+  error?: string
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, Check, CheckCheck, Loader2, LogOut, Menu, Pin, QrCode, RefreshCw, Search, TriangleAlert, Users, WifiOff, X } from 'lucide-react'
 import type { ZaloState, ZaloThread, ZaloTyping } from '../../../shared/types'
 import { ZaloChat } from './zalo/ZaloChat'
+import { ZaloTasks } from './zalo/ZaloTasks'
 import { Avatar, TypingDots } from './zalo/Avatar'
 import { listTime } from './zalo/util'
 import './zalo/zalo.css'
@@ -310,6 +311,7 @@ function ZaloMessenger({ state }: { state: ZaloState }): React.JSX.Element {
         </div>
       </aside>
       <main className="zl-main">
+        <ZaloTasks onOpen={(id) => setActiveId(id)} />
         {active ? (
           <ZaloChat
             key={active.id}

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
-import type { AgentInfo, ChatTask, AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloSticker, ZaloThread, WebData, WebSuggestion, ZaloThreadInfo, ZaloTyping } from '../shared/types'
+import type { AgentInfo, ChatTask, AppSettings, ClaudeInfo, DbColumn, DbConnection, DbConnectionInput, DbFound, DbObject, DbQueryResult, DirEntry, GitCommit, GitCommitFile, GitState, ProjectGroup, PtySpawnOptions, UsageLimit, WindowMode, WindowState, ZaloMessage, ZaloState, ZaloSticker, ZaloThread, WebData, WebSuggestion, ZaloThreadInfo, ZaloTyping, ZaloTask, ZaloTasksState } from '../shared/types'
 
 function on<T extends unknown[]>(channel: string, cb: (...args: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, ...args: unknown[]): void => cb(...(args as T))
@@ -96,6 +96,11 @@ const api = {
     forward: (fromThread: string, msgId: string, toThread: string): Promise<void> => ipcRenderer.invoke('zalo:forward', fromThread, msgId, toThread),
     typing: (threadId: string): void => ipcRenderer.send('zalo:typing', threadId),
     prefs: (p?: { notify?: boolean }): Promise<{ notify: boolean }> => ipcRenderer.invoke('zalo:prefs', p),
+    tasks: (): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:tasks'),
+    analyzeTasks: (): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:tasksAnalyze'),
+    setTaskStatus: (id: string, status: ZaloTask['status']): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:taskStatus', id, status),
+    removeTask: (id: string): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:taskRemove', id),
+    onTasks: (cb: (s: ZaloTasksState) => void) => on('zalo:tasks', cb),
     onState: (cb: (s: ZaloState) => void) => on('zalo:state', cb),
     /** ids of the conversations that changed ([] = reload everything) */
     onChanged: (cb: (ids: string[]) => void) => on('zalo:changed', cb),
