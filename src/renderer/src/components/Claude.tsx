@@ -72,6 +72,12 @@ export function ClaudePanel(): React.JSX.Element {
   const [tab, setTab] = useState<'chat' | 'images' | 'tasks'>('chat')
   // another chat opens on its Chat tab
   useEffect(() => setTab('chat'), [activeId])
+  // the terminal stays under Images / Tasks, so it must not keep the keyboard
+  const leaveChat = (t: 'images' | 'tasks'): void => {
+    const el = document.activeElement
+    if (el instanceof HTMLElement && termFrame.current?.contains(el)) el.blur()
+    setTab(t)
+  }
   // switching chats: the new conversation eases in
   const termFrame = useRef<HTMLDivElement>(null)
   useEnterAnimation(termFrame, activeId)
@@ -129,21 +135,30 @@ export function ClaudePanel(): React.JSX.Element {
             >
               <MessageSquare size={13} /> Chat
             </button>
-            <button className={tab === 'images' ? 'on' : ''} onClick={() => setTab('images')}>
+            <button className={tab === 'images' ? 'on' : ''} onClick={() => leaveChat('images')}>
               <ImageIcon size={13} /> Images
               {images.length > 0 && <span className="center-count">{images.length}</span>}
             </button>
-            <button className={tab === 'tasks' ? 'on' : ''} title="Background tasks Claude started in this chat" onClick={() => setTab('tasks')}>
+            <button className={tab === 'tasks' ? 'on' : ''} title="Background tasks Claude started in this chat" onClick={() => leaveChat('tasks')}>
               <ListChecks size={13} /> Tasks
               {runningTasks > 0 ? <span className="center-count running">{runningTasks}</span> : tasks.length > 0 && <span className="center-count">{tasks.length}</span>}
             </button>
           </div>
-          {/* the terminal stays mounted (just hidden) so Claude keeps running and nothing redraws */}
-          <div className="term-frame" ref={termFrame} style={tab === 'chat' ? undefined : { display: 'none' }}>
-            <TerminalView id={active.id} />
+          {/*
+            The terminal stays mounted and laid out (only made invisible): display:none would reset
+            xterm's scroll position to the top of the buffer and replay the enter animation on return.
+            Images / Tasks cover it instead.
+          */}
+          <div className="term-frame" ref={termFrame}>
+            <div className="term-layer" style={tab === 'chat' ? undefined : { visibility: 'hidden' }}>
+              <TerminalView id={active.id} />
+            </div>
+            {tab !== 'chat' && (
+              <div className="chat-overlay">
+                {tab === 'images' ? <ChatImages images={images} /> : <ChatTasks tasks={tasks} />}
+              </div>
+            )}
           </div>
-          {tab === 'images' && <ChatImages images={images} />}
-          {tab === 'tasks' && <ChatTasks tasks={tasks} />}
           <AttachmentTray chatId={active.id} />
           <div className={`quick-bar${busy ? ' busy' : done ? ' done' : ''}`}>
             <button

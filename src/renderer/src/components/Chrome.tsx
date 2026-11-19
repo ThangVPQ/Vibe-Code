@@ -33,6 +33,7 @@ import { agentDef } from '../../../shared/agents'
 import { languageFor } from '../monaco'
 import { FileIcon, Logo } from './icons'
 import type { UsageLimit } from '../../../shared/types'
+import { revealIn } from '../scroll'
 
 /* ================================ Title bar ================================ */
 
@@ -456,7 +457,7 @@ export function QuickOpen(): React.JSX.Element {
 
   useEffect(() => setSel(0), [q])
   useEffect(() => {
-    listRef.current?.children[sel]?.scrollIntoView({ block: 'nearest' })
+    revealIn(listRef.current, listRef.current?.children[sel], { block: 'nearest' })
   }, [sel])
 
   const close = (): void => useStore.setState({ quickOpen: false })

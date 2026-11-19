@@ -31,6 +31,7 @@ import { Check, CheckCheck } from 'lucide-react'
 import type { ZaloMessage, ZaloSticker, ZaloThread, ZaloThreadInfo, ZaloTyping } from '../../../../shared/types'
 import { openBrowser } from '../../actions'
 import { Avatar, TypingDots } from './Avatar'
+import { revealIn } from '../../scroll'
 import {
   dayLabel,
   EMOJI_GROUPS,
@@ -147,7 +148,7 @@ export function ZaloChat({ thread, self, online, changed, typing, draft, setDraf
       el.scrollTop += el.scrollHeight - prevFirst.current.height
     } else if (stick.current) {
       if (unreadAnchor && !prevFirst.current.id) {
-        el.querySelector(`[data-sep="unread"]`)?.scrollIntoView({ block: 'center' })
+        revealIn(el, el.querySelector(`[data-sep="unread"]`), { block: 'center' })
       } else el.scrollTop = el.scrollHeight
     }
     prevFirst.current = { id: first, height: el.scrollHeight }
@@ -203,7 +204,7 @@ export function ZaloChat({ thread, self, online, changed, typing, draft, setDraf
       return
     }
     stick.current = false
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    revealIn(listRef.current, el, { block: 'center', smooth: true })
     el.classList.remove('zl-flash')
     void el.offsetWidth
     el.classList.add('zl-flash')
@@ -276,7 +277,7 @@ export function ZaloChat({ thread, self, online, changed, typing, draft, setDraf
 
   const startReply = (m: ZaloMessage): void => {
     setReply(m)
-    inputRef.current?.focus()
+    inputRef.current?.focus({ preventScroll: true })
   }
 
   // keys: Esc closes the innermost thing, Ctrl+F searches
@@ -945,7 +946,7 @@ function Composer({
   }, [draft, inputRef])
 
   useEffect(() => {
-    inputRef.current?.focus()
+    inputRef.current?.focus({ preventScroll: true })
   }, [inputRef])
 
   const insert = (s: string): void => {
@@ -955,7 +956,7 @@ function Composer({
     const b = el.selectionEnd ?? draft.length
     setDraft(draft.slice(0, a) + s + draft.slice(b))
     requestAnimationFrame(() => {
-      el.focus()
+      el.focus({ preventScroll: true })
       el.setSelectionRange(a + s.length, a + s.length)
     })
   }

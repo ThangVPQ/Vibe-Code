@@ -13,6 +13,7 @@ import { EditorFontButton, useEditorFont } from './EditorFont'
 import { DatabasePane } from './Database'
 import { ZaloPane } from './Zalo'
 import type { ZaloTasksState } from '../../../shared/types'
+import { revealIn } from '../scroll'
 
 /** Middle area: two fixed tabs — Source code (files, diffs) and Web (built-in browser). */
 export function EditorArea(): React.JSX.Element {
@@ -152,7 +153,7 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
   }
 
   useEffect(() => {
-    stripRef.current?.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+    revealIn(stripRef.current, stripRef.current?.querySelector('.tab.active'), { inline: 'nearest', smooth: true })
   }, [b?.active, b?.tabs.length])
 
   if (!b) return null
@@ -234,7 +235,7 @@ function CodeArea(): React.JSX.Element {
   const stripRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    stripRef.current?.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+    revealIn(stripRef.current, stripRef.current?.querySelector('.tab.active'), { inline: 'nearest', smooth: true })
   }, [activeId])
 
   return (
