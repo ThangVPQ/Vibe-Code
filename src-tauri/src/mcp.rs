@@ -12,6 +12,7 @@ use std::{
         OnceLock,
         atomic::{AtomicU16, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -149,7 +150,11 @@ async fn text_result(f: impl Future<Output = anyhow::Result<String>>) -> anyhow:
 const BROWSER_INSTRUCTIONS: &str = "These tools drive the Web tab of this chat in VIBE CODE — the browser the user is looking at. Use them when the user refers to 'the browser', 'the web page', 'this page/form/screen', 'tab Web', or something visible on the page they have open \
 (prefer them over Chrome or other browser tools: this is the page the user means). \
 The page is usually already open, often mid-way through a form: start with browser_snapshot (or browser_screenshot) to see it as it is. \
-Do not navigate to it again, reload it, or open a new copy unless the user asks — that would wipe what they typed. Only call browser_navigate to go to a different page.";
+Do not navigate to it again or reload it just to look at it — that would wipe what they typed. \
+They are also how you check your own work: after you change the code of a web page or web app, open it here and verify it before saying it works \
+(start its dev server first if it needs one, in the background). Use browser_navigate, with reload: true when the page is already open and does not hot-reload \
+(if its fields hold input the user typed, ask before reloading), then browser_snapshot and try the changed feature. \
+Results list console errors, uncaught exceptions and failed requests of the page: fix those too.";
 
 fn browser_tools() -> Value {
     let target = json!({
@@ -163,14 +168,14 @@ fn browser_tools() -> Value {
         {
             "name": "browser_navigate",
             "description": "Open a URL in this chat's Web tab (the built-in browser the user sees). Waits for the page to load. Do NOT use it to look at the page the user already has open — that throws away what they typed; use browser_snapshot instead. Opening the URL that is already loaded is a no-op unless `reload` is true.",
-            "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "reload": { "type": "boolean", "description": "Reload even if this URL is already open (loses unsaved form input). Only when the user asks." } }, "required": ["url"] }
+            "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "reload": { "type": "boolean", "description": "Reload even if this URL is already open, e.g. to see code you just changed. Loses unsaved form input: if the user typed into the page, ask first." } }, "required": ["url"] }
         },
         {
             "name": "browser_snapshot",
-            "description": "Start here. Reads the page that is open in the Web tab right now, exactly as the user left it (no reload): URL, title, visible text, and a numbered list of interactive elements with their current values. Use the numbers as `ref` for browser_click / browser_type. Take a new snapshot after the page changes.",
+            "description": "Start here. Reads the page that is open in the Web tab right now, exactly as the user left it (no reload): URL, title, visible text, a numbered list of interactive elements with their current values, and the page's console errors and failed requests. Use the numbers as `ref` for browser_click / browser_type. Take a new snapshot after the page changes.",
             "inputSchema": { "type": "object", "properties": {} }
         },
-        { "name": "browser_click", "description": "Click an element (by `ref` from browser_snapshot, or by CSS `selector`).", "inputSchema": { "type": "object", "properties": target } },
+        { "name": "browser_click", "description": "Click an element (by `ref` from browser_snapshot, or by CSS `selector`). Waits for a page it opens to load; reports the new URL and any errors the click caused.", "inputSchema": { "type": "object", "properties": target } },
         {
             "name": "browser_type",
             "description": "Set the text of an input, textarea, contenteditable or select (option value or label). `submit` presses Enter afterwards.",
@@ -287,9 +292,51 @@ fn same_page(a: &str, b: &str) -> bool {
     norm(a) == norm(b)
 }
 
+const PAGE_STATE_JS: &str = "({ url: location.href, title: document.title, ready: document.readyState })";
+
+/// Waits (up to `max`) for the document to finish loading; returns its { url, title, ready }.
+async fn settle(w: &tauri::Webview, max: Duration) -> Value {
+    let start = Instant::now();
+    let mut last = Value::Null;
+    while start.elapsed() < max {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        if let Ok(v) = browser::eval(w, PAGE_STATE_JS).await {
+            let done = v["ready"] == "complete" && v["url"].as_str().is_some_and(|u| u != "about:blank");
+            last = v;
+            if done {
+                break;
+            }
+        }
+    }
+    last
+}
+
+/// The page's errors (since `since`, if given) as a block to append to a tool result.
+fn errors_note(w: &tauri::Webview, since: Option<Instant>) -> String {
+    let e = browser::errors(w, since);
+    if e.is_empty() { String::new() } else { format!("\n\nConsole errors / failed requests ({}):\n- {}", e.len(), e.join("\n- ")) }
+}
+
+/// After a click / key press: let a page it opens load, then say where we are and what broke.
+async fn after_action(w: &tauri::Webview, result: String, before: &str, since: Instant) -> Value {
+    if result != "ok" {
+        return text(result);
+    }
+    let now = settle(w, Duration::from_secs(15)).await;
+    let url = now["url"].as_str().unwrap_or_default();
+    let moved = if !url.is_empty() && url != before { format!(" — now at {url} \"{}\"", now["title"].as_str().unwrap_or_default()) } else { String::new() };
+    text(format!("ok{moved}{}", errors_note(w, Some(since))))
+}
+
+async fn page_url(w: &tauri::Webview) -> String {
+    browser::eval(w, "location.href").await.ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default()
+}
+
 async fn call_browser(chat: &str, name: &str, args: &Value) -> anyhow::Result<Value> {
     let w = browser::view_for(chat).await?;
     debug_assert!(browser::chat_of(&w).is_some());
+    browser::wake(&w).await;
+    let since = Instant::now();
     match name {
         "browser_navigate" => {
             let url = args["url"].as_str().unwrap_or_default();
@@ -302,43 +349,39 @@ async fn call_browser(chat: &str, name: &str, args: &Value) -> anyhow::Result<Va
                 return Ok(text(format!("Already open: {cur} — \"{title}\". Not reloaded, so the user's form input is kept. Use browser_snapshot to read it.")));
             }
             w.navigate(url.parse()?)?;
-            // wait for the new document to finish loading
-            let start = std::time::Instant::now();
-            let mut last = Value::Null;
-            while start.elapsed() < std::time::Duration::from_secs(30) {
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                if let Ok(v) = browser::eval(&w, "({ url: location.href, title: document.title, ready: document.readyState })").await {
-                    let done = v["ready"] == "complete" && v["url"].as_str().is_some_and(|u| u != "about:blank");
-                    last = v;
-                    if done {
-                        break;
-                    }
-                }
-            }
-            Ok(text(format!("Loaded {} — \"{}\"", last["url"].as_str().unwrap_or(url), last["title"].as_str().unwrap_or_default())))
+            let last = settle(&w, Duration::from_secs(30)).await;
+            Ok(text(format!("Loaded {} — \"{}\"{}", last["url"].as_str().unwrap_or(url), last["title"].as_str().unwrap_or_default(), errors_note(&w, None))))
         }
         "browser_snapshot" => {
             let s = browser::eval(&w, SNAPSHOT_JS).await?;
             let elements = s["elements"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n")).unwrap_or_default();
             Ok(text(format!(
-                "URL: {}\nTitle: {}\n\nInteractive elements:\n{}\n\nPage text:\n{}",
+                "URL: {}\nTitle: {}\n\nInteractive elements:\n{}\n\nPage text:\n{}{}",
                 s["url"].as_str().unwrap_or_default(),
                 s["title"].as_str().unwrap_or_default(),
                 if elements.is_empty() { "(none)" } else { &elements },
-                s["text"].as_str().unwrap_or_default()
+                s["text"].as_str().unwrap_or_default(),
+                errors_note(&w, None)
             )))
         }
-        "browser_click" => Ok(text(value_text(browser::eval(&w, &click_js(&find_js(args)?)).await?))),
+        "browser_click" => {
+            let before = page_url(&w).await;
+            let r = value_text(browser::eval(&w, &click_js(&find_js(args)?)).await?);
+            Ok(after_action(&w, r, &before, since).await)
+        }
         "browser_type" => {
             let r = value_text(browser::eval(&w, &type_js(&find_js(args)?, args["text"].as_str().unwrap_or_default())).await?);
-            if r == "ok" && args["submit"].as_bool().unwrap_or(false) {
-                browser::press_key(&w, "Enter").await?;
+            if r != "ok" || !args["submit"].as_bool().unwrap_or(false) {
+                return Ok(text(r));
             }
-            Ok(text(r))
+            let before = page_url(&w).await;
+            browser::press_key(&w, "Enter").await?;
+            Ok(after_action(&w, r, &before, since).await)
         }
         "browser_press_key" => {
+            let before = page_url(&w).await;
             browser::press_key(&w, args["key"].as_str().unwrap_or_default()).await?;
-            Ok(text("ok"))
+            Ok(after_action(&w, "ok".into(), &before, since).await)
         }
         "browser_screenshot" => {
             if !browser::is_visible(&w) {

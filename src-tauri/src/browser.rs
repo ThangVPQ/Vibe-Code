@@ -33,9 +33,14 @@ struct Tab {
     visible: bool,
     hidden_since: Option<Instant>,
     suspended: bool,
+    /// console / errors are being recorded (turned on the first time Claude's tools use the tab)
+    logging: bool,
 }
 
 static TABS: LazyLock<Mutex<HashMap<String, Tab>>> = LazyLock::new(Default::default);
+/// label → console errors / warnings, uncaught exceptions and failed requests of the page now loaded
+static LOGS: LazyLock<Mutex<HashMap<String, Vec<LogLine>>>> = LazyLock::new(Default::default);
+type LogLine = (Instant, String);
 /// chatId → label of the tab that chat's browser tools drive
 static ACTIVE: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
 static WAITERS: LazyLock<Mutex<HashMap<String, Vec<oneshot::Sender<String>>>>> = LazyLock::new(Default::default);
@@ -117,7 +122,7 @@ async fn open_tab(label: String, chat_id: String, url: String, user_agent: Optio
     let _ = wv.hide();
     #[cfg(windows)]
     win::hook(&wv, label.clone());
-    TABS.lock().insert(label, Tab { chat: chat_id, webview: wv, visible: false, hidden_since: Some(Instant::now()), suspended: false });
+    TABS.lock().insert(label, Tab { chat: chat_id, webview: wv, visible: false, hidden_since: Some(Instant::now()), suspended: false, logging: false });
     start_sweeper();
     Ok(())
 }
@@ -218,6 +223,7 @@ pub fn web_close(label: String) {
     }
     if let Some(t) = tab {
         ACTIVE.lock().retain(|_, l| *l != label);
+        LOGS.lock().remove(&label);
         let _ = t.webview.close();
     }
 }
@@ -280,6 +286,81 @@ pub async fn view_for(chat: &str) -> Result<Webview> {
         .await
         .map_err(|_| anyhow!("This chat's Web tab did not open within 15s. Ask the user to open this chat (or its Web tab) and try again."))??;
     webview(&label).context("the Web tab closed")
+}
+
+/// Claude is about to drive the tab: unfreeze it if it was frozen, keep it from freezing again
+/// for a while, and start recording its console errors (the first time).
+pub async fn wake(w: &Webview) {
+    let (resume, log) = {
+        let mut tabs = TABS.lock();
+        let Some(t) = tabs.get_mut(w.label()) else { return };
+        if !t.visible {
+            t.hidden_since = Some(Instant::now());
+        }
+        (std::mem::take(&mut t.suspended), !std::mem::replace(&mut t.logging, true))
+    };
+    #[cfg(windows)]
+    if resume {
+        win::resume(w);
+    }
+    #[cfg(not(windows))]
+    let _ = resume;
+    // Only for tabs Claude drives: some sites treat a page with Runtime enabled as a bot.
+    if log && (cdp(w, "Runtime.enable", json!({})).await.is_err() || cdp(w, "Log.enable", json!({})).await.is_err())
+        && let Some(t) = TABS.lock().get_mut(w.label())
+    {
+        t.logging = false;
+    }
+}
+
+/// Console errors / warnings, uncaught exceptions and failed requests of the page now loaded
+/// (only those after `since`, if given).
+pub fn errors(w: &Webview, since: Option<Instant>) -> Vec<String> {
+    LOGS.lock().get(w.label()).map(|v| v.iter().filter(|(t, _)| since.is_none_or(|s| *t >= s)).map(|(_, m)| m.clone()).collect()).unwrap_or_default()
+}
+
+/// A DevTools event of a tab whose logging is on → its error list.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn record(label: &str, event: &str, params: &str) {
+    let p: Value = serde_json::from_str(params).unwrap_or_default();
+    let str_of = |v: &Value| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string());
+    let line = match event {
+        // a new document: the old page's errors no longer apply
+        "Runtime.executionContextsCleared" => {
+            LOGS.lock().remove(label);
+            return;
+        }
+        "Runtime.consoleAPICalled" => {
+            let kind = p["type"].as_str().unwrap_or_default();
+            if !matches!(kind, "error" | "warning" | "assert") {
+                return;
+            }
+            let args = p["args"].as_array().map(|a| a.iter().map(|x| x.get("value").map(str_of).or_else(|| x["description"].as_str().map(str::to_owned)).unwrap_or_default()).collect::<Vec<_>>().join(" "));
+            let f = &p["stackTrace"]["callFrames"][0];
+            let at = f["url"].as_str().filter(|u| !u.is_empty()).map(|u| format!(" ({u}:{})", f["lineNumber"].as_u64().unwrap_or(0) + 1)).unwrap_or_default();
+            format!("console.{kind}: {}{at}", args.unwrap_or_default())
+        }
+        "Runtime.exceptionThrown" => {
+            let d = &p["exceptionDetails"];
+            format!("uncaught: {}", d["exception"]["description"].as_str().or(d["text"].as_str()).unwrap_or("exception"))
+        }
+        "Log.entryAdded" => {
+            let e = &p["entry"];
+            if e["level"] != "error" {
+                return;
+            }
+            let url = e["url"].as_str().filter(|u| !u.is_empty()).map(|u| format!(" ({u})")).unwrap_or_default();
+            format!("{}: {}{url}", e["source"].as_str().unwrap_or("log"), e["text"].as_str().unwrap_or_default())
+        }
+        _ => return,
+    };
+    let line: String = line.chars().take(600).collect();
+    let mut logs = LOGS.lock();
+    let v = logs.entry(label.to_owned()).or_default();
+    v.push((Instant::now(), line));
+    if v.len() > 50 {
+        v.remove(0);
+    }
 }
 
 /// Whether the tab is on screen (a hidden one cannot be captured).
@@ -371,7 +452,7 @@ fn key_info(key: &str) -> (String, String, u32, Option<String>) {
 mod win {
     use super::*;
     use webview2_com::{
-        CallDevToolsProtocolMethodCompletedHandler, ClearBrowsingDataCompletedHandler, DocumentTitleChangedEventHandler, HistoryChangedEventHandler,
+        CallDevToolsProtocolMethodCompletedHandler, ClearBrowsingDataCompletedHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, HistoryChangedEventHandler,
         Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler, NavigationStartingEventHandler, TrySuspendCompletedHandler,
     };
     use windows::core::{BOOL, HSTRING, Interface, PWSTR};
@@ -437,6 +518,22 @@ mod win {
                     })),
                     &mut token,
                 );
+                // console / errors for Claude: delivered once wake() turns the domains on
+                for event in ["Runtime.consoleAPICalled", "Runtime.exceptionThrown", "Log.entryAdded", "Runtime.executionContextsCleared"] {
+                    let Ok(rx) = core.GetDevToolsProtocolEventReceiver(&HSTRING::from(event)) else { continue };
+                    let l = label.clone();
+                    let _ = rx.add_DevToolsProtocolEventReceived(
+                        &DevToolsProtocolEventReceivedEventHandler::create(Box::new(move |_, args| {
+                            if let Some(args) = args {
+                                let mut p = PWSTR::null();
+                                let _ = args.ParameterObjectAsJson(&mut p);
+                                record(&l, event, &take_pwstr(p));
+                            }
+                            Ok(())
+                        })),
+                        &mut token,
+                    );
+                }
                 let l = label;
                 let _ = core.add_DocumentTitleChanged(
                     &DocumentTitleChangedEventHandler::create(Box::new(move |s, _| {
@@ -474,6 +571,16 @@ mod win {
                 && let Ok(c3) = core.cast::<ICoreWebView2_3>()
             {
                 let _ = c3.TrySuspend(&TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(()))));
+            }
+        });
+    }
+
+    pub fn resume(w: &Webview) {
+        let _ = w.with_webview(|pw| unsafe {
+            if let Ok(core) = pw.controller().CoreWebView2()
+                && let Ok(c3) = core.cast::<ICoreWebView2_3>()
+            {
+                let _ = c3.Resume();
             }
         });
     }
