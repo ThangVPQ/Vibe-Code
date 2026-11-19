@@ -90,20 +90,7 @@
 
 /* ---------------- avatar ---------------- */
 
-.zl-avatar {
-  flex: 0 0 auto;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  color: #fff;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  user-select: none;
-  text-shadow: 0 1px 1px #0002;
-}
-.zl-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* .zl-avatar base rules are in styles.css (needed by the sidebar before this file loads) */
 
 /* ---------------- login ---------------- */
 
