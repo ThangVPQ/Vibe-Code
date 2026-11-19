@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Minus, Plus, RotateCcw, Type } from 'lucide-react'
 import { useStore } from '../store'
-import { monaco } from '../monaco'
 import type { AppSettings } from '../../../shared/types'
 
 const DEFAULT_FONT = 'JetBrains Mono'
@@ -56,7 +55,7 @@ export function useEditorFont(): { fontFamily: string; fontSize: number; lineHei
   const lig = useStore((s) => s.settings?.editorLigatures ?? true)
   // a font that was still loading measured wrong: re-measure once it's in
   useEffect(() => {
-    document.fonts?.ready.then(() => monaco.editor.remeasureFonts())
+    document.fonts?.ready.then(() => import('../monaco')).then((m) => m.monaco.editor.remeasureFonts())
   }, [font])
   return useMemo(
     () => ({ fontFamily: stack(font), fontSize: size, lineHeight: Math.round(size * 1.5), fontLigatures: lig }),

@@ -544,7 +544,7 @@ impl ImageWalk {
 
     fn walk(&mut self, blocks: &Value, from_user: bool) {
         static PATH_RE: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r#"(?i)[A-Za-z]:/[^"'\n\r<>|*?]+?\.(?:png|jpe?g|gif|webp)(?-u:\b)"#).unwrap());
+            LazyLock::new(|| Regex::new(r#"(?i)[A-Za-z]:[\\/][^"'\n\r<>|*?]+?\.(?:png|jpe?g|gif|webp)(?-u:\b)"#).unwrap());
         let Some(blocks) = blocks.as_array() else { return };
         for b in blocks {
             let Some(b) = b.as_object() else { continue };

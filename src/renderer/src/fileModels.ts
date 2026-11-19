@@ -1,5 +1,6 @@
 import { monaco, languageFor } from './monaco'
 import { fileUri, useStore } from './store'
+import { registerFileModels } from './fileModelsLite'
 
 /** alternativeVersionId of each model at its last load/save — anything else means "dirty". */
 const saved = new Map<string, number>()
@@ -58,3 +59,7 @@ export function markTab(path: string, dirty: boolean): void {
     tabs: s.tabs.map((t) => (t.id === id && t.kind === 'file' && t.dirty !== dirty ? { ...t, dirty } : t))
   }))
 }
+
+export { languageFor }
+
+registerFileModels({ getModel, isDirty, disposeModel, reloadIfClean, languageFor })

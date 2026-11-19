@@ -31,7 +31,7 @@ import {
 import { basename, useStore, type SidebarView } from '../store'
 import { defaultAgent, installedAgents, openBrowser, openFile, openFolder, openSession, setDefaultAgent, toggleBottom, toggleTheme } from '../actions'
 import { agentDef } from '../../../shared/agents'
-import { languageFor } from '../monaco'
+import { languageOf } from '../fileModelsLite'
 import { FileIcon, Logo } from './icons'
 import type { UsageLimit } from '../../../shared/types'
 import { revealIn } from '../scroll'
@@ -356,7 +356,7 @@ export function StatusBar(): React.JSX.Element {
       </div>
       <UsageMeters />
       <div className="statusbar-right">
-        {tab && <span className="sb-item">{languageFor(tab.path)}</span>}
+        {tab && <span className="sb-item">{languageOf(tab.path)}</span>}
         {tab && <span className="sb-item">UTF-8</span>}
         {claude && <AgentPicker />}
       </div>

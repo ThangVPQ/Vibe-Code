@@ -3,7 +3,7 @@ import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panel
 import { useStore } from './store'
 import { applyTheme, closeTab, defaultAgent, detectClaude, loadSessions, newChat, openFolder, refreshGit, selectChat, showChatBrowser, toggleBottom } from './actions'
 import { focusTerm } from './terminals'
-import { reloadIfClean } from './fileModels'
+import { reloadIfClean } from './fileModelsLite'
 import { QuickOpen, StatusBar, TitleBar, Welcome } from './components/Chrome'
 import { Sidebar } from './components/Sidebar'
 import { EditorArea } from './components/Editor'

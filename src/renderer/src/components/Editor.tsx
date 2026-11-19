@@ -1,17 +1,17 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Code2, Columns2, Database, FileDiff, FileText, Rows2, X, Command, GitCompare, Globe, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
 import { SlidePill } from './motion'
 import { ChangesView, ExplorerView } from './Sidebar'
-import { editorOptions, languageFor, monaco } from '../monaco'
-import { ensureModel, isDirty, markTab, saveModel } from '../fileModels'
 import { FileIcon, Logo } from './icons'
-import { EditorFontButton, useEditorFont } from './EditorFont'
-import { DatabasePane } from './Database'
-import { ZaloPane } from './Zalo'
+import { EditorFontButton } from './EditorFont'
+// heavy parts load on first use: Monaco (~4 MB) only when a file or diff opens
+const FileEditor = lazy(() => import('./MonacoViews').then((m) => ({ default: m.FileEditor })))
+const DiffView = lazy(() => import('./MonacoViews').then((m) => ({ default: m.DiffView })))
+const DatabasePane = lazy(() => import('./Database').then((m) => ({ default: m.DatabasePane })))
+const ZaloPane = lazy(() => import('./Zalo').then((m) => ({ default: m.ZaloPane })))
 import type { ZaloTasksState } from '../../../shared/types'
 import { revealIn } from '../scroll'
 
@@ -63,12 +63,16 @@ export function EditorArea(): React.JSX.Element {
       </div>
       {dbSeen && (
         <div className="center-pane db-host" style={{ display: view === 'db' ? 'flex' : 'none' }}>
-          <DatabasePane />
+          <Suspense fallback={null}>
+            <DatabasePane />
+          </Suspense>
         </div>
       )}
       {zaloSeen && (
         <div className="center-pane zalo-host" style={{ display: view === 'zalo' ? 'flex' : 'none' }}>
-          <ZaloPane />
+          <Suspense fallback={null}>
+            <ZaloPane />
+          </Suspense>
         </div>
       )}
       {/* one browser per chat, every tab kept alive so pages survive switching */}
@@ -278,187 +282,12 @@ function CodeArea(): React.JSX.Element {
       )}
       <div className="editor-body">
         {!active && <EmptyEditor />}
-        {active?.kind === 'file' && <FileEditor key={active.id} tab={active} />}
-        {active?.kind === 'diff' && <DiffView key={active.id} tab={active} />}
+        <Suspense fallback={null}>
+          {active?.kind === 'file' && <FileEditor key={active.id} tab={active} />}
+          {active?.kind === 'diff' && <DiffView key={active.id} tab={active} />}
+        </Suspense>
       </div>
     </div>
-  )
-}
-
-function Breadcrumbs({ path }: { path: string }): React.JSX.Element {
-  const root = useStore((s) => s.root) ?? ''
-  const rel = path.toLowerCase().startsWith(root.toLowerCase()) ? path.slice(root.length).replace(/^[\\/]/, '') : path
-  const parts = rel.split(/[\\/]/)
-  return (
-    <div className="breadcrumbs">
-      {parts.map((p, i) => (
-        <span key={i} className={i === parts.length - 1 ? 'crumb last' : 'crumb'}>
-          {i === parts.length - 1 && <FileIcon name={p} size={13} />}
-          {p}
-          {i < parts.length - 1 && <span className="crumb-sep">›</span>}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-/* ================================ File editor ================================ */
-
-const useMonacoTheme = (): string => useStore((s) => (s.themeResolved === 'light' ? 'studio-light' : 'studio-dark'))
-
-function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): React.JSX.Element {
-  const theme = useMonacoTheme()
-  const font = useEditorFont()
-  const [ready, setReady] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let live = true
-    ensureModel(tab.path).then((r) => {
-      if (!live) return
-      if (r.error) setError(r.error)
-      else setReady(true)
-    })
-    return () => {
-      live = false
-    }
-  }, [tab.path])
-
-  const onMount: OnMount = (editor) => {
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveModel(tab.path))
-    editor.onDidChangeModelContent(() => {
-      const m = editor.getModel()
-      if (m) markTab(tab.path, isDirty(m))
-    })
-    editor.focus()
-  }
-
-  if (error) return <div className="editor-message">{error}</div>
-  if (!ready) return <div className="editor-message" />
-  return (
-    <>
-      <Breadcrumbs path={tab.path} />
-      <div className="monaco-wrap">
-        <Editor
-          path={fileUri(tab.path)}
-          language={languageFor(tab.path)}
-          theme={theme}
-          options={{ ...editorOptions, ...font }}
-          keepCurrentModel
-          onMount={onMount}
-        />
-      </div>
-    </>
-  )
-}
-
-/* ================================ Diff view ================================ */
-
-function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> }): React.JSX.Element {
-  const theme = useMonacoTheme()
-  const font = useEditorFont()
-  const gitRoot = useStore((s) => s.git.root)
-  const file = useStore((s) => s.git.files.find((f) => f.abs.toLowerCase() === tab.path.toLowerCase()))
-  const sideBySide = useStore((s) => s.diffSideBySide)
-  const [texts, setTexts] = useState<{ original: string; modified: string } | null>(null)
-  const [version, setVersion] = useState(0)
-
-  useEffect(() => {
-    const onChange = (e: Event): void => {
-      const paths = (e as CustomEvent<string[]>).detail
-      if (paths.some((p) => p.toLowerCase() === tab.path.toLowerCase())) setVersion((v) => v + 1)
-    }
-    window.addEventListener('fs-changed', onChange)
-    return () => window.removeEventListener('fs-changed', onChange)
-  }, [tab.path])
-
-  const commit = tab.commit
-  useEffect(() => {
-    if (!gitRoot) return
-    let live = true
-    Promise.all(
-      commit
-        ? [window.api.git.show(gitRoot, commit.hash + '^', tab.rel), window.api.git.show(gitRoot, commit.hash, tab.rel)]
-        : [
-            window.api.git.original(gitRoot, tab.rel),
-            window.api.fs
-              .readFile(tab.path)
-              .then((r) => (r.binary ? '[binary file]' : r.content))
-              .catch(() => '')
-          ]
-    ).then(([original, modified]) => live && setTexts({ original, modified }))
-    return () => {
-      live = false
-    }
-  }, [gitRoot, tab.rel, tab.path, commit, version])
-
-  const lang = languageFor(tab.path)
-  const label = commit
-    ? `${commit.short} · ${commit.subject}`
-    : file?.status === '?' || file?.status === 'A'
-      ? 'New file'
-      : file?.status === 'D'
-        ? 'Deleted'
-        : 'Working tree ↔ HEAD'
-
-  return (
-    <>
-      <div className="diff-header">
-        <div className="diff-title">
-          <GitCompare size={14} color="#8aa5ee" />
-          <span className="diff-path">{tab.rel}</span>
-          <span className="diff-label">{label}</span>
-          {file && !commit && (
-            <span className="diff-stats">
-              <span className="add">+{file.added}</span>
-              <span className="del">−{file.deleted}</span>
-            </span>
-          )}
-        </div>
-        <div className="diff-actions">
-          <div className="seg">
-            <SlidePill />
-            <button className={sideBySide ? 'on' : ''} onClick={() => useStore.setState({ diffSideBySide: true })} title="Side by side">
-              <Columns2 size={14} />
-            </button>
-            <button className={!sideBySide ? 'on' : ''} onClick={() => useStore.setState({ diffSideBySide: false })} title="Inline">
-              <Rows2 size={14} />
-            </button>
-          </div>
-          {(commit || file?.status !== 'D') && (
-            <button className="btn btn-ghost btn-sm" onClick={() => openFile(tab.path)}>
-              <FileText size={13} /> Open file
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="monaco-wrap">
-        {texts && (
-          <DiffEditor
-            original={texts.original}
-            modified={texts.modified}
-            language={lang}
-            originalModelPath={(commit ? `git-${commit.short}-parent:///` : 'git-head:///') + tab.rel}
-            modifiedModelPath={(commit ? `git-${commit.short}:///` : 'working:///') + tab.rel}
-            theme={theme}
-            options={{
-              ...editorOptions,
-              ...font,
-              readOnly: true,
-              originalEditable: false,
-              renderSideBySide: sideBySide,
-              useInlineViewWhenSpaceIsLimited: true,
-              ignoreTrimWhitespace: false,
-              renderOverviewRuler: true,
-              hideUnchangedRegions: { enabled: true, contextLineCount: 4, minimumLineCount: 6, revealLineCount: 20 },
-              diffWordWrap: 'off',
-              minimap: { enabled: false },
-              stickyScroll: { enabled: false }
-            }}
-          />
-        )}
-      </div>
-    </>
   )
 }
 

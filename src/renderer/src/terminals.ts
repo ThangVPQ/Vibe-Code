@@ -308,7 +308,8 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
     cursorStyle: 'bar',
     cursorWidth: 2,
     allowProposedApi: true,
-    scrollback: 10000,
+    // Claude Code keeps the full transcript itself; 5k lines per chat keeps 10+ chats light
+    scrollback: 5000,
     smoothScrollDuration: 125,
     theme: shownTheme(),
     allowTransparency: true,

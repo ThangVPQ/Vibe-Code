@@ -1,7 +1,7 @@
 import { clearAttachments } from './attachments'
 import { basename, uid, useStore, type Chat, type EditorTab, type WebTab } from './store'
 import { createTerm, disposeTerm, focusTerm, onTerminalEvents, readScreen, restartTerm, setTerminalClear, setTerminalTheme, writeToTerm } from './terminals'
-import { disposeModel, getModel, isDirty } from './fileModels'
+import { disposeModel, hasUnsaved } from './fileModelsLite'
 import type { SessionInfo } from '../../shared/types'
 import { AGENTS, agentDef, type AgentId } from '../../shared/agents'
 
@@ -713,8 +713,7 @@ export function openCommitDiff(gitRoot: string, commit: { hash: string; short: s
 export function closeTab(id: string): void {
   const tab = st().tabs.find((t) => t.id === id)
   if (tab?.kind === 'file') {
-    const m = getModel(tab.path)
-    if (m && isDirty(m) && !window.confirm(`Discard unsaved changes to ${tab.title}?`)) return
+    if (hasUnsaved(tab.path) && !window.confirm(`Discard unsaved changes to ${tab.title}?`)) return
     disposeModel(tab.path)
   }
   useStore.setState((s) => {
