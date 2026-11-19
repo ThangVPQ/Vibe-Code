@@ -291,6 +291,7 @@ export interface WorkMsg {
   id: string
   ts: number
   from: string
+  fromId: string
   self: boolean
   /** sent to me: a personal chat, an @mention of me, or a reply to my message */
   toMe: boolean
@@ -326,6 +327,7 @@ export function workFeed(since: number, maxThreads = 40, maxMsgs = 40): WorkThre
       id: m.id,
       ts: m.ts,
       from: m.self ? 'Tôi' : m.fromName,
+      fromId: m.fromId,
       self: m.self,
       toMe: toMe(m),
       text: ((m.reply ? `[trả lời ${m.reply.from}: "${m.reply.text.slice(0, 80)}"] ` : '') + (m.text || previewOf(m))).slice(0, 600)
@@ -336,6 +338,14 @@ export function workFeed(since: number, maxThreads = 40, maxMsgs = 40): WorkThre
 }
 
 export const selfId = (): string | undefined => state.self?.id
+
+/** A user's avatar url, if known (queues a profile fetch otherwise). */
+export function avatarOf(userId: string): string | undefined {
+  loadCache()
+  const a = avatars.get(userId)
+  if (!a) wantProfile(userId)
+  return a
+}
 
 /* ---------------- profiles & stickers, fetched lazily ---------------- */
 

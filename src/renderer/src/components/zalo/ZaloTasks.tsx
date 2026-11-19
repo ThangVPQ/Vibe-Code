@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, ChevronDown, CircleDot, ClipboardList, Loader2, RefreshCw, Sparkles, Trash2, Users } from 'lucide-react'
-import type { ZaloTask, ZaloTasksState } from '../../../../shared/types'
+import type { ZaloIncoming, ZaloTask, ZaloTasksState } from '../../../../shared/types'
 import { listTime } from './util'
+import { Avatar } from './Avatar'
 
 const SECTIONS: { key: ZaloTask['status']; label: string }[] = [
   { key: 'todo', label: 'Cần làm' },
@@ -24,7 +25,13 @@ export function ZaloTasks(): React.JSX.Element {
       // first look of the day: refresh once on its own
       if (!st.running && Date.now() - st.analyzedAt > 30 * 60_000) void window.api.zalo.analyzeTasks()
     })
-    return window.api.zalo.onTasks(setS)
+    const offT = window.api.zalo.onTasks(setS)
+    // avatars arrive with profile fetches → refresh so they show up
+    const offC = window.api.zalo.onChanged(() => void window.api.zalo.tasks().then(setS))
+    return () => {
+      offT()
+      offC()
+    }
   }, [])
 
   const groups = useMemo(() => Object.fromEntries(SECTIONS.map((x) => [x.key, s.tasks.filter((t) => t.status === x.key)])) as Record<ZaloTask['status'], ZaloTask[]>, [s.tasks])
@@ -45,8 +52,9 @@ export function ZaloTasks(): React.JSX.Element {
         </button>
       </div>
       {s.error && <div className="zt-error">{s.error}</div>}
+      {!!s.incoming?.length && <Incoming list={s.incoming} running={s.running} dueAt={s.dueAt} />}
       <div className="zt-body">
-        {s.tasks.length === 0 && (
+        {s.tasks.length === 0 && !s.incoming?.length && (
           <div className="zt-empty">
             {s.running ? <Loader2 size={18} className="zl-spin" /> : <Sparkles size={18} />}
             {s.running ? 'Đang tìm việc trong tin nhắn cá nhân và nhóm có @ bạn…' : 'Không có việc nào. Tin nhắn cá nhân và nhóm @ bạn sẽ được tóm tắt vào đây.'}
@@ -64,7 +72,7 @@ export function ZaloTasks(): React.JSX.Element {
                 <span className="zt-sec-n">{list.length}</span>
                 {key === 'done' && <ChevronDown size={14} className={folded ? 'zt-fold' : ''} />}
               </button>
-              {!folded && list.map((t) => <Row key={t.id} t={t} />)}
+              {!folded && list.map((t) => <Row key={t.id} t={t} fresh={!!s.fresh?.includes(t.id)} />)}
             </section>
           )
         })}
@@ -74,9 +82,48 @@ export function ZaloTasks(): React.JSX.Element {
   )
 }
 
-function Row({ t }: { t: ZaloTask }): React.JSX.Element {
+/** New messages to me being turned into tasks: who sent what, with an indeterminate progress bar. */
+function Incoming({ list, running, dueAt }: { list: ZaloIncoming[]; running: boolean; dueAt?: number }): React.JSX.Element {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!dueAt) return
+    const t = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(t)
+  }, [dueAt])
+  const left = dueAt ? Math.max(0, Math.ceil((dueAt - now) / 1000)) : 0
   return (
-    <div className={'zt-row ' + t.status}>
+    <div className="zt-inc">
+      <div className="zt-inc-h">
+        <Loader2 size={13} className="zl-spin" />
+        {running
+          ? `Claude đang tạo công việc từ ${list.length} tin nhắn…`
+          : left > 0
+            ? `Đang gom ${list.length} tin nhắn — gửi AI sau ${left}s nếu không có tin mới`
+            : 'Đang chờ tạo công việc…'}
+      </div>
+      {list.slice(-3).map((m) => (
+        <div key={m.msgId} className="zt-inc-row">
+          <Avatar id={m.threadId} name={m.from} src={m.avatar} size={24} />
+          <div className="zt-inc-main">
+            <span className="zt-inc-from">
+              {m.from}
+              {m.group && <span className="zt-inc-thread"> · {m.threadName}</span>}
+            </span>
+            <span className="zt-inc-text">{m.text}</span>
+          </div>
+        </div>
+      ))}
+      {list.length > 3 && <div className="zt-inc-more">+{list.length - 3} tin khác</div>}
+      <div className="zt-progress">
+        <i />
+      </div>
+    </div>
+  )
+}
+
+function Row({ t, fresh }: { t: ZaloTask; fresh?: boolean }): React.JSX.Element {
+  return (
+    <div className={'zt-row ' + t.status + (fresh ? ' fresh' : '')}>
       <button
         className="zt-check"
         title={t.status === 'todo' ? 'Đánh dấu đang xử lý' : t.status === 'doing' ? 'Đánh dấu hoàn thành' : 'Mở lại'}
@@ -84,6 +131,7 @@ function Row({ t }: { t: ZaloTask }): React.JSX.Element {
       >
         {t.status === 'done' ? <Check size={13} /> : t.status === 'doing' ? <CircleDot size={13} /> : null}
       </button>
+      <Avatar id={t.fromId ?? t.threadId} name={t.from} src={t.avatar} size={30} />
       <div className="zt-main">
         <span className="zt-row-title">{t.title}</span>
         {t.detail && <span className="zt-row-detail">{t.detail}</span>}
@@ -91,6 +139,7 @@ function Row({ t }: { t: ZaloTask }): React.JSX.Element {
           {t.group && <Users size={11} />}
           {t.group ? `${t.threadName} · ${t.from}` : t.from} · {listTime(t.ts)}
           {t.manual && <span className="zt-manual">· đặt tay</span>}
+          {fresh && <span className="zt-new">mới</span>}
         </span>
       </div>
       <button className="zt-del" title="Xoá khỏi danh sách" onClick={() => void window.api.zalo.removeTask(t.id)}>

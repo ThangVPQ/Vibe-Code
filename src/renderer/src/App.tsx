@@ -37,6 +37,8 @@ function useGlobalKeys(): void {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
+  // "new Zalo task" notification clicked → show the Zalo tab
+  useEffect(() => window.api.zalo.onShowTasks(() => useStore.setState({ centerView: 'zalo' })), [])
 }
 
 function useBoot(): void {

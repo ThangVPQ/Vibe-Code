@@ -348,6 +348,10 @@ export interface ZaloTask {
   /** the message that asked for it */
   msgId?: string
   from: string
+  /** Zalo user id of who asked */
+  fromId?: string
+  /** their avatar url (filled in when sent to the UI) */
+  avatar?: string
   ts: number
   /** todo: not answered · doing: answered, not finished · done: reported done / resolved */
   status: 'todo' | 'doing' | 'done'
@@ -356,9 +360,27 @@ export interface ZaloTask {
   updatedAt: number
 }
 
+/** A message to me that just arrived and is being turned into a task. */
+export interface ZaloIncoming {
+  threadId: string
+  msgId: string
+  threadName: string
+  group: boolean
+  from: string
+  avatar?: string
+  text: string
+  ts: number
+}
+
 export interface ZaloTasksState {
   tasks: ZaloTask[]
   running: boolean
   analyzedAt: number
   error?: string
+  /** new messages to me waiting for / in the current analysis */
+  incoming?: ZaloIncoming[]
+  /** ids of tasks the last analysis created (highlighted in the list) */
+  fresh?: string[]
+  /** a batch of incoming messages is waiting: goes to Claude at this time unless more arrive */
+  dueAt?: number
 }

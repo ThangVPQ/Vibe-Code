@@ -1,9 +1,9 @@
-import { app, type BrowserWindow } from 'electron'
+import { app, Notification, type BrowserWindow } from 'electron'
 import { spawn } from 'child_process'
 import { existsSync, promises as fsp, readFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import type { ZaloTask, ZaloTasksState } from '../shared/types'
+import type { ZaloIncoming, ZaloTask, ZaloTasksState } from '../shared/types'
 import { cleanEnv, detectClaude } from './pty'
 import * as zalo from './zalo'
 
@@ -14,7 +14,8 @@ import * as zalo from './zalo'
 
 const WINDOW_DAYS = 7
 const KEEP_DONE_DAYS = 14
-const AUTO_DELAY = 90_000
+/** after a message to me: if nothing more arrives for this long, send the batch to Claude */
+const REALTIME_DELAY = 30_000
 const MODEL = 'haiku'
 
 let getWin: () => BrowserWindow | null = () => null
@@ -25,6 +26,12 @@ let error: string | undefined
 let loaded = false
 let again = false
 let autoTimer: NodeJS.Timeout | null = null
+/** when the waiting batch goes to Claude */
+let dueAt = 0
+/** messages to me waiting to become tasks (shown as progress) */
+let incoming: ZaloIncoming[] = []
+/** tasks created by the last analysis */
+let fresh: string[] = []
 
 const dir = (): string => join(app.getPath('userData'), 'zalo')
 const file = (): string => join(dir(), 'tasks.json')
@@ -48,7 +55,11 @@ async function save(): Promise<void> {
 
 export function getTasks(): ZaloTasksState {
   load()
-  return { tasks, running, analyzedAt, error }
+  const withAvatar = tasks.map((t) => {
+    const uid = t.fromId ?? (t.group ? undefined : t.threadId)
+    return { ...t, avatar: uid ? zalo.avatarOf(uid) : undefined }
+  })
+  return { tasks: withAvatar, running, analyzedAt, error, incoming, fresh, dueAt: autoTimer ? dueAt : undefined }
 }
 
 function broadcast(): void {
@@ -57,14 +68,60 @@ function broadcast(): void {
 
 export function initZaloTasks(win: () => BrowserWindow | null): void {
   getWin = win
-  // new messages to me (or my replies) → re-check a little later, batched
-  zalo.onIngest(() => {
+  // realtime: a new message to me (or my reply in a chat with open work) → analyze within seconds
+  zalo.onIngest((ids) => {
+    load()
+    const since = Math.max(analyzedAt, Date.now() - 10 * 60_000)
+    const feed = zalo.workFeed(Date.now() - WINDOW_DAYS * 86_400_000).filter((t) => ids.includes(t.threadId))
+    let relevant = false
+    for (const t of feed) {
+      for (const m of t.msgs) {
+        if (m.ts <= since) continue
+        if (m.toMe) {
+          relevant = true
+          if (!incoming.some((x) => x.msgId === m.id))
+            incoming.push({
+              threadId: t.threadId,
+              msgId: m.id,
+              threadName: t.name,
+              group: t.group,
+              from: m.from,
+              avatar: zalo.avatarOf(m.fromId),
+              text: m.text.slice(0, 160),
+              ts: m.ts
+            })
+        } else if (m.self && tasks.some((x) => x.threadId === t.threadId && x.status !== 'done')) relevant = true
+      }
+    }
+    if (!relevant) return
+    // each new message restarts the wait: the batch goes once the chat is quiet for REALTIME_DELAY
     if (autoTimer) clearTimeout(autoTimer)
+    dueAt = Date.now() + REALTIME_DELAY
     autoTimer = setTimeout(() => {
       autoTimer = null
       void analyze()
-    }, AUTO_DELAY)
+    }, REALTIME_DELAY)
+    broadcast()
   })
+}
+
+/** Windows notification for the tasks just created; click opens the list. */
+function notifyCreated(list: ZaloTask[]): void {
+  if (!list.length || !Notification.isSupported()) return
+  const one = list.length === 1 ? list[0] : undefined
+  const n = new Notification({
+    title: one ? `Việc mới từ ${one.from}` : `${list.length} việc mới từ Zalo`,
+    body: one ? one.title + (one.group ? ` · ${one.threadName}` : '') : list.map((t) => `• ${t.title} — ${t.from}`).join('\n').slice(0, 250)
+  })
+  n.on('click', () => {
+    const w = getWin()
+    if (!w) return
+    if (w.isMinimized()) w.restore()
+    w.show()
+    w.focus()
+    w.webContents.send('zalo:showTasks')
+  })
+  n.show()
 }
 
 export function setStatus(id: string, status: ZaloTask['status']): ZaloTasksState {
@@ -192,6 +249,9 @@ export async function analyze(): Promise<ZaloTasksState> {
   }
   running = true
   error = undefined
+  // messages that arrive during this run stay "incoming" for the next one
+  const handling = new Set(incoming.map((m) => m.msgId))
+  const created: ZaloTask[] = []
   broadcast()
   try {
     const now = Date.now()
@@ -212,6 +272,7 @@ export async function analyze(): Promise<ZaloTasksState> {
           cur.title = title
           cur.detail = r.detail?.trim() || cur.detail
           cur.threadName = th.name
+          if (!cur.fromId && src && !src.self) cur.fromId = src.fromId
           // a status set by hand stays, unless Claude now sees it finished
           if (!cur.manual || status === 'done') {
             if (cur.status !== status) cur.updatedAt = now
@@ -219,7 +280,7 @@ export async function analyze(): Promise<ZaloTasksState> {
             if (status === 'done') cur.manual = false
           }
         } else {
-          tasks.push({
+          const task: ZaloTask = {
             id: randomUUID(),
             title,
             detail: r.detail?.trim() || undefined,
@@ -228,10 +289,13 @@ export async function analyze(): Promise<ZaloTasksState> {
             group: th.group,
             msgId: src?.id,
             from: r.from?.trim() || src?.from || th.name,
+            fromId: src && !src.self ? src.fromId : th.group ? undefined : th.threadId,
             ts: src?.ts ?? th.msgs[th.msgs.length - 1].ts,
             status,
             updatedAt: now
-          })
+          }
+          tasks.push(task)
+          created.push(task)
         }
       }
     }
@@ -240,11 +304,14 @@ export async function analyze(): Promise<ZaloTasksState> {
     tasks = tasks.filter((t) => t.status !== 'done' || t.updatedAt > keep)
     tasks.sort((a, b) => b.ts - a.ts)
     analyzedAt = now
+    fresh = created.map((t) => t.id)
     await save()
+    notifyCreated(created.filter((t) => t.status !== 'done'))
   } catch (e) {
     error = e instanceof Error ? e.message : String(e)
   } finally {
     running = false
+    incoming = incoming.filter((m) => !handling.has(m.msgId))
     broadcast()
   }
   if (again) {
