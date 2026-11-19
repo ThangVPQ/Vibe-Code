@@ -17,6 +17,7 @@ function useGlobalKeys(): void {
       const s = useStore.getState()
       let handled = true
       if (ctrl && !e.shiftKey && k === 'p') useStore.setState({ quickOpen: !!s.root })
+      else if (ctrl && e.shiftKey && k === 'o') window.dispatchEvent(new Event('go-to-symbol'))
       else if (ctrl && (e.key === '`' || e.code === 'Backquote')) toggleBottom()
       else if (ctrl && !e.shiftKey && k === 'b') useStore.setState({ sidebarOpen: !s.sidebarOpen })
       else if (ctrl && e.shiftKey && k === 'n') defaultAgent() && newChat()

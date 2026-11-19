@@ -5,6 +5,7 @@ import JsonWorker from 'monaco-editor/languages/features/json/json.worker?worker
 import CssWorker from 'monaco-editor/languages/features/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/languages/features/html/html.worker?worker'
 import TsWorker from 'monaco-editor/languages/features/typescript/ts.worker?worker'
+import { registerFallbackSymbols } from './symbols'
 
 self.MonacoEnvironment = {
   getWorker(_id: string, label: string) {
@@ -121,6 +122,7 @@ monaco.editor.defineTheme('studio-light', {
 })
 
 loader.config({ monaco })
+registerFallbackSymbols(monaco)
 
 const extMap = new Map<string, string>()
 for (const lang of monaco.languages.getLanguages()) {

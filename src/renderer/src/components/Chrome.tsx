@@ -475,7 +475,8 @@ export function QuickOpen(): React.JSX.Element {
 
   const close = (): void => useStore.setState({ quickOpen: false })
   const pick = (rel: string): void => {
-    openFile(root.replace(/[\\/]$/, '') + '\\' + rel.replace(/\//g, '\\'))
+    const sep = window.api.platform === 'win32' ? '\\' : '/'
+    openFile(root.replace(/[\\/]$/, '') + sep + rel.replace(/[\\/]/g, sep))
     close()
   }
 
@@ -488,7 +489,13 @@ export function QuickOpen(): React.JSX.Element {
             autoFocus
             placeholder="Search files by name…"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              // "@" → search functions/symbols in the open file instead
+              if (e.target.value.startsWith('@')) {
+                close()
+                setTimeout(() => window.dispatchEvent(new Event('go-to-symbol')))
+              } else setQ(e.target.value)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Escape') close()
               if (e.key === 'ArrowDown') {

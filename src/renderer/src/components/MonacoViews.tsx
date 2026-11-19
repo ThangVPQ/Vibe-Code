@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react'
-import { Columns2, FileText, GitCompare, Rows2 } from 'lucide-react'
+import { Braces, Columns2, FileText, GitCompare, Rows2 } from 'lucide-react'
 import { openFile } from '../actions'
 import { SlidePill } from './motion'
 import { fileUri, useStore, type EditorTab } from '../store'
@@ -24,6 +24,9 @@ function Breadcrumbs({ path }: { path: string }): React.JSX.Element {
           {i < parts.length - 1 && <span className="crumb-sep">›</span>}
         </span>
       ))}
+      <button className="crumb-symbols" title="Go to function / symbol (Ctrl+Shift+O)" onClick={() => window.dispatchEvent(new Event('go-to-symbol'))}>
+        <Braces size={13} /> Symbols
+      </button>
     </div>
   )
 }
@@ -50,7 +53,22 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
     }
   }, [tab.path])
 
+  // Ctrl+Shift+O, "@" in Ctrl+P or the breadcrumb button → "Go to Symbol" in the open file
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  useEffect(() => {
+    const go = (): void => {
+      const ed = editorRef.current
+      if (!ed || useStore.getState().activeTabId !== tab.id) return
+      ed.focus()
+      ed.trigger('vibe', 'editor.action.quickOutline', null)
+    }
+    window.addEventListener('go-to-symbol', go)
+    return () => window.removeEventListener('go-to-symbol', go)
+  }, [tab.id])
+
   const onMount: OnMount = (editor) => {
+    editorRef.current = editor
+    editor.onDidDispose(() => editorRef.current === editor && (editorRef.current = null))
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveModel(tab.path))
     editor.onDidChangeModelContent(() => {
       const m = editor.getModel()

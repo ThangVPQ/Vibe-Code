@@ -301,12 +301,12 @@ function useGitDecorations(): Map<string, GitFile['status']> {
   return useMemo(() => {
     const m = new Map<string, GitFile['status']>()
     for (const f of files) {
-      const abs = f.abs.replace(/\//g, '\\').toLowerCase()
+      const abs = f.abs.replace(/\\/g, '/').toLowerCase()
       m.set(abs, f.status)
       // bubble up to parent folders
       let p = abs
-      while (p.includes('\\')) {
-        p = p.slice(0, p.lastIndexOf('\\'))
+      while (p.includes('/')) {
+        p = p.slice(0, p.lastIndexOf('/'))
         if (!m.has(p)) m.set(p, 'M')
       }
     }
@@ -451,7 +451,7 @@ function TreeNode({ item, depth, deco, openCtx }: { item: DirEntry; depth: numbe
   const [open, setOpen] = useState(false)
   const activeTab = useStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
   const isActive = activeTab?.kind === 'file' && activeTab.path.toLowerCase() === item.path.toLowerCase()
-  const status = deco.get(item.path.toLowerCase())
+  const status = deco.get(item.path.replace(/\\/g, '/').toLowerCase())
   return (
     <>
       <div

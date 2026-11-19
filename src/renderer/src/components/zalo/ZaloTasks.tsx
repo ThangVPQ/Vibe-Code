@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronDown, Circle, CircleCheck, CircleDot, ClipboardList, Ellipsis, Folder, FolderOpen, Loader2, MessageSquarePlus, RefreshCw, Sparkles, Trash2, Users } from 'lucide-react'
+import { Check, ChevronDown, Circle, CircleCheck, CircleDot, ClipboardList, Ellipsis, Folder, FolderOpen, Loader2, MessageSquarePlus, RefreshCw, Search, Sparkles, Trash2, Users } from 'lucide-react'
 import type { ZaloIncoming, ZaloTask, ZaloTasksState } from '../../../../shared/types'
 import { listTime } from './util'
 import { Avatar } from './Avatar'
@@ -229,8 +229,15 @@ function TaskMenu({ t, x, y, onClose, onChat }: { t: ZaloTask; x: number; y: num
     add(root)
     ;[...projects].sort((a, b) => b.updated - a.updated).forEach((g) => add(g.cwd))
     recent.forEach(add)
-    return out.slice(0, 8)
+    return out
   }, [root, projects, recent])
+  const [q, setQ] = useState('')
+  const [sel, setSel] = useState(0)
+  const shown = useMemo(() => {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+    return words.length ? folders.filter((f) => words.every((w) => f.toLowerCase().includes(w))) : folders
+  }, [folders, q])
+  useEffect(() => setSel(0), [q])
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
@@ -280,13 +287,39 @@ function TaskMenu({ t, x, y, onClose, onChat }: { t: ZaloTask; x: number; y: num
             </>
           ) : (
             <>
-              <div className="zt-ctx-h">Chọn project cho chat mới</div>
-              {folders.map((f) => (
-                <button key={f} title={f} onClick={run(() => onChat(f))}>
-                  <Folder size={16} /> <span className="zt-ctx-name">{basename(f)}</span>
-                  <span className="zt-ctx-path">{f}</span>
-                </button>
-              ))}
+              <div className="zt-ctx-h">Chọn project cho chat mới ({folders.length})</div>
+              <div className="zt-ctx-search">
+                <Search size={14} />
+                <input
+                  autoFocus
+                  placeholder="Tìm project…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setSel((s) => Math.max(0, Math.min(shown.length - 1, s + (e.key === 'ArrowDown' ? 1 : -1))))
+                    } else if (e.key === 'Enter' && shown[sel]) run(() => onChat(shown[sel]))()
+                  }}
+                />
+              </div>
+              <div className="zt-ctx-projects">
+                {shown.map((f, i) => (
+                  <button
+                    key={f}
+                    title={f}
+                    className={i === sel ? 'sel' : ''}
+                    ref={i === sel ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+                    onMouseEnter={() => setSel(i)}
+                    onClick={run(() => onChat(f))}
+                  >
+                    <Folder size={16} /> <span className="zt-ctx-name">{basename(f)}</span>
+                    <span className="zt-ctx-path">{f}</span>
+                  </button>
+                ))}
+                {shown.length === 0 && <div className="zt-ctx-empty">Không có project nào khớp</div>}
+              </div>
+              <div className="zt-ctx-sep" />
               <button onClick={run(() => onChat(null))}>
                 <FolderOpen size={16} /> Chọn thư mục khác…
               </button>
