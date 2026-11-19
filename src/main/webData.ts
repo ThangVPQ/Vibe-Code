@@ -19,7 +19,12 @@ interface HistoryEntry {
 
 const MAX_HISTORY = 20000
 const file = (): string => join(app.getPath('userData'), 'web-data.json')
-const chromeRoot = (): string => join(process.env.LOCALAPPDATA ?? '', 'Google', 'Chrome', 'User Data')
+const chromeRoot = (): string =>
+  process.platform === 'darwin'
+    ? join(app.getPath('home'), 'Library', 'Application Support', 'Google', 'Chrome')
+    : process.platform === 'win32'
+      ? join(process.env.LOCALAPPDATA ?? '', 'Google', 'Chrome', 'User Data')
+      : join(app.getPath('home'), '.config', 'google-chrome')
 
 let loaded = false
 let importedAt = 0

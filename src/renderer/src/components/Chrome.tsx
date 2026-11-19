@@ -49,7 +49,7 @@ export function TitleBar(): React.JSX.Element {
   }, [menu])
 
   return (
-    <div className="titlebar">
+    <div className={window.api.platform === 'darwin' ? 'titlebar mac' : 'titlebar'}>
       <div className="titlebar-left">
         <Logo size={18} />
         <span className="app-name">VIBE <b>CODE</b></span>
@@ -213,6 +213,8 @@ function ModeSwitch(): React.JSX.Element | null {
 function WindowControls(): React.JSX.Element | null {
   const win = useStore((s) => s.win)
   if (!win) return null
+  // macOS draws its own traffic lights (top-left) — ours would be a second set
+  if (window.api.platform === 'darwin' && win.mode !== 'dropdown') return null
   if (win.mode === 'dropdown') {
     return (
       <div className="win-controls">

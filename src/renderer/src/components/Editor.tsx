@@ -12,6 +12,7 @@ import { FileIcon, Logo } from './icons'
 import { EditorFontButton, useEditorFont } from './EditorFont'
 import { DatabasePane } from './Database'
 import { ZaloPane } from './Zalo'
+import type { ZaloTasksState } from '../../../shared/types'
 
 /** Middle area: two fixed tabs — Source code (files, diffs) and Web (built-in browser). */
 export function EditorArea(): React.JSX.Element {
@@ -86,7 +87,10 @@ export function EditorArea(): React.JSX.Element {
 function useZaloBadge(onTab: boolean): number {
   const [n, setN] = useState(0)
   useEffect(() => {
-    const count = (s: { unseen?: Record<string, unknown> }): void => setN(Object.keys(s.unseen ?? {}).length)
+    const count = (s: ZaloTasksState): void => {
+      setN(Object.keys(s.unseen ?? {}).length)
+      taskbarBadge(s.tasks.filter((t) => t.status !== 'done').length)
+    }
     void window.api.zalo.tasks().then(count)
     return window.api.zalo.onTasks(count)
   }, [])
@@ -103,6 +107,29 @@ function useZaloBadge(onTab: boolean): number {
     }
   }, [onTab])
   return n
+}
+
+/** Red number over the app's taskbar icon: my unfinished Zalo tasks. */
+let lastBadge = -1
+function taskbarBadge(n: number): void {
+  if (n === lastBadge) return
+  lastBadge = n
+  if (n <= 0) return window.api.win.badge(null, '')
+  const c = document.createElement('canvas')
+  c.width = c.height = 32
+  const g = c.getContext('2d')
+  if (!g) return
+  g.fillStyle = '#e5484d'
+  g.beginPath()
+  g.arc(16, 16, 16, 0, Math.PI * 2)
+  g.fill()
+  const text = n > 99 ? '99+' : String(n)
+  g.fillStyle = '#fff'
+  g.font = `bold ${text.length > 2 ? 13 : text.length > 1 ? 18 : 22}px "Segoe UI", sans-serif`
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillText(text, 16, 17)
+  window.api.win.badge(c.toDataURL('image/png'), `${n} việc chưa xong`)
 }
 
 /** A chat's browser: its tab strip and one page per tab. */

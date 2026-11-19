@@ -112,6 +112,8 @@ const api = {
   win: {
     state: (): Promise<WindowState> => ipcRenderer.invoke('win:state'),
     minimize: (): void => ipcRenderer.send('win:minimize'),
+    /** taskbar icon badge: a PNG data URL (null clears it) + screen-reader label */
+    badge: (png: string | null, label: string): void => ipcRenderer.send('win:badge', png, label),
     toggleMaximize: (): void => ipcRenderer.send('win:toggleMaximize'),
     close: (): void => ipcRenderer.send('win:close'),
     hide: (): void => ipcRenderer.send('win:hide'),

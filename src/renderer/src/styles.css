@@ -198,6 +198,10 @@ kbd {
   position: relative;
   z-index: 20;
 }
+/* room for the macOS traffic lights */
+.titlebar.mac {
+  padding-left: 80px;
+}
 .titlebar button,
 .titlebar .menu {
   -webkit-app-region: no-drag;
@@ -2135,6 +2139,43 @@ button.sb-item:hover {
   padding: 3px 14px 5px 24px;
   color: var(--text-faint);
   font-size: 11.5px;
+}
+.zs-count {
+  min-width: 17px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  background: #e5484d;
+}
+.zs-av {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+.zs-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg-1, #1c2338);
+  background: #e5484d;
+}
+.zs-row.doing .zs-dot {
+  background: #e3a43a;
+}
+.zs-new {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 .agent-groups-sep {
   height: 1px;

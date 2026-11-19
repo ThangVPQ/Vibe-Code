@@ -26,6 +26,7 @@ import { FileIcon, FolderIcon, StatusDot, statusLabel } from './icons'
 import type { DirEntry, GitCommit, GitCommitFile, GitFile, ProjectGroup } from '../../../shared/types'
 import { AGENTS, agentDef } from '../../../shared/agents'
 import { NewChatMenu } from './AgentMenu'
+import { ZaloSideGroup } from './zalo/ZaloSide'
 
 export function Sidebar(): React.JSX.Element {
   // files and git changes live in the Source code tab; the sidebar is just the chats
@@ -216,6 +217,7 @@ function ProjectsTree(): React.JSX.Element {
           </div>
         )
       })}
+      <ZaloSideGroup filter={q} />
       {installed.length > 0 && <div className="agent-groups-sep" />}
 
       {visible.length === 0 && <div className="tree-empty">{projects.length ? 'No matching chats' : 'No Claude Code history found yet.'}</div>}

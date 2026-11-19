@@ -1,6 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, session, shell } from 'electron'
 import { join } from 'path'
 import { mkdir, readFile as readFileFs, stat as statFs, writeFile as writeFileFs } from 'fs/promises'
+import { fixMacPath } from './macPath'
+
+fixMacPath()
 
 // Renamed from "TINJS Studio" to "VIBE CODE": keep using the old data folder so settings,
 // recent folders and browser logins carry over.
@@ -63,6 +66,11 @@ import * as webData from './webData'
 import type { AppSettings, DbConnectionInput, PtySpawnOptions, UsageLimit, WindowMode, ZaloSticker, ZaloTask } from '../shared/types'
 
 let win: BrowserWindow | null = null
+let badge: { png: string | null; label: string } = { png: null, label: '' }
+function applyBadge(): void {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return
+  win.setOverlayIcon(badge.png ? nativeImage.createFromDataURL(badge.png) : null, badge.label)
+}
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -76,6 +84,8 @@ function createWindow(): void {
     backgroundColor: getSettings().seeThrough ? '#00000000' : getSettings().theme === 'light' ? '#e8ecf5' : '#1c2338',
     // Frameless title area; we draw our own window controls so the drop-down mode can hide them.
     titleBarStyle: 'hidden',
+    // macOS keeps its own traffic lights; centre them in our 38px title bar
+    trafficLightPosition: { x: 12, y: 12 },
     title: 'VIBE CODE',
     icon: iconPath('icon.png'),
     webPreferences: {
@@ -90,6 +100,8 @@ function createWindow(): void {
   })
 
   initWindowing(win)
+  // hidden to the tray and back: Windows rebuilds the taskbar button without the overlay
+  win.on('show', () => setTimeout(applyBadge, 50))
   runDebugScript(win)
   // A renderer reload (Ctrl+R, dev HMR) forgets its terminals — don't leave their processes behind.
   win.webContents.on('did-start-loading', () => killAll())
@@ -220,6 +232,11 @@ function registerIpc(): void {
   // Window
   ipcMain.handle('win:state', () => windowState())
   ipcMain.on('win:minimize', () => win?.minimize())
+  // number on the taskbar icon (Windows overlay): a PNG drawn by the renderer, null clears it
+  ipcMain.on('win:badge', (_e, png: string | null, label: string) => {
+    badge = { png, label }
+    applyBadge()
+  })
   ipcMain.on('win:toggleMaximize', () => (win?.isMaximized() ? win.unmaximize() : win?.maximize()))
   ipcMain.on('win:close', () => win?.close())
   ipcMain.on('win:hide', () => hideDropdown())

@@ -89,4 +89,5 @@ const dir = path.join(__dirname, '..', 'resources')
 fs.mkdirSync(dir, { recursive: true })
 fs.writeFileSync(path.join(dir, 'icon.png'), render(256))
 fs.writeFileSync(path.join(dir, 'tray.png'), render(32))
+fs.writeFileSync(path.join(dir, 'icon-mac.png'), render(1024)) // macOS .icns needs >= 512px
 console.log('icons written to', dir)
