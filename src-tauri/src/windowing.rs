@@ -454,9 +454,9 @@ pub fn init(app: &mut App) -> anyhow::Result<()> {
     let bg = if s.see_through {
         Color(0, 0, 0, 0)
     } else if s.theme == "light" {
-        Color(0xe8, 0xec, 0xf5, 0xff)
+        Color(0xec, 0xec, 0xee, 0xff)
     } else {
-        Color(0x1c, 0x23, 0x38, 0xff)
+        Color(0x2a, 0x2a, 0x2c, 0xff)
     };
     #[allow(unused_mut)]
     let mut b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::default())

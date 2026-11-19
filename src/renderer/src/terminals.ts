@@ -8,51 +8,52 @@ import type { PtySpawnOptions } from '../../shared/types'
 import { attachBlob, attachPaths, attachmentsOf, takeAttachments } from './attachments'
 
 export const termTheme: ITheme = {
-  background: '#222a44',
-  foreground: '#e4e4ee',
-  cursor: '#8aa5ee',
-  cursorAccent: '#222a44',
-  selectionBackground: '#6f8fe64d',
-  black: '#2b3554',
-  red: '#ff6b6b',
-  green: '#5fd38d',
-  yellow: '#f5c76b',
-  blue: '#6aa7ff',
-  magenta: '#c49bff',
-  cyan: '#5fd4e0',
-  white: '#d6d6e2',
-  brightBlack: '#7883a6',
-  brightRed: '#ff8a8a',
-  brightGreen: '#7fe3a6',
-  brightYellow: '#ffd88a',
-  brightBlue: '#8dbcff',
-  brightMagenta: '#d7b8ff',
-  brightCyan: '#86e6ee',
+  // macOS dark: the system palette on a graphite background (same as --bg-term in styles.css)
+  background: '#1c1c1e',
+  foreground: '#e5e5ea',
+  cursor: '#0a84ff',
+  cursorAccent: '#1c1c1e',
+  selectionBackground: '#0a84ff4d',
+  black: '#3a3a3c',
+  red: '#ff453a',
+  green: '#32d74b',
+  yellow: '#ffd60a',
+  blue: '#409cff',
+  magenta: '#bf5af2',
+  cyan: '#64d2ff',
+  white: '#d1d1d6',
+  brightBlack: '#8e8e93',
+  brightRed: '#ff6961',
+  brightGreen: '#5be37a',
+  brightYellow: '#ffe45c',
+  brightBlue: '#70b5ff',
+  brightMagenta: '#da8fff',
+  brightCyan: '#8be0ff',
   brightWhite: '#ffffff'
 }
 
 export const termThemeLight: ITheme = {
-  background: '#f7f8fc',
-  foreground: '#161c2e',
-  cursor: '#4a6fd8',
-  cursorAccent: '#f7f8fc',
-  selectionBackground: '#6f8fe63d',
-  black: '#1f1e1d',
-  red: '#c53a32',
-  green: '#2f8a4e',
-  yellow: '#a8741a',
-  blue: '#2f6fd6',
-  magenta: '#8a46c2',
-  cyan: '#1d8396',
-  white: '#8a877d',
-  brightBlack: '#6f6d66',
-  brightRed: '#d9534a',
-  brightGreen: '#3aa15f',
-  brightYellow: '#c08a26',
-  brightBlue: '#4a86e8',
-  brightMagenta: '#a463d6',
-  brightCyan: '#2a9bb0',
-  brightWhite: '#3d3c38'
+  background: '#fbfbfd',
+  foreground: '#1d1d1f',
+  cursor: '#007aff',
+  cursorAccent: '#fbfbfd',
+  selectionBackground: '#007aff33',
+  black: '#1d1d1f',
+  red: '#d70015',
+  green: '#248a3d',
+  yellow: '#a05a00',
+  blue: '#0064d6',
+  magenta: '#8944ab',
+  cyan: '#0071a4',
+  white: '#8e8e93',
+  brightBlack: '#6e6e73',
+  brightRed: '#ff3b30',
+  brightGreen: '#2aa84a',
+  brightYellow: '#c27c00',
+  brightBlue: '#007aff',
+  brightMagenta: '#af52de',
+  brightCyan: '#0e94c4',
+  brightWhite: '#3a3a3c'
 }
 
 let currentTheme: ITheme = termTheme
@@ -61,16 +62,31 @@ let clearBg = false
 
 const shownTheme = (): ITheme => (clearBg ? { ...currentTheme, background: '#00000000' } : currentTheme)
 
+/**
+ * Claude Code and most CLIs paint for a dark terminal: pale greys and pure white, which all but
+ * vanish on the light background. There xterm darkens any text below this contrast ratio; the dark
+ * theme (and see-through, which has no background colour to measure against) keeps exact colours.
+ */
+const shownContrast = (): number => (currentTheme === termThemeLight && !clearBg ? 7 : 1)
+
+function applyColors(): void {
+  for (const e of entries.values()) {
+    e.term.options.allowTransparency = clearBg
+    e.term.options.theme = shownTheme()
+    e.term.options.minimumContrastRatio = shownContrast()
+  }
+}
+
 /** Switch every open terminal (and future ones) between the dark and light palettes. */
 export function setTerminalTheme(light: boolean): void {
   currentTheme = light ? termThemeLight : termTheme
-  for (const e of entries.values()) e.term.options.theme = shownTheme()
+  applyColors()
 }
 
 export function setTerminalClear(clear: boolean): void {
   if (clear === clearBg) return
   clearBg = clear
-  for (const e of entries.values()) e.term.options.theme = shownTheme()
+  applyColors()
 }
 
 /* ---- hide Claude Code's "bypass permissions on (shift+tab to cycle)" footer line ---- */
@@ -119,7 +135,7 @@ function hideFooter(e: Entry): void {
     footerCover.set(e, cover)
   }
   const cellH = screen.clientHeight / e.term.rows
-  const css = `position:absolute;left:0;right:0;top:${row * cellH}px;height:${Math.ceil(cellH)}px;z-index:20;pointer-events:none;background:${currentTheme.background ?? '#222a44'};`
+  const css = `position:absolute;left:0;right:0;top:${row * cellH}px;height:${Math.ceil(cellH)}px;z-index:20;pointer-events:none;background:${currentTheme.background ?? '#1c1c1e'};`
   // runs after every output chunk: touch the DOM only when the row actually moved
   if (cover.dataset.css !== css) {
     cover.dataset.css = css
@@ -230,6 +246,66 @@ async function revealPath(path: string): Promise<void> {
     p = p.slice(0, cut)
   }
 }
+type CellPos = { x: number; y: number }
+
+/** The whole logical line around buffer row `y` (1-based), joining rows soft-wrapped by the
+ *  terminal, with the 1-based cell of every character so a match maps back to the screen. */
+function logicalLine(term: Terminal, y: number): { text: string; pos: CellPos[] } {
+  const buf = term.buffer.active
+  let row = y - 1
+  while (row > 0 && buf.getLine(row)?.isWrapped) row--
+  let text = ''
+  const pos: CellPos[] = []
+  const cell = buf.getNullCell()
+  for (let line = buf.getLine(row); line; line = buf.getLine(++row)) {
+    if (pos.length && !line.isWrapped) break
+    for (let col = 0; col < line.length; col++) {
+      if (!line.getCell(col, cell) || cell.getWidth() === 0) continue
+      const chars = cell.getChars() || ' '
+      for (const ch of chars) {
+        text += ch
+        for (let i = 0; i < ch.length; i++) pos.push({ x: col + 1, y: row + 1 })
+      }
+    }
+  }
+  const trimmed = text.replace(/\s+$/, '')
+  return { text: trimmed, pos: pos.slice(0, trimmed.length) }
+}
+
+const trimPathEnd = (s: string): string => s.replace(/[.,;)\]]+$/, '')
+/** words that may continue a path cut at a space, e.g. "...\nsis\VIBE CODE_0.2.0_x64-setup.exe" */
+const PATH_TAIL_RE = /^(?: [^\s"'<>|*?:`]+){1,6}/
+
+/** Windows paths on the logical line through row `y`. A path with spaces is taken as long as
+ *  the longest version of it that exists on disk; the plain regex match otherwise. */
+async function findPathLinks(term: Terminal, y: number): Promise<{ path: string; start: CellPos; end: CellPos }[]> {
+  const { text, pos } = logicalLine(term, y)
+  const out: { path: string; start: CellPos; end: CellPos }[] = []
+  for (const m of text.matchAll(PATH_RE)) {
+    const at = m.index
+    let path = trimPathEnd(m[0])
+    const tail = PATH_TAIL_RE.exec(text.slice(at + m[0].length))?.[0]
+    if (tail) {
+      const candidates: string[] = []
+      let acc = m[0]
+      for (const word of tail.split(' ').slice(1)) candidates.push(trimPathEnd((acc += ' ' + word)))
+      const infos = await window.api.app.fileInfo(candidates).catch(() => [])
+      for (let i = infos.length - 1; i >= 0; i--) {
+        if (infos[i].dir || infos[i].size >= 0) {
+          path = candidates[i]
+          break
+        }
+      }
+    }
+    if (!path) continue
+    const start = pos[at]
+    const end = pos[at + path.length - 1]
+    // only links that touch the row being asked about
+    if (start && end && start.y <= y && end.y >= y) out.push({ path, start, end })
+  }
+  return out
+}
+
 const imageCache = new Map<string, Promise<string | undefined>>()
 let hoverEl: HTMLImageElement | null = null
 let hoverToken = 0
@@ -326,7 +402,10 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
     scrollback: 5000,
     smoothScrollDuration: 125,
     theme: shownTheme(),
-    allowTransparency: true,
+    minimumContrastRatio: shownContrast(),
+    // only see-through mode needs a transparent canvas: with it on, xterm rasterises every glyph
+    // without a background behind it, which draws text thinner and paler (worst on the light theme)
+    allowTransparency: clearBg,
     macOptionIsMeta: true
   })
   const fit = new FitAddon()
@@ -336,19 +415,19 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
   // Windows paths: images get a hover thumbnail + click to enlarge, anything else opens in File Explorer
   term.registerLinkProvider({
     provideLinks(y, cb) {
-      const text = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? ''
-      const links = [...text.matchAll(PATH_RE)].map((m) => {
-        const path = m[0].replace(/[.,;)\]]+$/, '')
-        const image = IMAGE_EXT_RE.test(path)
-        return {
-          range: { start: { x: m.index + 1, y }, end: { x: m.index + path.length, y } },
-          text: path,
-          activate: () => void (image ? showImageLightbox(path) : revealPath(path)),
-          hover: (e: MouseEvent) => void (image && showImageHover(path, e)),
-          leave: hideImageHover
-        }
+      void findPathLinks(term, y).then((found) => {
+        const links = found.map(({ path, start, end }) => {
+          const image = IMAGE_EXT_RE.test(path)
+          return {
+            range: { start, end },
+            text: path,
+            activate: () => void (image ? showImageLightbox(path) : revealPath(path)),
+            hover: (e: MouseEvent) => void (image && showImageHover(path, e)),
+            leave: hideImageHover
+          }
+        })
+        cb(links.length ? links : undefined)
       })
-      cb(links.length ? links : undefined)
     }
   })
   const uni = new Unicode11Addon()

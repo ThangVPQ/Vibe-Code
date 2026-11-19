@@ -1,8 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 
-/** iOS-style easing: quick start, long soft landing. */
-export const IOS_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)'
-
 const reducedMotion = (): boolean => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 
 /**
@@ -95,7 +92,7 @@ export function SlidePill({ selector = ':scope > .on, :scope > .active', classNa
   return <div ref={ref} className={`slide-pill ${className}`} aria-hidden />
 }
 
-/** Plays a soft fade-and-rise on `ref` whenever `key` changes (for content that swaps in place). */
+/** Plays a short fade on `ref` whenever `key` changes (for content that swaps in place). */
 export function useEnterAnimation(ref: React.RefObject<HTMLElement | null>, key: unknown): void {
   const first = useRef(true)
   useEffect(() => {
@@ -104,13 +101,7 @@ export function useEnterAnimation(ref: React.RefObject<HTMLElement | null>, key:
       return
     }
     if (reducedMotion()) return
-    ref.current?.animate(
-      [
-        { opacity: 0, transform: 'translateY(6px) scale(0.996)' },
-        { opacity: 1, transform: 'none' }
-      ],
-      { duration: 360, easing: IOS_EASE }
-    )
+    ref.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' })
   }, [key])
 }
 

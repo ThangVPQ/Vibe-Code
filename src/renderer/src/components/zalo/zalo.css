@@ -2,28 +2,28 @@
 
 .zl-login,
 .zl-ctx {
-  --zl-accent: #5b8def;
-  --zl-accent-2: #79a3ff;
+  --zl-accent: #0a84ff;
+  --zl-accent-2: #5aa9ff;
   --zl-side: var(--bg-1);
   --zl-row-hover: var(--w-06);
-  --zl-row-on: linear-gradient(135deg, #4f7be0 0%, #3d63c9 100%);
-  --zl-in: #1e2a45;
+  --zl-row-on: linear-gradient(135deg, #2b95ff 0%, #0a78f0 100%);
+  --zl-in: #2c2c2e;
   --zl-in-text: var(--text);
-  --zl-out: linear-gradient(160deg, #3f67c8 0%, #3557b3 100%);
-  --zl-out-solid: #3a5fbe;
-  --zl-out-text: #f4f7ff;
-  --zl-out-meta: #c8d6ffcc;
-  --zl-meta: #8f9bbb;
-  --zl-wall-a: #18203a;
-  --zl-wall-b: #1d2747;
-  --zl-wall-c: #241f46;
+  --zl-out: linear-gradient(160deg, #1f8fff 0%, #0a78f0 100%);
+  --zl-out-solid: #0a84ff;
+  --zl-out-text: #ffffff;
+  --zl-out-meta: #ffffffb8;
+  --zl-meta: #8e8e93;
+  --zl-wall-a: #1c1c1e;
+  --zl-wall-b: #202023;
+  --zl-wall-c: #232326;
   --zl-wall-dot: #ffffff09;
-  --zl-pill: #0f162bb8;
-  --zl-pill-text: #e8ecfa;
-  --zl-panel: #1f2844f7;
+  --zl-pill: #000000a6;
+  --zl-pill-text: #f2f2f7;
+  --zl-panel: #232325f7;
   --zl-shadow: 0 10px 40px -10px #000c, 0 2px 8px -2px #0008;
-  --zl-green: #4fce7c;
-  --zl-red: #f2626b;
+  --zl-green: #32d74b;
+  --zl-red: #ff453a;
   --zl-r: 16px;
   --zl-r-s: 5px;
   flex: 1;
@@ -35,25 +35,25 @@
 }
 :root[data-theme='light'] .zl-login,
 :root[data-theme='light'] .zl-ctx {
-  --zl-accent: #3d74e8;
-  --zl-accent-2: #2a5fd0;
-  --zl-row-on: linear-gradient(135deg, #4a80f0 0%, #3466d8 100%);
+  --zl-accent: #007aff;
+  --zl-accent-2: #0064d6;
+  --zl-row-on: linear-gradient(135deg, #2b8fff 0%, #0070ee 100%);
   --zl-in: #ffffff;
-  --zl-out: linear-gradient(160deg, #e3edff 0%, #d6e4ff 100%);
-  --zl-out-solid: #dce8ff;
-  --zl-out-text: #13203f;
-  --zl-out-meta: #4f72b8;
-  --zl-meta: #8a93ab;
-  --zl-wall-a: #dfe8f7;
-  --zl-wall-b: #e9eefb;
-  --zl-wall-c: #e7e2f8;
-  --zl-wall-dot: #3d74e812;
-  --zl-pill: #4a5f8f66;
+  --zl-out: linear-gradient(160deg, #e1efff 0%, #d2e6ff 100%);
+  --zl-out-solid: #d9eaff;
+  --zl-out-text: #10233d;
+  --zl-out-meta: #3a6fb0;
+  --zl-meta: #8e8e93;
+  --zl-wall-a: #ececef;
+  --zl-wall-b: #f2f2f5;
+  --zl-wall-c: #efeff3;
+  --zl-wall-dot: #007aff12;
+  --zl-pill: #6e6e7366;
   --zl-pill-text: #fff;
   --zl-panel: #fffffff7;
-  --zl-shadow: 0 10px 40px -12px #1a2a5a55, 0 2px 8px -2px #1a2a5a22;
-  --zl-green: #1fa855;
-  --zl-red: #e0434c;
+  --zl-shadow: 0 10px 40px -12px #00000040, 0 2px 8px -2px #0000001f;
+  --zl-green: #248a3d;
+  --zl-red: #d70015;
 }
 
 .zl-login button {

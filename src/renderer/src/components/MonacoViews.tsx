@@ -5,7 +5,7 @@ import { openFile } from '../actions'
 import { SlidePill } from './motion'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { editorOptions, languageFor, monaco } from '../monaco'
-import { ensureModel, isDirty, markTab, saveModel } from '../fileModels'
+import { ensureModel, getModel, isDirty, markTab, saveModel } from '../fileModels'
 import { FileIcon } from './icons'
 import { useEditorFont } from './EditorFont'
 
@@ -38,23 +38,32 @@ const useMonacoTheme = (): string => useStore((s) => (s.themeResolved === 'light
 export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): React.JSX.Element {
   const theme = useMonacoTheme()
   const font = useEditorFont()
-  const [ready, setReady] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // One editor for every file tab: switching tabs swaps its model (Monaco keeps each file's scroll
+  // and cursor) instead of tearing the whole editor down and building a new one.
+  const [loaded, setLoaded] = useState<{ path: string; error?: string } | null>(null)
 
   useEffect(() => {
     let live = true
-    ensureModel(tab.path).then((r) => {
-      if (!live) return
-      if (r.error) setError(r.error)
-      else setReady(true)
-    })
+    ensureModel(tab.path).then((r) => live && setLoaded({ path: tab.path, error: r.error }))
     return () => {
       live = false
     }
   }, [tab.path])
 
-  // Ctrl+Shift+O, "@" in Ctrl+P or the breadcrumb button → "Go to Symbol" in the open file
+  const mine = loaded?.path === tab.path ? loaded : null
+  // The file on screen: this tab's as soon as its model exists (an already-open file switches in
+  // the same frame); while a new file is still being read, the previous one stays up.
+  const path = mine ? (mine.error ? null : tab.path) : getModel(tab.path) ? tab.path : loaded && !loaded.error ? loaded.path : null
+
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  // what the editor's commands act on (they are registered once, the file changes)
+  const pathRef = useRef(path)
+  useEffect(() => {
+    pathRef.current = path
+    editorRef.current?.focus()
+  }, [path])
+
+  // Ctrl+Shift+O, "@" in Ctrl+P or the breadcrumb button → "Go to Symbol" in the open file
   useEffect(() => {
     const go = (): void => {
       const ed = editorRef.current
@@ -80,23 +89,29 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
   const onMount: OnMount = (editor) => {
     editorRef.current = editor
     editor.onDidDispose(() => editorRef.current === editor && (editorRef.current = null))
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveModel(tab.path))
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      if (pathRef.current) void saveModel(pathRef.current)
+    })
     editor.onDidChangeModelContent(() => {
-      const m = editor.getModel()
-      if (m) markTab(tab.path, isDirty(m))
+      // Once the edit has settled: during an undo, or a reload from disk, this event fires before
+      // the model is back at its saved version — reading it right away left a false "unsaved" dot.
+      queueMicrotask(() => {
+        const m = editor.getModel()
+        if (m && pathRef.current) markTab(pathRef.current, isDirty(m))
+      })
     })
     editor.focus()
   }
 
-  if (error) return <div className="editor-message">{error}</div>
-  if (!ready) return <div className="editor-message" />
+  if (mine?.error) return <div className="editor-message">{mine.error}</div>
+  if (!path) return <div className="editor-message" />
   return (
     <>
-      <Breadcrumbs path={tab.path} />
+      <Breadcrumbs path={path} />
       <div className="monaco-wrap">
         <Editor
-          path={fileUri(tab.path)}
-          language={languageFor(tab.path)}
+          path={fileUri(path)}
+          language={languageFor(path)}
           theme={theme}
           options={{ ...editorOptions, ...font }}
           keepCurrentModel
@@ -160,7 +175,7 @@ export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> })
     <>
       <div className="diff-header">
         <div className="diff-title">
-          <GitCompare size={14} color="#8aa5ee" />
+          <GitCompare size={14} color="#5aa9ff" />
           <span className="diff-path">{tab.rel}</span>
           <span className="diff-label">{label}</span>
           {file && !commit && (

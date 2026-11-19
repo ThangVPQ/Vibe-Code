@@ -220,7 +220,7 @@ function BypassProjectButton({ chat }: { chat: Chat }): React.JSX.Element {
       onClick={() => toggleProjectBypass(chat.id)}
     >
       {on ? <ShieldOff size={13} /> : <Shield size={13} />}
-      {on ? 'Project bypassed' : 'Bypass project'}
+      <span className="bypass-label">{on ? 'Project bypassed' : 'Bypass project'}</span>
     </button>
   )
 }

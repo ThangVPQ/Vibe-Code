@@ -77,7 +77,7 @@ export function FileIcon({ name, size = 15 }: { name: string; size?: number }): 
 
 export function FolderIcon({ open, size = 15 }: { open: boolean; size?: number }): React.JSX.Element {
   const Icon = open ? FolderOpen : Folder
-  return <Icon size={size} color={open ? '#8aa5ee' : '#8f8fa8'} strokeWidth={1.8} className="file-icon" />
+  return <Icon size={size} color={open ? '#5aa9ff' : '#8e8e93'} strokeWidth={1.8} className="file-icon" />
 }
 
 export function StatusDot({ status, attention }: { status: ChatStatus; attention?: boolean }): React.JSX.Element {
@@ -89,8 +89,8 @@ export function Logo({ size = 22 }: { size?: number }): React.JSX.Element {
     <svg width={size} height={size} viewBox="0 0 32 32" className="logo">
       <defs>
         <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#9ab0f0" />
-          <stop offset="1" stopColor="#3f5cc0" />
+          <stop offset="0" stopColor="#4da3ff" />
+          <stop offset="1" stopColor="#0a6fe0" />
         </linearGradient>
       </defs>
       <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#lg)" />

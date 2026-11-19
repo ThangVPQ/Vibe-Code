@@ -38,17 +38,17 @@ export function EditorArea(): React.JSX.Element {
       <div className="center-switch" role="tablist">
         <SlidePill />
         <button role="tab" aria-selected={view === 'code'} className={view === 'code' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'code' })}>
-          <Code2 size={14} /> Source code
+          <Code2 size={14} /> <span className="center-label">Source code</span>
           {fileCount > 0 && <span className="center-count">{fileCount}</span>}
         </button>
         <button role="tab" aria-selected={view === 'web'} className={view === 'web' ? 'on' : ''} onClick={() => openBrowser()}>
-          <Globe size={14} /> Web
+          <Globe size={14} /> <span className="center-label">Web</span>
         </button>
         <button role="tab" aria-selected={view === 'db'} className={view === 'db' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'db' })}>
-          <Database size={14} /> Database
+          <Database size={14} /> <span className="center-label">Database</span>
         </button>
         <button role="tab" aria-selected={view === 'zalo'} className={view === 'zalo' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'zalo' })}>
-          <MessageCircle size={14} /> Zalo
+          <MessageCircle size={14} /> <span className="center-label">Zalo</span>
           {zaloBadge > 0 && (
             <span key={zaloBadge} className="center-count alert" title={`${zaloBadge} việc mới / vừa cập nhật`}>
               {zaloBadge > 99 ? '99+' : zaloBadge}
@@ -56,20 +56,24 @@ export function EditorArea(): React.JSX.Element {
           )}
         </button>
       </div>
+      {/*
+        Panes stay mounted and laid out; only the open one (`on`) is visible. display:none would drop
+        their scroll positions, make Monaco re-measure on return and replay every animation inside.
+      */}
       {/* Source code: the whole project of the open chat — file tree on the left, files on the right */}
-      <div className="center-pane code-pane" style={{ display: view === 'code' ? 'flex' : 'none' }}>
+      <div className={`center-pane code-pane${view === 'code' ? ' on' : ''}`}>
         <CodeSide />
         <CodeArea />
       </div>
       {dbSeen && (
-        <div className="center-pane db-host" style={{ display: view === 'db' ? 'flex' : 'none' }}>
+        <div className={`center-pane db-host${view === 'db' ? ' on' : ''}`}>
           <Suspense fallback={null}>
             <DatabasePane />
           </Suspense>
         </div>
       )}
       {zaloSeen && (
-        <div className="center-pane zalo-host" style={{ display: view === 'zalo' ? 'flex' : 'none' }}>
+        <div className={`center-pane zalo-host${view === 'zalo' ? ' on' : ''}`}>
           <Suspense fallback={null}>
             <ZaloPane />
           </Suspense>
@@ -77,7 +81,7 @@ export function EditorArea(): React.JSX.Element {
       )}
       {/* one browser per chat, every tab kept alive so pages survive switching */}
       {Object.keys(browsers).map((k) => (
-        <div key={k} className="center-pane browser-host" style={{ display: view === 'web' && k === key ? 'flex' : 'none' }}>
+        <div key={k} className={`center-pane browser-host${view === 'web' && k === key ? ' on' : ''}`}>
           <WebTabs chatKey={k} />
         </div>
       ))}
@@ -264,7 +268,7 @@ function CodeArea(): React.JSX.Element {
               }}
               title={t.path}
             >
-              {t.kind === 'diff' ? <FileDiff size={14} color="#8aa5ee" /> : <FileIcon name={t.title} size={14} />}
+              {t.kind === 'diff' ? <FileDiff size={14} color="#5aa9ff" /> : <FileIcon name={t.title} size={14} />}
               <span className="tab-title">{t.title}</span>
               {t.kind === 'diff' && <span className="tab-tag">diff</span>}
               <button
@@ -286,7 +290,8 @@ function CodeArea(): React.JSX.Element {
       <div className="editor-body">
         {!active && <EmptyEditor />}
         <Suspense fallback={null}>
-          {active?.kind === 'file' && <FileEditor key={active.id} tab={active} />}
+          {/* no key: one editor serves every file tab (see FileEditor) */}
+          {active?.kind === 'file' && <FileEditor tab={active} />}
           {active?.kind === 'diff' && <DiffView key={active.id} tab={active} />}
         </Suspense>
       </div>

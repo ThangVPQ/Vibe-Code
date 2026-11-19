@@ -148,10 +148,12 @@ function ProjectsTree(): React.JSX.Element {
   const liveBySession = useMemo(() => new Map(chats.filter((c) => c.sessionId).map((c) => [c.sessionId!, c])), [chats])
   const activeSession = chats.find((c) => c.id === activeChatId)?.sessionId
 
-  // Codex / Grok / Gemini… chats aren't in Claude's session store: list the open ones under their
-  // project, adding the project when it has no Claude history yet.
+  // Open chats the session store doesn't list (yet) go under their project, adding the project when
+  // it has no Claude history: Codex / Grok / Gemini… chats, and new Claude chats until Claude writes
+  // their transcript (only after the first message; a missed file event could delay it further).
   const slashKey = (p: string): string => normKey(p).replace(/\//g, '\\')
-  const agentChats = chats.filter((c) => agentDef(c.agent).id !== 'claude')
+  const known = useMemo(() => new Set(projects.flatMap((g) => g.sessions.map((s) => s.id))), [projects])
+  const agentChats = chats.filter((c) => agentDef(c.agent).id !== 'claude' || (!!c.sessionId && !known.has(c.sessionId)))
   const allProjects: ProjectGroup[] = [...projects]
   for (const c of agentChats) {
     if (allProjects.some((g) => slashKey(g.key) === slashKey(c.cwd))) continue
@@ -253,7 +255,7 @@ ${it.project} · ${new Date(it.updated).toLocaleString()}`}
               >
                 <StatusDot status={c.status} attention={c.attention} />
                 <span className="sess-title">{c.title}</span>
-                <span className="sess-time">{agentDef(c.agent).label}</span>
+                <span className="sess-time">{agentDef(c.agent).id === 'claude' ? shortAgo(c.createdAt) : agentDef(c.agent).label}</span>
               </div>
             ))}
             {shown.map((s) => {

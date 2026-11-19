@@ -183,16 +183,18 @@ fn user_text(rec: &Obj) -> Option<String> {
         return None;
     }
     let content = rec.get("message")?.get("content")?;
+    // skip injected command / system wrappers
+    let real = |t: &&str| !t.is_empty() && !t.starts_with('<') && !t.starts_with("Caveat:");
     let text = match content {
-        Value::String(s) => s.as_str(),
-        Value::Array(items) => items.iter().find(|c| c.get("type").and_then(Value::as_str) == Some("text"))?.get("text")?.as_str()?,
+        Value::String(s) => Some(s.trim()).filter(real)?,
+        // the prompt may follow injected blocks (<system-reminder>, IDE context…) in the same message
+        Value::Array(items) => items
+            .iter()
+            .filter(|c| c.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|c| c.get("text").and_then(Value::as_str).map(str::trim))
+            .find(real)?,
         _ => return None,
     };
-    let text = text.trim();
-    // skip injected command / system wrappers
-    if text.is_empty() || text.starts_with('<') || text.starts_with("Caveat:") {
-        return None;
-    }
     Some(text.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
@@ -251,12 +253,19 @@ fn read_session(file: &Path, dir_name: &str) -> io::Result<Option<SessionInfo>> 
             .or_else(|| first_prompt.as_deref().map(|p| p.chars().take(90).collect()))
             .unwrap_or_default();
         let cwd = cwd.unwrap_or_else(|| decode_dir_name(dir_name));
+        // "updated" = the last real message, not the file's mtime: just opening/resuming a chat
+        // appends bookkeeping records (titles, snapshots…) that would bump it to "now"
+        let last_msg = (if tail.is_empty() { &head } else { &tail })
+            .iter()
+            .rev()
+            .filter(|r| is_type(r, "user") || is_type(r, "assistant"))
+            .find_map(|r| str_of(r, "timestamp").and_then(parse_date).filter(|&t| t != 0));
         info = Some(SessionInfo {
             id: file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
             title,
             project_cwd: project_root(&cwd),
             created: created.unwrap_or_else(|| st.created().map(ms).unwrap_or_else(|_| ms(mtime))),
-            updated: ms(mtime),
+            updated: last_msg.unwrap_or_else(|| ms(mtime)),
             cwd_exists: Path::new(&cwd).exists(),
             cwd,
         });
@@ -461,9 +470,14 @@ fn watch_sessions() {
     let (tx, rx) = mpsc::channel::<String>();
     let filter_root = root.clone();
     let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        if let Ok(ev) = res
-            && relevant(&filter_root, &ev)
-        {
+        // a watcher error or overflow (many chats writing at once) loses events: re-read the list
+        let Ok(ev) = res else {
+            let _ = tx.send(String::new());
+            return;
+        };
+        if ev.need_rescan() {
+            let _ = tx.send(String::new());
+        } else if relevant(&filter_root, &ev) {
             for p in &ev.paths {
                 let id = if p.extension().is_some_and(|e| e == "jsonl") { p.file_stem().map(|s| s.to_string_lossy().into_owned()) } else { None };
                 let _ = tx.send(id.unwrap_or_default());

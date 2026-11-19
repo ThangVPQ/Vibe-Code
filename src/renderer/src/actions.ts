@@ -416,6 +416,18 @@ export function newChat(opts: NewChatOpts = {}): void {
   if (agent.id !== 'claude') return newAgentChat(cwd, agent.id, opts)
   let args = opts.args ?? []
   let sessionId = opts.sessionId
+  // "Continue" = the newest session of this folder: resume it by id, so the sidebar can match the chat
+  if (!sessionId && args.includes('--continue')) {
+    const last = st()
+      .projects.flatMap((g) => g.sessions)
+      .filter((s) => samePath(s.cwd, cwd))
+      .sort((a, b) => b.updated - a.updated)[0]
+    if (last) {
+      sessionId = last.id
+      args = args.map((a) => (a === '--continue' ? '--resume' : a))
+      args.splice(args.indexOf('--resume') + 1, 0, last.id)
+    }
+  }
   // Fresh chats get an id we choose, so the sidebar can match them to the session store.
   if (!sessionId && !args.some((a) => a === '--resume' || a === '--continue' || a === '-r' || a === '-c')) {
     sessionId = crypto.randomUUID()

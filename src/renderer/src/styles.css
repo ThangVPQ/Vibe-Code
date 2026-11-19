@@ -1,28 +1,29 @@
 :root {
-  --bg-0: #1c2338; /* chrome: titlebar, activity, status */
-  --bg-1: #212941; /* sidebar */
-  --bg-2: #252e49; /* editor */
-  --bg-term: #222a44;
-  --bg-elev: #2b3554;
-  --bg-hover: #2e385a;
-  --bg-active: #374368;
-  --border: #323d62;
-  --border-strong: #435080;
-  --text: #f3f5fc;
-  --text-2: #d5dbee;
-  --text-dim: #a7b0cc;
-  --text-faint: #7883a6;
-  --accent: #6f8fe6;
-  --accent-2: #9ab0f0;
-  --accent-soft: #6f8fe622;
-  --accent-grad: linear-gradient(135deg, #9ab0f0 0%, #4f6fd0 100%);
-  --green: #5fd38d;
-  --yellow: #f5c76b;
-  --red: #ff6b6b;
-  --blue: #6aa7ff;
-  --violet: #a78bfa;
-  --glass: #212941d9;
-  --glass-strong: #252e49f2;
+  /* macOS dark appearance: neutral graphite surfaces, system blue accent, system status colours */
+  --bg-0: #2a2a2c; /* chrome: titlebar, activity, status */
+  --bg-1: #232325; /* sidebar */
+  --bg-2: #1e1e20; /* editor */
+  --bg-term: #1c1c1e;
+  --bg-elev: #2f2f32;
+  --bg-hover: #363639;
+  --bg-active: #434347;
+  --border: #38383b;
+  --border-strong: #4c4c50;
+  --text: #f5f5f7;
+  --text-2: #dcdce0;
+  --text-dim: #a1a1a6;
+  --text-faint: #7d7d83;
+  --accent: #0a84ff;
+  --accent-2: #5aa9ff;
+  --accent-soft: #0a84ff26;
+  --accent-grad: linear-gradient(180deg, #2b95ff 0%, #0a78f0 100%);
+  --green: #32d74b;
+  --yellow: #ffd60a;
+  --red: #ff453a;
+  --blue: #64b5ff;
+  --violet: #bf5af2;
+  --glass: #232325d9;
+  --glass-strong: #1e1e20f2;
   --shadow: #000c;
   --w-04: #ffffff04;
   --w-05: #ffffff05;
@@ -45,56 +46,58 @@
   --w-cc: #ffffffcc;
   --radius: 8px;
   --mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
-  --sans: 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  /* San Francisco where it exists (the macOS build); Inter, its closest relative, everywhere else */
+  --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
 }
 
 /* ============================== Light theme ============================== */
 :root[data-theme='light'] {
-  --bg-0: #e8ecf5;
-  --bg-1: #f0f3f9;
-  --bg-2: #fafbfd;
-  --bg-term: #f7f8fc;
+  /* macOS light appearance */
+  --bg-0: #ececee;
+  --bg-1: #f5f5f7;
+  --bg-2: #ffffff;
+  --bg-term: #fbfbfd;
   --bg-elev: #ffffff;
-  --bg-hover: #e2e7f2;
-  --bg-active: #d5ddef;
-  --border: #d6dcea;
-  --border-strong: #b9c3da;
-  --text: #161c2e;
-  --text-2: #2e3750;
-  --text-dim: #56607d;
-  --text-faint: #8089a6;
-  --accent: #4a6fd8;
-  --accent-2: #3a5cc2;
-  --accent-soft: #4a6fd81f;
-  --accent-grad: linear-gradient(135deg, #6f8fe6 0%, #3f5fc4 100%);
-  --green: #1f8f53;
+  --bg-hover: #e8e8ed;
+  --bg-active: #dcdce1;
+  --border: #d9d9de;
+  --border-strong: #c2c2c8;
+  --text: #1d1d1f;
+  --text-2: #333336;
+  --text-dim: #6e6e73;
+  --text-faint: #8e8e93;
+  --accent: #007aff;
+  --accent-2: #0064d6;
+  --accent-soft: #007aff1f;
+  --accent-grad: linear-gradient(180deg, #2b8fff 0%, #0070ee 100%);
+  --green: #248a3d;
   --yellow: #a66f0c;
-  --red: #d33a3a;
-  --blue: #2a66d0;
-  --violet: #7552d1;
-  --glass: #f0f3f9e6;
-  --glass-strong: #fafbfdf5;
-  --shadow: #1a20333a;
+  --red: #d70015;
+  --blue: #0064d6;
+  --violet: #8944ab;
+  --glass: #f5f5f7e6;
+  --glass-strong: #fffffff5;
+  --shadow: #0000002e;
   /* the --w-* tints are "a bit of contrast on the background": black-based here */
-  --w-04: #161c2e05;
-  --w-05: #161c2e06;
-  --w-06: #161c2e08;
-  --w-07: #161c2e09;
-  --w-08: #161c2e0a;
-  --w-0a: #161c2e0c;
-  --w-0c: #161c2e0e;
-  --w-0d: #161c2e0f;
-  --w-0e: #161c2e10;
-  --w-0f: #161c2e11;
-  --w-10: #161c2e12;
-  --w-12: #161c2e14;
-  --w-14: #161c2e17;
-  --w-1c: #161c2e1f;
-  --w-1e: #161c2e22;
-  --w-22: #161c2e26;
-  --w-25: #161c2e2a;
-  --w-30: #161c2e36;
-  --w-cc: #161c2ecc;
+  --w-04: #1d1d1f05;
+  --w-05: #1d1d1f06;
+  --w-06: #1d1d1f08;
+  --w-07: #1d1d1f09;
+  --w-08: #1d1d1f0a;
+  --w-0a: #1d1d1f0c;
+  --w-0c: #1d1d1f0e;
+  --w-0d: #1d1d1f0f;
+  --w-0e: #1d1d1f10;
+  --w-0f: #1d1d1f11;
+  --w-10: #1d1d1f12;
+  --w-12: #1d1d1f14;
+  --w-14: #1d1d1f17;
+  --w-1c: #1d1d1f1f;
+  --w-1e: #1d1d1f22;
+  --w-22: #1d1d1f26;
+  --w-25: #1d1d1f2a;
+  --w-30: #1d1d1f36;
+  --w-cc: #1d1d1fcc;
   color-scheme: light;
 }
 :root[data-theme='light'] .badge {
@@ -524,11 +527,11 @@ kbd {
 .btn-primary {
   background: var(--accent-grad);
   color: #fff;
-  box-shadow: 0 1px 0 var(--w-30) inset, 0 6px 20px -8px #6f8fe6aa;
+  box-shadow: 0 1px 0 var(--w-30) inset, 0 6px 20px -8px #0a84ffaa;
 }
 .btn-primary:hover:not(:disabled) {
   filter: brightness(1.08);
-  box-shadow: 0 1px 0 var(--w-30) inset, 0 8px 26px -6px #6f8fe6cc;
+  box-shadow: 0 1px 0 var(--w-30) inset, 0 8px 26px -6px #0a84ffcc;
   transform: translateY(-1px);
 }
 .btn-primary:active:not(:disabled) {
@@ -598,8 +601,8 @@ kbd {
   background: var(--bg-hover);
 }
 .chat-item.active {
-  background: linear-gradient(90deg, #6f8fe617, #6f8fe606);
-  border-color: #6f8fe630;
+  background: linear-gradient(90deg, #0a84ff17, #0a84ff06);
+  border-color: #0a84ff30;
 }
 .chat-item-body {
   flex: 1;
@@ -1111,7 +1114,7 @@ kbd {
   gap: 10px;
   padding: 0 10px 0 14px;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, #6f8fe60c, transparent);
+  background: linear-gradient(180deg, #0a84ff0c, transparent);
 }
 .diff-title {
   display: flex;
@@ -1175,7 +1178,7 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: 28px;
-  background: radial-gradient(600px 300px at 50% 40%, #6f8fe60a, transparent 70%);
+  background: radial-gradient(600px 300px at 50% 40%, #0a84ff0a, transparent 70%);
 }
 .empty-logo {
   opacity: 0.18;
@@ -1493,7 +1496,7 @@ kbd {
 }
 .chip:hover {
   color: var(--accent-2);
-  border-color: #6f8fe655;
+  border-color: #0a84ff55;
   background: var(--accent-soft);
 }
 
@@ -1597,7 +1600,7 @@ kbd {
   text-align: center;
   padding: 30px;
   gap: 6px;
-  background: radial-gradient(500px 340px at 50% 35%, #6f8fe612, transparent 70%);
+  background: radial-gradient(500px 340px at 50% 35%, #0a84ff12, transparent 70%);
 }
 .no-chat h3 {
   margin: 18px 0 4px;
@@ -1646,7 +1649,7 @@ kbd {
   width: 160%;
   height: 160%;
   border-radius: 50%;
-  background: radial-gradient(circle, #6f8fe666 0%, transparent 65%);
+  background: radial-gradient(circle, #0a84ff66 0%, transparent 65%);
   filter: blur(14px);
   animation: breathe 4s ease-in-out infinite;
 }
@@ -1655,7 +1658,7 @@ kbd {
 }
 .glow-orb svg {
   position: relative;
-  filter: drop-shadow(0 10px 24px #3f5cc066);
+  filter: drop-shadow(0 10px 24px #0a84ff55);
 }
 
 /* Bottom panel */
@@ -1879,7 +1882,7 @@ button.sb-item:hover {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(700px 420px at 50% 28%, #6f8fe61f, transparent 70%),
+    radial-gradient(700px 420px at 50% 28%, #0a84ff1f, transparent 70%),
     radial-gradient(500px 400px at 85% 90%, #a78bfa12, transparent 70%),
     linear-gradient(var(--w-05) 1px, transparent 1px) 0 0 / 44px 44px,
     linear-gradient(90deg, var(--w-05) 1px, transparent 1px) 0 0 / 44px 44px;
@@ -1980,13 +1983,13 @@ button.sb-item:hover {
 }
 @keyframes ring {
   0% {
-    box-shadow: 0 0 0 0 #6f8fe699;
+    box-shadow: 0 0 0 0 #0a84ff99;
   }
   70% {
-    box-shadow: 0 0 0 6px #6f8fe600;
+    box-shadow: 0 0 0 6px #0a84ff00;
   }
   100% {
-    box-shadow: 0 0 0 0 #6f8fe600;
+    box-shadow: 0 0 0 0 #0a84ff00;
   }
 }
 @keyframes ping {
@@ -2044,7 +2047,7 @@ button.sb-item:hover {
   letter-spacing: 0.2px;
 }
 .h1-accent {
-  background: linear-gradient(135deg, #b4c6f6 0%, #6f8fe6 60%, #3f5cc0 100%);
+  background: linear-gradient(135deg, #6cb6ff 0%, #0a84ff 60%, #0060d0 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -2089,12 +2092,12 @@ button.sb-item:hover {
 }
 .mode-switch:hover {
   color: var(--text);
-  border-color: #6f8fe655;
+  border-color: #0a84ff55;
 }
 .mode-switch.on {
   color: var(--accent-2);
   background: var(--accent-soft);
-  border-color: #6f8fe655;
+  border-color: #0a84ff55;
 }
 .mode-switch kbd {
   font-size: 10px;
@@ -2104,7 +2107,7 @@ button.sb-item:hover {
 /* Drop-down (Guake) mode: a glowing bottom edge and a grab bar to show it's a sheet */
 .app.mode-dropdown {
   border-bottom: 2px solid transparent;
-  border-image: linear-gradient(90deg, transparent, #6f8fe6 20%, #9ab0f0 50%, #6f8fe6 80%, transparent) 1;
+  border-image: linear-gradient(90deg, transparent, #0a84ff 20%, #6cb6ff 50%, #0a84ff 80%, transparent) 1;
   box-shadow: 0 10px 40px #000a;
 }
 .app.mode-dropdown .titlebar {
@@ -2171,7 +2174,7 @@ button.sb-item:hover {
   color: var(--text-faint);
 }
 .tree-filter:focus-within {
-  border-color: #6f8fe666;
+  border-color: #0a84ff66;
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .tree-filter input {
@@ -2236,7 +2239,7 @@ button.sb-item:hover {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  border: 1.5px solid var(--bg-1, #1c2338);
+  border: 1.5px solid var(--bg-1, #232325);
   background: #e5484d;
 }
 .zs-row.doing .zs-dot {
@@ -2333,9 +2336,9 @@ button.sb-item:hover {
   color: var(--text);
 }
 .sess-row.active {
-  background: linear-gradient(90deg, #6f8fe61c, #6f8fe608);
+  background: linear-gradient(90deg, #0a84ff1c, #0a84ff08);
   color: var(--text);
-  box-shadow: inset 0 0 0 1px #6f8fe630;
+  box-shadow: inset 0 0 0 1px #0a84ff30;
 }
 .sess-row.gone {
   opacity: 0.45;
@@ -2600,9 +2603,9 @@ button.sb-item:hover {
 }
 /* dim labels get more contrast when the window is see-through */
 :root[data-glass='dark'] {
-  --text-2: #e6eaf6;
-  --text-dim: #c3cae0;
-  --text-faint: #a3acc8;
+  --text-2: #ebebf0;
+  --text-dim: #c7c7cc;
+  --text-faint: #a8a8ae;
 }
 :root[data-glass='light'] {
   --text: #0b1020;
@@ -2631,20 +2634,6 @@ button.sb-item:hover {
   flex-direction: column;
   overflow: hidden;
   overflow-anchor: none;
-}
-/* pages fade in only: a moving transform over a <webview> (its own compositor surface) shows as a jolt */
-.center-pane.browser-host {
-  animation-name: fade-enter;
-}
-@keyframes fade-enter {
-  from {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .center-pane.browser-host {
-    animation: none;
-  }
 }
 /* browser tabs: iOS-style motion */
 .web-tab-strip {
@@ -2712,9 +2701,9 @@ button.sb-item:hover {
   pointer-events: none;
   will-change: transform, opacity;
   transition:
-    transform 0.42s cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 0.3s ease,
-    visibility 0s linear 0.42s;
+    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.2s ease,
+    visibility 0s linear 0.3s;
 }
 .browser-tab-pane.left {
   transform: translateX(-28px) scale(0.985);
@@ -2729,8 +2718,8 @@ button.sb-item:hover {
   transform: none;
   z-index: 1;
   transition:
-    transform 0.42s cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 0.3s ease,
+    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.2s ease,
     visibility 0s;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2788,8 +2777,10 @@ button.sb-item:hover {
 /* middle area: Source code | Web */
 .center-area {
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  /* the tab bar, then every pane stacked in the same cell (see .center-pane) */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
 }
 /* the latest chats of every project, above the center tabs */
@@ -2896,9 +2887,20 @@ button.sb-item:hover {
   to { transform: scale(1); }
 }
 .center-pane {
-  flex: 1;
+  grid-area: 2 / 1;
+  display: flex;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
+}
+/*
+ * Panes that aren't open stay laid out and are only hidden, so they keep their scroll positions
+ * and nothing inside re-measures or re-animates when they come back. The `*` rule also covers
+ * descendants that set their own visibility (the open web page, Monaco widgets).
+ */
+.center-pane:not(.on),
+.center-pane:not(.on) * {
+  visibility: hidden !important;
 }
 .center-pane > .editor-area {
   flex: 1;
@@ -3316,10 +3318,10 @@ button.sb-item:hover {
   opacity: 0;
   pointer-events: none;
   transition:
-    transform 0.4s var(--ios-ease),
-    width 0.4s var(--ios-ease),
-    height 0.4s var(--ios-ease),
-    opacity 0.2s ease;
+    transform 0.28s var(--ios-ease),
+    width 0.28s var(--ios-ease),
+    height 0.28s var(--ios-ease),
+    opacity 0.15s ease;
 }
 
 /* Source code | Web */
@@ -3411,8 +3413,8 @@ button.sb-item:hover {
 }
 /* the open chat in the sidebar */
 .side-group > .sess-pill {
-  background: linear-gradient(90deg, #6f8fe61c, #6f8fe608);
-  box-shadow: inset 0 0 0 1px #6f8fe630;
+  background: linear-gradient(90deg, #0a84ff1c, #0a84ff08);
+  box-shadow: inset 0 0 0 1px #0a84ff30;
   border-radius: 8px;
 }
 .side-group.has-pill .sess-row.active {
@@ -3426,8 +3428,8 @@ button.sb-item:hover {
   grid-template-rows: 0fr;
   opacity: 0;
   transition:
-    grid-template-rows 0.38s var(--ios-ease),
-    opacity 0.26s ease;
+    grid-template-rows 0.28s var(--ios-ease),
+    opacity 0.2s ease;
 }
 .collapse.open {
   grid-template-rows: 1fr;
@@ -3438,17 +3440,17 @@ button.sb-item:hover {
   overflow: hidden;
 }
 .proj-chev {
-  transition: transform 0.38s var(--ios-ease);
+  transition: transform 0.28s var(--ios-ease);
 }
 
 /* soft hover/selection changes everywhere (zero specificity: a control's own transition still wins) */
 :where(.sess-row, .proj-row, .tree-row, .change-row, .bottom-tab, .chip, .btn, .icon-btn, .center-switch button, .code-side-switch button, .seg button, .device-seg button, .sess-more) {
   transition:
-    background-color 0.25s var(--ios-ease),
-    color 0.25s var(--ios-ease),
-    box-shadow 0.25s var(--ios-ease),
-    transform 0.22s var(--ios-ease),
-    opacity 0.2s ease;
+    background-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.18s var(--ios-ease),
+    opacity 0.15s ease;
 }
 /* press feedback, like a tap on iOS */
 :where(.btn, .icon-btn, .chip, .center-switch button, .code-side-switch button, .seg button, .device-seg button, .bottom-tab):active:not(:disabled) {
@@ -3458,23 +3460,21 @@ button.sb-item:hover {
   transform: scale(0.985);
 }
 
-/* panels that swap in ease in (CSS animations replay when an element comes back from display:none) */
+/*
+ * Panels that swap in: a short fade, as on macOS — no slide or scale (over the web page, a native
+ * view with its own compositor surface, a moving transform showed as a jolt). File and diff tabs
+ * swap instantly.
+ */
 @keyframes ios-enter {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.996);
-  }
-  to {
-    opacity: 1;
-    transform: none;
   }
 }
-.center-pane,
+.center-pane.on,
 .term-frame,
 .chat-images,
-.editor-body > *,
 .code-tree > :last-child {
-  animation: ios-enter 0.36s var(--ios-ease) backwards;
+  animation: ios-enter 0.18s ease-out backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3484,10 +3484,9 @@ button.sb-item:hover {
   :where(.sess-row, .proj-row, .tree-row, .change-row, .bottom-tab, .chip, .btn, .icon-btn) {
     transition: none;
   }
-  .center-pane,
+  .center-pane.on,
   .term-frame,
   .chat-images,
-  .editor-body > *,
   .code-tree > :last-child {
     animation: none;
   }
@@ -4241,4 +4240,193 @@ button.sb-item:hover {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ================================ Narrow windows and panels ================================ */
+/*
+ * The window goes down to 760px and every panel can be dragged narrow. Nothing may wrap onto a
+ * second line, slide under its neighbour or get cut off where it can't be reached.
+ */
+
+/* title bar: fixed-size pieces keep their size, the folder name gives way, labels go below 900px */
+.app-name,
+.folder-btn,
+.mode-switch {
+  white-space: nowrap;
+}
+.titlebar-left > .logo,
+.titlebar-left > .app-name,
+.titlebar-right > *,
+.win-controls {
+  flex: none;
+}
+/* the left group never gets squeezed under the search box; a long folder name is cut instead */
+.titlebar-left {
+  min-width: min-content;
+}
+.folder-btn {
+  max-width: 200px;
+  overflow: hidden;
+}
+.folder-btn > svg {
+  flex: none;
+}
+@media (max-width: 900px) {
+  .app-name,
+  .search-box kbd,
+  .mode-switch span,
+  .mode-switch kbd {
+    display: none;
+  }
+  .search-box {
+    min-width: 110px;
+  }
+  .mode-switch {
+    padding: 0 7px;
+  }
+}
+
+/* Source code | Web | Database | Zalo: when they no longer fit, only the open tab keeps its label */
+.center-switch {
+  min-width: 0;
+  container-type: inline-size;
+}
+@container (max-width: 440px) {
+  .center-switch button:not(.on) .center-label {
+    display: none;
+  }
+}
+.center-switch button {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+.center-switch button.on,
+.center-switch button > svg,
+.center-switch .center-count {
+  flex: none;
+}
+.center-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Source code: the file tree gives room back to the editor */
+.code-tree {
+  width: min(320px, 42%);
+  min-width: 170px;
+}
+.code-side-switch button {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.code-side-switch button > svg,
+.code-side-switch .center-count {
+  flex: none;
+}
+.empty-editor {
+  min-width: 0;
+  overflow: hidden;
+}
+.shortcut-list {
+  min-width: 0;
+  width: min(260px, 100% - 24px);
+}
+
+/* chat header: the title keeps its place; the bypass button drops to its icon, then the state chip goes */
+.chat-titlebar {
+  container-type: inline-size;
+  gap: 8px;
+}
+.chat-titlebar-main {
+  flex: 1;
+}
+.chat-titlebar-main > .status-dot,
+.chat-state,
+.chat-titlebar-actions {
+  flex: none;
+}
+.chat-state,
+.bypass-btn {
+  white-space: nowrap;
+}
+@container (max-width: 430px) {
+  .bypass-label {
+    display: none;
+  }
+}
+@container (max-width: 300px) {
+  .chat-state {
+    display: none;
+  }
+}
+
+/* chat footer rows wrap instead of running off the edge */
+.quick-bar,
+.chat-statusbar {
+  flex-wrap: wrap;
+  row-gap: 5px;
+}
+
+/* Web: the address field shrinks properly (inputs have a built-in minimum width that pushed it
+   under the buttons); the screen-size switch goes when the bar is too short for it */
+.browser-bar {
+  container-type: inline-size;
+}
+.browser-bar > * {
+  flex: none;
+}
+.browser-bar > .browser-address-wrap {
+  flex: 1 1 0;
+  min-width: 70px;
+}
+.browser-address {
+  min-width: 0;
+}
+@container (max-width: 430px) {
+  .device-seg,
+  .device-zoom {
+    display: none;
+  }
+}
+
+/* Database: empty-state buttons wrap inside a narrow column instead of being cut on both sides */
+.db-placeholder-actions {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.db-empty-side .btn,
+.db-placeholder-actions .btn {
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  white-space: normal;
+}
+.db-empty-side .btn {
+  min-height: 26px;
+}
+.db-empty-side .btn > svg,
+.db-placeholder-actions .btn > svg {
+  flex: none;
+}
+.db-side-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* short windows (drop-down mode, the 280px minimum): a terminal squeezed to nothing is cut off
+   instead of being painted over the rows below it, and the context meter makes room */
+.term-frame {
+  overflow: clip;
+}
+@media (max-height: 420px) {
+  .ctx-bar {
+    display: none;
+  }
 }

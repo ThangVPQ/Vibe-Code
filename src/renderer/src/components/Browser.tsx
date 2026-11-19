@@ -88,7 +88,7 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
   useEffect(() => {
     if (!active || display(url)) return
     const el = addressRef.current
-    if (!el || el.closest('[style*="display: none"]')) return
+    if (!el || el.closest('.center-pane:not(.on)')) return
     const cur = document.activeElement
     if (cur && cur !== document.body && cur.closest('.xterm')) return
     el.focus({ preventScroll: true })
