@@ -657,8 +657,10 @@ async fn run_once() -> Result<()> {
                 {
                     x.from_id = Some(src.from_id.clone());
                 }
-                // a status set by hand stays, unless Claude now sees it finished
-                if x.manual != Some(true) || status == "done" {
+                // a status set by hand stays, unless Claude now sees it finished;
+                // work I marked done by hand is never reopened by the analysis
+                let locked_done = x.manual == Some(true) && x.status == "done";
+                if !locked_done && (x.manual != Some(true) || status == "done") {
                     if x.status != status {
                         x.updated_at = now;
                         if !updated_ids.contains(&x.id) {

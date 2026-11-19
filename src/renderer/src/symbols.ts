@@ -32,6 +32,10 @@ const COMMENT = /^\s*(?:\/\/|\/\*|\*|#(?!include|define|region)|--|;|')/
 const C_LIKE = new Set(['csharp', 'java', 'c', 'cpp', 'objective-c', 'php', 'dart', 'kotlin', 'scala', 'swift', 'apex'])
 const SHELLISH = new Set(['shell', 'powershell', 'bat'])
 
+// `const`/`static` are also modifiers (`private static void Run()`): only keep Rust-style `const NAME: T`
+const isDecl = (kw: string, text: string): boolean =>
+  (kw !== 'const' && kw !== 'static') || /^\s*(?:pub\S*\s+)?(?:const|static)\s+(?:mut\s+)?[A-Z_][A-Z0-9_]*\s*:/.test(text)
+
 export function scanSymbols(lines: string[], lang: string): { name: string; kind: Kind; line: number; col: number }[] {
   const out: { name: string; kind: Kind; line: number; col: number }[] = []
   const sql = lang === 'sql' || lang === 'mysql' || lang === 'pgsql'
@@ -43,12 +47,9 @@ export function scanSymbols(lines: string[], lang: string): { name: string; kind
     let kind: Kind | undefined
     if (sql) {
       if ((m = SQL.exec(text))) (name = m[2]), (kind = KIND_OF[m[1].toLowerCase()])
-    } else if ((m = DECL.exec(text))) {
-      const kw = m[1]
-      // `type`/`const`/`static` are also plain statements in many languages: only keep obvious declarations
-      if ((kw === 'const' || kw === 'static') && !/^\s*(?:pub\S*\s+)?(?:const|static)\s+(?:mut\s+)?[A-Z_][A-Z0-9_]*\s*:/.test(text)) continue
+    } else if ((m = DECL.exec(text)) && isDecl(m[1], text)) {
       name = m[2]
-      kind = KIND_OF[kw]
+      kind = KIND_OF[m[1]]
     } else if (SHELLISH.has(lang) && (m = SHELL.exec(text)) && !NOT_METHOD.has(m[1])) {
       ;(name = m[1]), (kind = 'Function')
     } else if (lang === 'powershell' && (m = /^\s*function\s+([\w-]+)/i.exec(text))) {

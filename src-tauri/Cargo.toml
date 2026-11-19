@@ -60,8 +60,14 @@ webview2-com = "0.39.1"
 opt-level = 2
 
 [profile.release]
-codegen-units = 1
-lto = "fat"
-opt-level = 3
+# fast builds over a fast/small exe: no LTO, parallel codegen, incremental rebuilds
+codegen-units = 256
+lto = false
+opt-level = 0
+incremental = true
 panic = "abort"
 strip = true
+
+# like dev: keep dependencies optimised (they're compiled once and cached), so terminals and JSON stay fast
+[profile.release.package."*"]
+opt-level = 2

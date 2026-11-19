@@ -501,7 +501,12 @@ export function attachTerm(id: string, container: HTMLElement, focus = true): vo
   // on screen: its output streams at full rate again
   window.api.pty.visible(id, true)
   scheduleFooterHide(e)
-  loadWebgl(e)
+  const fresh = !e.spawned
+  // An already-running chat gets its GPU renderer right away (its screen is full). A new one starts
+  // empty, so the WebGL setup (GPU context, shaders, glyph atlas: the slowest part of opening a
+  // terminal) waits until the process is launched and the chat's enter animation has had its
+  // frames — Claude takes far longer than that to print anything.
+  if (!fresh) loadWebgl(e)
   // setTimeout, not requestAnimationFrame: rAF is paused while the window is hidden or
   // minimized, which would leave a new chat stuck at "Starting…" with no process.
   setTimeout(() => {
@@ -512,7 +517,14 @@ export function attachTerm(id: string, container: HTMLElement, focus = true): vo
       window.api.pty.spawn({ ...e.spawn, cols: e.term.cols, rows: e.term.rows })
     }
     if (focus) e.term.focus()
+    if (fresh) whenIdle(() => e.el.parentElement && e.el.parentElement !== parking && loadWebgl(e), 400)
   }, 0)
+}
+
+/** Run once the page has a free moment (at most `timeout` ms later). */
+function whenIdle(fn: () => void, timeout: number): void {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(fn, { timeout })
+  else setTimeout(fn, timeout)
 }
 
 export function detachTerm(id: string): void {
