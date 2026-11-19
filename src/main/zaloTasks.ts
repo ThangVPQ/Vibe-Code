@@ -15,7 +15,7 @@ import * as zalo from './zalo'
 const WINDOW_DAYS = 7
 const KEEP_DONE_DAYS = 14
 const AUTO_DELAY = 90_000
-const MODEL = 'sonnet'
+const MODEL = 'haiku'
 
 let getWin: () => BrowserWindow | null = () => null
 let tasks: ZaloTask[] = []

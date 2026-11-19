@@ -95,7 +95,6 @@ const api = {
     deleteForMe: (threadId: string, msgId: string): Promise<void> => ipcRenderer.invoke('zalo:deleteForMe', threadId, msgId),
     forward: (fromThread: string, msgId: string, toThread: string): Promise<void> => ipcRenderer.invoke('zalo:forward', fromThread, msgId, toThread),
     typing: (threadId: string): void => ipcRenderer.send('zalo:typing', threadId),
-    prefs: (p?: { notify?: boolean }): Promise<{ notify: boolean }> => ipcRenderer.invoke('zalo:prefs', p),
     tasks: (): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:tasks'),
     analyzeTasks: (): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:tasksAnalyze'),
     setTaskStatus: (id: string, status: ZaloTask['status']): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:taskStatus', id, status),
@@ -104,9 +103,7 @@ const api = {
     onState: (cb: (s: ZaloState) => void) => on('zalo:state', cb),
     /** ids of the conversations that changed ([] = reload everything) */
     onChanged: (cb: (ids: string[]) => void) => on('zalo:changed', cb),
-    onTyping: (cb: (t: ZaloTyping) => void) => on('zalo:typing', cb),
-    /** a notification was clicked */
-    onOpenThread: (cb: (threadId: string) => void) => on('zalo:openThread', cb)
+    onTyping: (cb: (t: ZaloTyping) => void) => on('zalo:typing', cb)
   },
   win: {
     state: (): Promise<WindowState> => ipcRenderer.invoke('win:state'),

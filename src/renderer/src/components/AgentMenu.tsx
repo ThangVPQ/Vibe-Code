@@ -6,8 +6,9 @@ import { useStore } from '../store'
 import { defaultAgent } from '../actions'
 
 /**
- * "+" that starts a chat with a chosen coding agent: Claude Code, Codex, Grok, Gemini…
- * Agents that aren't installed show their install command (click copies it).
+ * "+" that starts a chat right away with the default agent (picked in the status bar).
+ * Right-click opens the agent list: Claude Code, Codex, Grok, Gemini… — agents that aren't
+ * installed show their install command (click copies it). With no agent installed, click opens the list too.
  */
 export function NewChatMenu(props: { title: string; className?: string; size?: number; disabled?: boolean; onPick: (agent: AgentId) => void }): React.JSX.Element {
   const { title, className = 'icon-btn accent', size = 16, disabled, onPick } = props
@@ -19,6 +20,12 @@ export function NewChatMenu(props: { title: string; className?: string; size?: n
   const [pos, setPos] = useState<React.CSSProperties>({ visibility: 'hidden' })
   const found = (id: AgentId): boolean => (id === 'claude' ? claudeFound : !!agents.find((a) => a.id === id)?.found)
   const def = at ? defaultAgent() : undefined
+
+  const openMenu = (): void => {
+    const r = btn.current!.getBoundingClientRect()
+    setPos({ visibility: 'hidden' })
+    setAt({ x: r.right, y: r.bottom + 4 })
+  }
 
   useLayoutEffect(() => {
     if (!at) return
@@ -59,9 +66,14 @@ export function NewChatMenu(props: { title: string; className?: string; size?: n
         onClick={(e) => {
           e.stopPropagation()
           if (at) return setAt(null)
-          const r = btn.current!.getBoundingClientRect()
-          setPos({ visibility: 'hidden' })
-          setAt({ x: r.right, y: r.bottom + 4 })
+          const agent = defaultAgent()
+          if (agent) return onPick(agent)
+          openMenu()
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          openMenu()
         }}
       >
         <Plus size={size} />

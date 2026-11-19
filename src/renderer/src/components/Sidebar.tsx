@@ -236,7 +236,7 @@ function ProjectsTree(): React.JSX.Element {
               <NewChatMenu
                 className="icon-btn tiny proj-add"
                 size={14}
-                title={`New chat in ${g.name} — Claude, Codex, Grok, Gemini…`}
+                title={`New chat in ${g.name} — right-click to pick another AI`}
                 onPick={(agent) => newChatIn(g.cwd, agent)}
               />
             </div>

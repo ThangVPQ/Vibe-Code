@@ -112,7 +112,7 @@ export function ClaudePanel(): React.JSX.Element {
                 </button>
               )}
               {agentDef(active.agent).id === 'claude' && <BypassProjectButton chat={active} />}
-              <NewChatMenu title="New chat — Claude, Codex, Grok, Gemini… (Ctrl+Shift+N: the default agent)" onPick={newChatWith} />
+              <NewChatMenu title="New chat with the default agent (Ctrl+Shift+N) — right-click to pick another AI" onPick={newChatWith} />
               <button className="icon-btn" title="Close chat (it stays in the sidebar history)" onClick={() => closeChat(active.id)}>
                 <X size={15} />
               </button>

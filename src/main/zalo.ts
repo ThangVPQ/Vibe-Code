@@ -1,4 +1,4 @@
-import { app, nativeImage, Notification, safeStorage, type BrowserWindow } from 'electron'
+import { app, nativeImage, safeStorage, type BrowserWindow } from 'electron'
 import { promises as fsp, readFileSync } from 'fs'
 import { join } from 'path'
 import {
@@ -46,7 +46,6 @@ const avatars = new Map<string, string>()
 const friends = new Set<string>()
 /** stickerId → image url */
 const stickerUrls = new Map<number, string>()
-let prefs = { notify: true }
 /** when this app was last online with Zalo: replayed messages newer than that arrived while away (unread) */
 let syncedAt = 0
 let awayFrom = 0
@@ -68,7 +67,6 @@ function loadCache(): void {
       avatars?: Record<string, string>
       friends?: string[]
       stickers?: Record<string, string>
-      prefs?: typeof prefs
       syncedAt?: number
     }
     for (const t of c.threads ?? []) threads.set(t.id, t)
@@ -77,7 +75,6 @@ function loadCache(): void {
     for (const [k, v] of Object.entries(c.avatars ?? {})) avatars.set(k, v)
     for (const id of c.friends ?? []) friends.add(id)
     for (const [k, v] of Object.entries(c.stickers ?? {})) stickerUrls.set(Number(k), v)
-    if (c.prefs) prefs = { ...prefs, ...c.prefs }
     syncedAt = awayFrom = c.syncedAt ?? 0
   } catch {
     /* no cache yet */
@@ -110,7 +107,6 @@ async function writeCache(): Promise<void> {
     avatars: Object.fromEntries(avatars),
     friends: [...friends],
     stickers: Object.fromEntries(stickerUrls),
-    prefs,
     syncedAt
   }
   await fsp.mkdir(dir(), { recursive: true })
@@ -248,7 +244,7 @@ function toMessage(m: Message): ZaloMessage {
   }
 }
 
-/** Store messages. `live`: just arrived (counts as unread, may notify). */
+/** Store messages. `live`: just arrived (counts as unread). */
 function ingest(list: Message[], live = false): void {
   if (!list.length) return
   loadCache()
@@ -275,10 +271,7 @@ function ingest(list: Message[], live = false): void {
     else if ((live || away) && !msg.self) {
       const focused = getWin()?.isFocused() && activeThread === m.threadId
       if (focused) markSeen(m.threadId)
-      else {
-        t.unread = (t.unread ?? 0) + 1
-        if (live) notify(t, msg)
-      }
+      else t.unread = (t.unread ?? 0) + 1
     }
     if (msg.att?.kind === 'sticker' && !msg.att.url) void resolveSticker(msg)
     if (msg.group && !m.isSelf && !avatars.has(msg.fromId)) wantProfile(msg.fromId)
@@ -343,23 +336,6 @@ export function workFeed(since: number, maxThreads = 40, maxMsgs = 40): WorkThre
 }
 
 export const selfId = (): string | undefined => state.self?.id
-
-function notify(t: ZaloThread, m: ZaloMessage): void {
-  if (!prefs.notify || !Notification.isSupported()) return
-  const n = new Notification({
-    title: t.name || m.fromName,
-    body: (t.group ? `${m.fromName}: ` : '') + previewOf(m).slice(0, 160),
-    silent: false
-  })
-  n.on('click', () => {
-    const w = getWin()
-    if (!w) return
-    w.show()
-    w.focus()
-    w.webContents.send('zalo:openThread', t.id)
-  })
-  n.show()
-}
 
 /* ---------------- profiles & stickers, fetched lazily ---------------- */
 
@@ -975,16 +951,6 @@ export function typing(threadId: string): void {
   if (!a || Date.now() - lastTyping < 3000) return
   lastTyping = Date.now()
   a.sendTypingEvent(threadId, typeOf(threadId)).catch(() => {})
-}
-
-export function getPrefs(): typeof prefs {
-  loadCache()
-  return prefs
-}
-export function setPrefs(p: Partial<typeof prefs>): typeof prefs {
-  prefs = { ...prefs, ...p }
-  changed()
-  return prefs
 }
 
 /* ---------------- Claude tools (MCP server "vibe-zalo") ---------------- */

@@ -1041,30 +1041,18 @@ button.zl-info-row:hover { background: var(--w-06) !important; }
 }
 
 .center-pane.zalo-host { flex-direction: row; }
-.zl-tab-count { background: #3d74e8 !important; color: #fff !important; }
-
-/* ================= "Việc của tôi" overlay ================= */
-.zt-wrap { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 30; }
-.zt-pill {
-  display: inline-flex; align-items: center; gap: 7px;
-  height: 32px; padding: 0 12px; border-radius: 999px;
-  background: var(--zl-panel); color: var(--text);
-  border: 1px solid var(--border); box-shadow: var(--zl-shadow);
-  font-size: 12.5px; font-weight: 600; white-space: nowrap;
-}
-.zt-pill:hover, .zt-pill.on { border-color: var(--zl-accent); }
+/* ================= "Việc của tôi" ================= */
 .zt-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; display: inline-grid; place-items: center; color: #fff; }
 .zt-n.todo { background: var(--zl-red); }
 .zt-n.doing { background: #e3a43a; }
 .zt-panel {
-  position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
-  width: min(460px, calc(100vw - 32px)); max-height: min(70vh, 640px);
+  width: 100%; flex: 1; min-height: 0;
   display: flex; flex-direction: column;
   background: var(--zl-panel); backdrop-filter: blur(16px);
   border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--zl-shadow);
   overflow: hidden;
 }
-.zt-head { display: flex; align-items: center; gap: 4px; padding: 12px 10px 10px 16px; border-bottom: 1px solid var(--border); }
+.zt-head { display: flex; align-items: center; gap: 10px; padding: 12px 10px 10px 16px; border-bottom: 1px solid var(--border); }
 .zt-head > div { flex: 1; min-width: 0; }
 .zt-title { font-size: 15px; font-weight: 700; }
 .zt-sub { font-size: 12px; color: var(--zl-meta); margin-top: 2px; }
@@ -1096,3 +1084,21 @@ button.zl-info-row:hover { background: var(--w-06) !important; }
 .zt-row:hover .zt-del { opacity: 1; }
 .zt-del:hover { color: var(--zl-red); }
 .zt-foot { padding: 8px 14px 10px; font-size: 11px; color: var(--zl-meta); border-top: 1px solid var(--border); }
+
+/* ---------------- connected home: account + task list ---------------- */
+.zl-home {
+  flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 24px 16px; overflow: hidden; background: var(--bg-2);
+}
+.zl-home > * { width: min(640px, 100%); }
+.zl-conn-card {
+  display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; flex: 0 0 auto;
+  background: var(--zl-panel); border: 1px solid var(--border); border-radius: 14px;
+}
+.zl-conn-info { flex: 1; min-width: 0; }
+.zl-conn-name { font-size: 15px; font-weight: 650; }
+.zl-conn-status { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 12px; color: var(--zl-meta); }
+.zl-conn-status.ok svg { color: var(--zl-green); }
+.zl-conn-status.err { color: var(--zl-red); }
+.zl-icon.danger:hover { color: var(--zl-red); }
+.zt-head-icon { color: var(--zl-accent); flex: 0 0 auto; }

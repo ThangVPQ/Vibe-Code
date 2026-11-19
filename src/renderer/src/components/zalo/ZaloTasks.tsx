@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, CircleDot, ClipboardList, Loader2, RefreshCw, Sparkles, Trash2, Users, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Check, ChevronDown, CircleDot, ClipboardList, Loader2, RefreshCw, Sparkles, Trash2, Users } from 'lucide-react'
 import type { ZaloTask, ZaloTasksState } from '../../../../shared/types'
 import { listTime } from './util'
 
@@ -11,23 +11,12 @@ const SECTIONS: { key: ZaloTask['status']; label: string }[] = [
 const NEXT: Record<ZaloTask['status'], ZaloTask['status']> = { todo: 'doing', doing: 'done', done: 'todo' }
 
 /**
- * "Việc của tôi" overlay on the Zalo tab: Claude reads messages sent to me / @mentions and keeps a checklist.
- * Replies can be sent from the phone — my own messages sync back and move items to doing/done.
+ * "Việc của tôi" on the Zalo tab: Claude reads messages sent to me / @mentions and keeps a checklist.
+ * Replies are sent from the phone — my own messages sync back and move items to doing/done.
  */
-export function ZaloTasks({ onOpen }: { onOpen: (threadId: string) => void }): React.JSX.Element {
+export function ZaloTasks(): React.JSX.Element {
   const [s, setS] = useState<ZaloTasksState>({ tasks: [], running: false, analyzedAt: 0 })
-  const [open, setOpen] = useState(false)
   const [showDone, setShowDone] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    window.addEventListener('mousedown', close, true)
-    return () => window.removeEventListener('mousedown', close, true)
-  }, [open])
 
   useEffect(() => {
     void window.api.zalo.tasks().then((st) => {
@@ -42,66 +31,50 @@ export function ZaloTasks({ onOpen }: { onOpen: (threadId: string) => void }): R
   const pending = groups.todo.length + groups.doing.length
 
   return (
-    <div className="zt-wrap" ref={ref} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
-      <button className={'zt-pill' + (open ? ' on' : '')} onClick={() => setOpen((o) => !o)} title="Việc của tôi — Claude tóm tắt từ tin nhắn gửi tới bạn">
-        {s.running ? <Loader2 size={14} className="zl-spin" /> : <ClipboardList size={14} />}
-        Việc của tôi
-        {groups.todo.length > 0 && <span className="zt-n todo">{groups.todo.length}</span>}
-        {groups.doing.length > 0 && <span className="zt-n doing">{groups.doing.length}</span>}
-      </button>
-      {open && (
-          <div className="zt-panel">
-            <div className="zt-head">
-              <div>
-                <div className="zt-title">Việc của tôi</div>
-                <div className="zt-sub">
-                  {s.running
-                    ? 'Claude đang đọc tin nhắn…'
-                    : s.analyzedAt
-                      ? `${pending} việc chưa xong · cập nhật ${listTime(s.analyzedAt)}`
-                      : 'Chưa phân tích'}
-                </div>
-              </div>
-              <button className="zl-icon" title="Claude đọc lại tin nhắn" disabled={s.running} onClick={() => void window.api.zalo.analyzeTasks()}>
-                <RefreshCw size={16} className={s.running ? 'zl-spin' : undefined} />
-              </button>
-              <button className="zl-icon" title="Đóng" onClick={() => setOpen(false)}>
-                <X size={16} />
-              </button>
-            </div>
-            {s.error && <div className="zt-error">{s.error}</div>}
-            <div className="zt-body">
-              {s.tasks.length === 0 && (
-                <div className="zt-empty">
-                  <Sparkles size={18} />
-                  {s.running ? 'Đang tìm việc trong tin nhắn cá nhân và nhóm có @ bạn…' : 'Không có việc nào. Tin nhắn cá nhân và nhóm @ bạn sẽ được tóm tắt vào đây.'}
-                </div>
-              )}
-              {SECTIONS.map(({ key, label }) => {
-                const list = groups[key]
-                if (!list.length) return null
-                const folded = key === 'done' && !showDone
-                return (
-                  <section key={key} className={'zt-sec ' + key}>
-                    <button className="zt-sec-h" onClick={() => key === 'done' && setShowDone((v) => !v)}>
-                      <span className="zt-dot" />
-                      {label}
-                      <span className="zt-sec-n">{list.length}</span>
-                      {key === 'done' && <ChevronDown size={14} className={folded ? 'zt-fold' : ''} />}
-                    </button>
-                    {!folded && list.map((t) => <Row key={t.id} t={t} onOpen={() => (onOpen(t.threadId), setOpen(false))} />)}
-                  </section>
-                )
-              })}
-            </div>
-            <div className="zt-foot">Trả lời trên Zalo điện thoại cũng được — tin của bạn đồng bộ về và việc tự chuyển trạng thái.</div>
+    <div className="zt-panel">
+      <div className="zt-head">
+        <ClipboardList size={18} className="zt-head-icon" />
+        <div>
+          <div className="zt-title">Việc của tôi</div>
+          <div className="zt-sub">
+            {s.running ? 'Claude đang đọc tin nhắn…' : s.analyzedAt ? `${pending} việc chưa xong · cập nhật ${listTime(s.analyzedAt)}` : 'Chưa phân tích'}
           </div>
-      )}
+        </div>
+        <button className="zl-icon" title="Claude đọc lại tin nhắn" disabled={s.running} onClick={() => void window.api.zalo.analyzeTasks()}>
+          <RefreshCw size={16} className={s.running ? 'zl-spin' : undefined} />
+        </button>
+      </div>
+      {s.error && <div className="zt-error">{s.error}</div>}
+      <div className="zt-body">
+        {s.tasks.length === 0 && (
+          <div className="zt-empty">
+            {s.running ? <Loader2 size={18} className="zl-spin" /> : <Sparkles size={18} />}
+            {s.running ? 'Đang tìm việc trong tin nhắn cá nhân và nhóm có @ bạn…' : 'Không có việc nào. Tin nhắn cá nhân và nhóm @ bạn sẽ được tóm tắt vào đây.'}
+          </div>
+        )}
+        {SECTIONS.map(({ key, label }) => {
+          const list = groups[key]
+          if (!list.length) return null
+          const folded = key === 'done' && !showDone
+          return (
+            <section key={key} className={'zt-sec ' + key}>
+              <button className="zt-sec-h" onClick={() => key === 'done' && setShowDone((v) => !v)}>
+                <span className="zt-dot" />
+                {label}
+                <span className="zt-sec-n">{list.length}</span>
+                {key === 'done' && <ChevronDown size={14} className={folded ? 'zt-fold' : ''} />}
+              </button>
+              {!folded && list.map((t) => <Row key={t.id} t={t} />)}
+            </section>
+          )
+        })}
+      </div>
+      <div className="zt-foot">Trả lời trên Zalo điện thoại — tin của bạn đồng bộ về và việc tự chuyển trạng thái.</div>
     </div>
   )
 }
 
-function Row({ t, onOpen }: { t: ZaloTask; onOpen: () => void }): React.JSX.Element {
+function Row({ t }: { t: ZaloTask }): React.JSX.Element {
   return (
     <div className={'zt-row ' + t.status}>
       <button
@@ -111,7 +84,7 @@ function Row({ t, onOpen }: { t: ZaloTask; onOpen: () => void }): React.JSX.Elem
       >
         {t.status === 'done' ? <Check size={13} /> : t.status === 'doing' ? <CircleDot size={13} /> : null}
       </button>
-      <button className="zt-main" onClick={onOpen} title="Mở cuộc trò chuyện">
+      <div className="zt-main">
         <span className="zt-row-title">{t.title}</span>
         {t.detail && <span className="zt-row-detail">{t.detail}</span>}
         <span className="zt-row-meta">
@@ -119,7 +92,7 @@ function Row({ t, onOpen }: { t: ZaloTask; onOpen: () => void }): React.JSX.Elem
           {t.group ? `${t.threadName} · ${t.from}` : t.from} · {listTime(t.ts)}
           {t.manual && <span className="zt-manual">· đặt tay</span>}
         </span>
-      </button>
+      </div>
       <button className="zt-del" title="Xoá khỏi danh sách" onClick={() => void window.api.zalo.removeTask(t.id)}>
         <Trash2 size={13} />
       </button>
