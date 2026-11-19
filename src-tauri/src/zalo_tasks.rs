@@ -106,6 +106,8 @@ struct Tasks {
     unseen: IndexMap<String, String>,
     /// the Zalo tab is on screen in a focused window: changes count as seen right away, no pop-up
     viewing: bool,
+    /// source messages of tasks I deleted: the analysis never turns them into tasks again
+    dismissed: Vec<String>,
 }
 
 static T: LazyLock<Mutex<Tasks>> = LazyLock::new(Default::default);
@@ -125,6 +127,7 @@ fn tasks() -> MutexGuard<'static, Tasks> {
             t.tasks = d["tasks"].as_array().into_iter().flatten().filter_map(|x| serde_json::from_value(x.clone()).ok()).collect();
             t.analyzed_at = d["analyzedAt"].as_i64().unwrap_or(0);
             t.unseen = d["unseen"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect();
+            t.dismissed = d["dismissed"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
         }
     }
     t
@@ -133,7 +136,7 @@ fn tasks() -> MutexGuard<'static, Tasks> {
 async fn save() {
     let data = {
         let t = tasks();
-        serde_json::json!({ "tasks": t.tasks, "analyzedAt": t.analyzed_at, "unseen": t.unseen }).to_string()
+        serde_json::json!({ "tasks": t.tasks, "analyzedAt": t.analyzed_at, "unseen": t.unseen, "dismissed": t.dismissed }).to_string()
     };
     let _ = core::write_atomic(file(), data).await;
 }
@@ -322,6 +325,14 @@ pub fn set_status(id: &str, status: &str) -> ZaloTasksState {
 pub fn remove_task(id: &str) -> ZaloTasksState {
     {
         let mut t = tasks();
+        if let Some(mid) = t.tasks.iter().find(|x| x.id == id).and_then(|x| x.msg_id.clone()) {
+            t.dismissed.push(mid);
+            // bounded: message ids older than the analysis window can't come back anyway
+            let n = t.dismissed.len();
+            if n > 500 {
+                t.dismissed.drain(..n - 500);
+            }
+        }
         t.tasks.retain(|x| x.id != id);
         t.unseen.shift_remove(id);
     }
@@ -547,7 +558,7 @@ Trạng thái mỗi việc:
 - "doing": tôi đã phản hồi nhưng chưa xong (vd "ok", "để em xem", "đang làm", hẹn sẽ gửi).
 - "done": tôi đã báo xong / đã gửi / đã trả lời đầy đủ câu hỏi, hoặc người yêu cầu nói đã ổn / huỷ.
 
-Việc đã có (giữ nguyên "id" nếu vẫn là việc đó, cập nhật status/title nếu cần; KHÔNG tạo trùng):
+Việc đã có (giữ nguyên "id" nếu vẫn là việc đó, cập nhật status/title nếu cần; KHÔNG tạo trùng; việc "done" là đã xong hẳn — KHÔNG mở lại, KHÔNG tạo lại việc đó dưới id/tiêu đề khác):
 {existing}
 
 Tin nhắn:
@@ -631,6 +642,9 @@ async fn run_once() -> Result<()> {
     let feed = zalo::work_feed(now - WINDOW_DAYS * DAY, 40, 40, None);
     let mut created: Vec<ZaloTask> = Vec::new();
     let mut updated_ids: Vec<String> = Vec::new();
+    // what the previous run already read: tasks "found" in those messages now are almost always
+    // duplicates of work that was done or deleted — never re-announce them
+    let prev = tasks().analyzed_at;
     if !feed.is_empty() {
         let open: Vec<ZaloTask> = tasks().tasks.iter().filter(|t| feed.iter().any(|f| f.thread_id == t.thread_id)).cloned().collect();
         let raw = parse(&run_claude(&build_prompt(&feed, &open)).await?)?;
@@ -659,9 +673,8 @@ async fn run_once() -> Result<()> {
                     x.from_id = Some(src.from_id.clone());
                 }
                 // a status set by hand stays, unless Claude now sees it finished;
-                // work I marked done by hand is never reopened by the analysis
-                let locked_done = x.manual == Some(true) && x.status == "done";
-                if !locked_done && (x.manual != Some(true) || status == "done") {
+                // finished work (by hand or by Claude) is never reopened by the analysis
+                if x.status != "done" && (x.manual != Some(true) || status == "done") {
                     if x.status != status {
                         x.updated_at = now;
                         if !updated_ids.contains(&x.id) {
@@ -674,6 +687,15 @@ async fn run_once() -> Result<()> {
                     x.status = status;
                 }
             } else {
+                // nothing new to do, or a message whose task I deleted
+                if status == "done" || r.msg_id.as_ref().is_some_and(|m| t.dismissed.contains(m)) {
+                    continue;
+                }
+                // from a message an earlier run already read, in a chat that has tasks: a re-worded duplicate
+                let old = src.is_none_or(|s| s.ts <= prev);
+                if old && prev > 0 && t.tasks.iter().any(|x| x.thread_id == th.thread_id) {
+                    continue;
+                }
                 let task = ZaloTask {
                     id: uuid::Uuid::new_v4().to_string(),
                     title,

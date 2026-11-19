@@ -7,7 +7,6 @@ import { SlidePill } from './motion'
 import { ChangesView, ExplorerView } from './Sidebar'
 import { FileIcon, Logo } from './icons'
 import { EditorFontButton } from './EditorFont'
-import { RecentChats } from './Chrome'
 // heavy parts load on first use: Monaco (~4 MB) only when a file or diff opens
 const FileEditor = lazy(() => import('./MonacoViews').then((m) => ({ default: m.FileEditor })))
 const DiffView = lazy(() => import('./MonacoViews').then((m) => ({ default: m.DiffView })))
@@ -36,7 +35,6 @@ export function EditorArea(): React.JSX.Element {
   }, [view, key, browsers])
   return (
     <div className="center-area">
-      <RecentChats />
       <div className="center-switch" role="tablist">
         <SlidePill />
         <button role="tab" aria-selected={view === 'code'} className={view === 'code' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'code' })}>

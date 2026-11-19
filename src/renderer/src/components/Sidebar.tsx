@@ -17,14 +17,13 @@ import {
   GitCommitHorizontal,
   GitBranch,
   Link2,
-  Plus,
   Search
 } from 'lucide-react'
-import { basename, useStore } from '../store'
-import { closeChat, loadSessions, openFolder, newChat, newChatIn, newChatWith, openCommitDiff, openDiff, openFile, openSession, refreshGit, renameChat, selectChat } from '../actions'
+import { basename, useStore, type Chat } from '../store'
+import { closeChat, loadSessions, openFolder, newChat, newChatIn, openCommitDiff, openDiff, openFile, openSession, refreshGit, renameChat, selectChat } from '../actions'
 import { FileIcon, FolderIcon, StatusDot, statusLabel } from './icons'
-import type { DirEntry, GitCommit, GitCommitFile, GitFile, ProjectGroup } from '../../../shared/types'
-import { AGENTS, agentDef } from '../../../shared/agents'
+import type { DirEntry, GitCommit, GitCommitFile, GitFile, ProjectGroup, SessionInfo } from '../../../shared/types'
+import { agentDef } from '../../../shared/agents'
 import { NewChatMenu } from './AgentMenu'
 import { ZaloSideGroup } from './zalo/ZaloSide'
 
@@ -92,6 +91,35 @@ function loadExpanded(): Set<string> {
 
 const PAGE = 8
 
+const RECENT_MAX = 5
+
+interface RecentItem {
+  key: string
+  title: string
+  project: string
+  updated: number
+  /** open in this window */
+  chat?: Chat
+  /** in Claude's history (resumable) */
+  session?: SessionInfo
+}
+
+/** The newest chats of every project: open ones not in the history yet, then the history. */
+function recentItems(projects: ProjectGroup[], chats: Chat[]): RecentItem[] {
+  const live = new Map(chats.filter((c) => c.sessionId).map((c) => [c.sessionId!, c]))
+  const history: RecentItem[] = projects.flatMap((g) =>
+    g.sessions.map((s) => {
+      const chat = live.get(s.id)
+      return { key: s.id, title: chat?.pinnedTitle ? chat.title : s.title || chat?.title || 'Chat', project: g.name, updated: s.updated, chat, session: s }
+    })
+  )
+  const known = new Set(history.map((r) => r.key))
+  const fresh: RecentItem[] = chats
+    .filter((c) => !c.sessionId || !known.has(c.sessionId))
+    .map((c) => ({ key: c.id, title: c.title, project: basename(c.cwd), updated: c.createdAt, chat: c }))
+  return [...fresh, ...history].sort((a, b) => b.updated - a.updated).slice(0, RECENT_MAX)
+}
+
 /** Every project + conversation from Claude Code's store — the same list the Claude app shows. */
 function ProjectsTree(): React.JSX.Element {
   const projects = useStore((s) => s.projects)
@@ -101,9 +129,6 @@ function ProjectsTree(): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(loadExpanded)
   const [more, setMore] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
-  const claudeFound = useStore((s) => !!s.claude?.found)
-  const agentsFound = useStore((s) => s.agents)
-  const installed = AGENTS.filter((a) => (a.id === 'claude' ? claudeFound : agentsFound.some((x) => x.id === a.id && x.found))).map((a) => a.id)
 
   // the project you're in starts open
   useEffect(() => {
@@ -133,6 +158,7 @@ function ProjectsTree(): React.JSX.Element {
     allProjects.unshift({ key: normKey(c.cwd), cwd: c.cwd, name: basename(c.cwd), updated: c.createdAt, sessions: [] })
   }
   const needle = q.trim().toLowerCase()
+  const recent = useMemo(() => recentItems(projects, chats), [projects, chats])
   const agentRows = (g: ProjectGroup): typeof agentChats =>
     agentChats.filter(
       (c) => slashKey(c.cwd) === slashKey(g.key) && (!needle || g.name.toLowerCase().includes(needle) || c.title.toLowerCase().includes(needle))
@@ -171,54 +197,29 @@ function ProjectsTree(): React.JSX.Element {
         <input placeholder="Filter chats…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
       </div>
 
-      {/* one group per installed agent: its open chats across every project, and a + to start one */}
-      {installed.map((id) => {
-        const a = agentDef(id)
-        const key = 'agent:' + id
-        const rows = chats.filter(
-          (c) => agentDef(c.agent).id === id && (!needle || c.title.toLowerCase().includes(needle) || basename(c.cwd).toLowerCase().includes(needle))
-        )
-        if (needle && !rows.length) return null
-        const open = needle ? true : expanded.has(key)
-        return (
-          <div key={key} className="proj agent-group">
-            <div className="proj-row" onClick={() => flip(setExpanded, key)} title={`Open ${a.label} chats`}>
-              <span className="proj-name">{a.label}</span>
-              <ChevronRight size={13} className={`proj-chev${open ? ' open' : ''}`} />
-              {rows.length > 0 && <span className="proj-live" title={`${rows.length} open`} />}
-              <span className="proj-spacer" />
-              <button
-                className="icon-btn tiny proj-add"
-                title={root ? `New ${a.label} chat in ${basename(root)}` : `New ${a.label} chat — pick a folder`}
-                onClick={async (e) => {
-                  e.stopPropagation()
-                  if (!root) await openFolder(null, { autoChat: false })
-                  if (useStore.getState().root) newChatWith(id)
-                }}
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-            <Collapse open={open}>
-              {rows.length === 0 && <div className="sess-empty">No open {a.label} chats</div>}
-              {rows.map((c) => (
-                <div
-                  key={c.id}
-                  className={`sess-row${c.id === activeChatId ? ' active' : ''}`}
-                  onClick={() => selectChat(c.id)}
-                  title={`${c.title}\n${a.label} · ${c.cwd}`}
-                >
-                  <StatusDot status={c.status} attention={c.attention} />
-                  <span className="sess-title">{c.title}</span>
-                  <span className="sess-time">{basename(c.cwd)}</span>
-                </div>
-              ))}
-            </Collapse>
+      {/* the 5 newest chats across every project */}
+      {!needle && recent.length > 0 && (
+        <div className="proj recent-group">
+          <div className="proj-row recent-head">
+            <span className="proj-name">Recent</span>
           </div>
-        )
-      })}
+          {recent.map((it) => (
+            <div
+              key={it.key}
+              className={`sess-row${it.chat && it.chat.id === activeChatId ? ' active' : ''}`}
+              onClick={() => (it.chat ? selectChat(it.chat.id) : it.session && void openSession(it.session))}
+              title={`${it.title}
+${it.project} · ${new Date(it.updated).toLocaleString()}`}
+            >
+              {it.chat ? <StatusDot status={it.chat.status} attention={it.chat.attention} /> : <span className="sess-bullet" />}
+              <span className="sess-title">{it.title}</span>
+              <span className="sess-time">{shortAgo(it.updated)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <ZaloSideGroup filter={q} />
-      {installed.length > 0 && <div className="agent-groups-sep" />}
+      <div className="agent-groups-sep" />
 
       {visible.length === 0 && <div className="tree-empty">{projects.length ? 'No matching chats' : 'No Claude Code history found yet.'}</div>}
 

@@ -28,13 +28,12 @@ import {
   Moon,
   Sun
 } from 'lucide-react'
-import { basename, useStore, type Chat, type SidebarView } from '../store'
-import { shortAgo } from './Sidebar'
-import { defaultAgent, installedAgents, openBrowser, openFile, openFolder, openSession, selectChat, setDefaultAgent, toggleBottom, toggleTheme } from '../actions'
+import { basename, useStore, type SidebarView } from '../store'
+import { defaultAgent, installedAgents, openBrowser, openFile, openFolder, openSession, setDefaultAgent, toggleBottom, toggleTheme } from '../actions'
 import { agentDef } from '../../../shared/agents'
 import { languageOf } from '../fileModelsLite'
-import { FileIcon, Logo, StatusDot } from './icons'
-import type { ProjectGroup, SessionInfo, UsageLimit } from '../../../shared/types'
+import { FileIcon, Logo } from './icons'
+import type { UsageLimit } from '../../../shared/types'
 import { revealIn } from '../scroll'
 import { COMMANDS, type Command } from '../shortcuts'
 
@@ -251,73 +250,6 @@ function WindowControls(): React.JSX.Element | null {
       <button className="win-btn close" title="Close" onClick={() => window.api.win.close()}>
         <X size={16} />
       </button>
-    </div>
-  )
-}
-
-/* ================================ Recent chats strip ================================ */
-
-const RECENT_MAX = 8
-
-interface RecentItem {
-  key: string
-  title: string
-  project: string
-  updated: number
-  /** open in this window */
-  chat?: Chat
-  /** in Claude's history (resumable) */
-  session?: SessionInfo
-}
-
-/** The newest chats of every project: open ones not in the history yet, then the history. */
-function recentItems(projects: ProjectGroup[], chats: Chat[]): RecentItem[] {
-  const live = new Map(chats.filter((c) => c.sessionId).map((c) => [c.sessionId!, c]))
-  const history: RecentItem[] = projects.flatMap((g) =>
-    g.sessions.map((s) => {
-      const chat = live.get(s.id)
-      return { key: s.id, title: chat?.pinnedTitle ? chat.title : s.title || chat?.title || 'Chat', project: g.name, updated: s.updated, chat, session: s }
-    })
-  )
-  const known = new Set(history.map((r) => r.key))
-  const fresh: RecentItem[] = chats
-    .filter((c) => !c.sessionId || !known.has(c.sessionId))
-    .map((c) => ({ key: c.id, title: c.title, project: basename(c.cwd), updated: c.createdAt, chat: c }))
-  return [...fresh, ...history].sort((a, b) => b.updated - a.updated).slice(0, RECENT_MAX)
-}
-
-/** Above the Source code / Web tabs: the latest chats of every project as tabs; click one to open it. */
-export function RecentChats(): React.JSX.Element | null {
-  const projects = useStore((s) => s.projects)
-  const chats = useStore((s) => s.chats)
-  const activeChatId = useStore((s) => s.activeChatId)
-  // "5m ago" stays current
-  const [, tick] = useState(0)
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 30_000)
-    return () => clearInterval(t)
-  }, [])
-  const items = useMemo(() => recentItems(projects, chats), [projects, chats])
-  if (!items.length) return null
-  return (
-    <div className="recent-chats" role="tablist" aria-label="Recent chats" onWheel={(e) => (e.currentTarget.scrollLeft += e.deltaY)}>
-      {items.map((it) => {
-        const active = !!it.chat && it.chat.id === activeChatId
-        return (
-          <button
-            key={it.key}
-            role="tab"
-            aria-selected={active}
-            className={`recent-tab${active ? ' active' : ''}`}
-            title={`${it.title}\n${it.project} · ${new Date(it.updated).toLocaleString()}`}
-            onClick={() => (it.chat ? selectChat(it.chat.id) : it.session && void openSession(it.session))}
-          >
-            {it.chat ? <StatusDot status={it.chat.status} attention={it.chat.attention} /> : <span className="sess-bullet" />}
-            <span className="recent-tab-title">{it.title}</span>
-            <span className="recent-tab-time">{shortAgo(it.updated)}</span>
-          </button>
-        )
-      })}
     </div>
   )
 }
