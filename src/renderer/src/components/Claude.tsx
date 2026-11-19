@@ -342,6 +342,13 @@ function ChatStatusBar({ chat }: { chat: Chat }): React.JSX.Element {
   )
 }
 
+/**
+ * Models with a 200k context window: Haiku 4.5 and everything before the 4.6 generation
+ * (claude-haiku-4-5-20251001, claude-opus-4-20250514, claude-3-…). Every newer model — Fable,
+ * Opus 4.6+, Sonnet 4.6+, Haiku 5.5 and ones not released yet — has 1M.
+ */
+const SMALL_WINDOW = /-(opus|sonnet|haiku)-4(-[0-5])?(-\d{8})?$|claude-[23]/i
+
 /** How full this chat's context window is, from the last reply in its session file. */
 function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
   const sessionId = chat.sessionId
@@ -371,9 +378,10 @@ function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
   }, [sessionId])
 
   const used = ctx?.used ?? 0
-  // Opus 5.5 (and any `[1m]` model) has a 1M window; others 200k unless already past it
-  const models = `${chat.model ?? ''} ${ctx?.model ?? ''}`
-  const max = /opus-5-5|\[1m\]/i.test(models) || used > 200_000 ? 1_000_000 : 200_000
+  // the model that wrote the last reply decides (it follows a /model typed in the chat); the
+  // `[1m]` suffix only exists on the launch flag. A 200k model already past 200k is on 1M too.
+  const small = SMALL_WINDOW.test(ctx?.model || chat.model || '') && !/\[1m\]/i.test(chat.model ?? '')
+  const max = small && used <= 200_000 ? 200_000 : 1_000_000
   const pct = Math.min(100, (used / max) * 100)
   const level = pct >= 85 ? 'high' : pct >= 60 ? 'mid' : 'low'
   const k = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`)
