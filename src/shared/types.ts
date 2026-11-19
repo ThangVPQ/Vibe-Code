@@ -99,6 +99,8 @@ export interface AppSettings {
   editorFont: string
   editorFontSize: number
   editorLigatures: boolean
+  /** start (hidden in the tray) when Windows signs in — undefined = on */
+  openAtLogin?: boolean
 }
 
 export interface WindowState {

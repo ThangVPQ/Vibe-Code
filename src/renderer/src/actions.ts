@@ -3,7 +3,7 @@ import { basename, uid, useStore, type Chat, type EditorTab, type WebTab } from 
 import { createTerm, disposeTerm, focusTerm, onTerminalEvents, readScreen, restartTerm, setTerminalClear, setTerminalTheme, writeToTerm } from './terminals'
 import { disposeModel, getModel, isDirty } from './fileModels'
 import type { SessionInfo } from '../../shared/types'
-import { agentDef, type AgentId } from '../../shared/agents'
+import { AGENTS, agentDef, type AgentId } from '../../shared/agents'
 
 const st = useStore.getState
 const lastData = new Map<string, number>()
@@ -254,7 +254,7 @@ export async function openFolder(folder?: string | null, opts: { autoChat?: bool
   await window.api.fs.watch(f)
   refreshGit()
   const autoChat = opts.autoChat ?? true
-  if (autoChat && st().claude?.found && !st().chats.some((c) => samePath(c.cwd, f))) newChat()
+  if (autoChat && installedAgents().length && !st().chats.some((c) => samePath(c.cwd, f))) newChat()
 }
 
 /* ---------------- Claude session store (shared with the Claude app) ---------------- */
@@ -288,8 +288,38 @@ export async function openSession(s: SessionInfo): Promise<void> {
 }
 
 /** New chat inside a project from the sidebar tree. */
-export async function newChatIn(projectCwd: string, agent?: AgentId): Promise<void> {
+export async function newChatIn(projectCwd: string, agent: AgentId): Promise<void> {
   if (!st().root || !samePath(st().root!, projectCwd)) await openFolder(projectCwd, { autoChat: false })
+  newChatWith(agent)
+}
+
+/** Coding agents found on this machine, in menu order (Claude Code first). */
+export function installedAgents(): AgentId[] {
+  const { claude, agents } = st()
+  return AGENTS.filter((a) => (a.id === 'claude' ? !!claude?.found : agents.some((x) => x.id === a.id && x.found))).map((a) => a.id)
+}
+
+const AGENT_KEY = 'vibe.newChatAgent'
+
+/** What a plain "New chat" runs: the agent last picked from a menu while it's still installed, else the first installed. */
+export function defaultAgent(): AgentId | undefined {
+  const ok = installedAgents()
+  let last: string | null = null
+  try {
+    last = localStorage.getItem(AGENT_KEY)
+  } catch {
+    /* storage unavailable */
+  }
+  return ok.find((id) => id === last) ?? ok[0]
+}
+
+/** New chat with an agent picked from a menu; that agent becomes the default for the next plain "New chat". */
+export function newChatWith(agent: AgentId): void {
+  try {
+    localStorage.setItem(AGENT_KEY, agent)
+  } catch {
+    /* storage unavailable */
+  }
   newChat({ agent })
 }
 
@@ -324,7 +354,9 @@ interface NewChatOpts {
 export function newChat(opts: NewChatOpts = {}): void {
   const cwd = opts.cwd ?? st().root
   if (!cwd) return
-  const agent = agentDef(opts.agent)
+  // a plain new chat (not a resume / continue) runs the default installed agent
+  const fresh = !opts.args?.length && !opts.sessionId
+  const agent = agentDef(opts.agent ?? (fresh ? defaultAgent() : undefined))
   if (agent.id !== 'claude') return newAgentChat(cwd, agent.id, opts)
   let args = opts.args ?? []
   let sessionId = opts.sessionId

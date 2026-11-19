@@ -2115,6 +2115,20 @@ button.sb-item:hover {
   color: var(--text-faint);
   font-size: 12px;
 }
+/* agent groups (Claude Code, Codex…) above the projects: always show their + */
+.agent-group .proj-add {
+  opacity: 1;
+}
+.sess-empty {
+  padding: 3px 14px 5px 24px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+.agent-groups-sep {
+  height: 1px;
+  margin: 6px 10px;
+  background: var(--border);
+}
 .proj {
   margin: 1px 0;
 }

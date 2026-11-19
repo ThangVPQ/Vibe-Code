@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Plus } from 'lucide-react'
 import { AGENTS, type AgentId } from '../../../shared/agents'
 import { useStore } from '../store'
+import { defaultAgent } from '../actions'
 
 /**
  * "+" that starts a chat with a chosen coding agent: Claude Code, Codex, Grok, Gemini…
@@ -17,6 +18,7 @@ export function NewChatMenu(props: { title: string; className?: string; size?: n
   const menu = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<React.CSSProperties>({ visibility: 'hidden' })
   const found = (id: AgentId): boolean => (id === 'claude' ? claudeFound : !!agents.find((a) => a.id === id)?.found)
+  const def = at ? defaultAgent() : undefined
 
   useLayoutEffect(() => {
     if (!at) return
@@ -68,7 +70,7 @@ export function NewChatMenu(props: { title: string; className?: string; size?: n
         createPortal(
           <div ref={menu} className="menu ctx-menu agent-menu" style={pos} onClick={(e) => e.stopPropagation()}>
             <div className="menu-sep">New chat with</div>
-            {AGENTS.map((a) => {
+            {[...AGENTS.filter((a) => found(a.id)), ...AGENTS.filter((a) => !found(a.id))].map((a) => {
               const ok = found(a.id)
               return (
                 <button
@@ -83,7 +85,7 @@ export function NewChatMenu(props: { title: string; className?: string; size?: n
                   }}
                 >
                   <span className="menu-item-main">{a.label}</span>
-                  <span className="menu-item-sub">{ok ? a.cmd : 'not installed'}</span>
+                  <span className="menu-item-sub">{!ok ? 'not installed' : a.id === def ? 'default' : a.cmd}</span>
                 </button>
               )
             })}

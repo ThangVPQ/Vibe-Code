@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
 import { useStore } from './store'
-import { applyTheme, closeTab, detectClaude, loadSessions, newChat, openFolder, refreshGit, selectChat, showChatBrowser, toggleBottom } from './actions'
+import { applyTheme, closeTab, defaultAgent, detectClaude, loadSessions, newChat, openFolder, refreshGit, selectChat, showChatBrowser, toggleBottom } from './actions'
 import { focusTerm } from './terminals'
 import { reloadIfClean } from './fileModels'
 import { QuickOpen, StatusBar, TitleBar, Welcome } from './components/Chrome'
@@ -19,7 +19,7 @@ function useGlobalKeys(): void {
       if (ctrl && !e.shiftKey && k === 'p') useStore.setState({ quickOpen: !!s.root })
       else if (ctrl && (e.key === '`' || e.code === 'Backquote')) toggleBottom()
       else if (ctrl && !e.shiftKey && k === 'b') useStore.setState({ sidebarOpen: !s.sidebarOpen })
-      else if (ctrl && e.shiftKey && k === 'n') s.claude?.found && newChat()
+      else if (ctrl && e.shiftKey && k === 'n') defaultAgent() && newChat()
       else if (ctrl && e.shiftKey && k === 'e') useStore.setState({ centerView: 'code' })
       else if (ctrl && e.shiftKey && k === 'g') useStore.setState({ centerView: 'code' })
       else if (ctrl && e.shiftKey && k === 'c') useStore.setState({ sidebarView: 'chats', sidebarOpen: true })

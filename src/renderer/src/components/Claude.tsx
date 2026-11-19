@@ -5,8 +5,10 @@ import { SlidePill, useEnterAnimation } from './motion'
 import {
   closeChat,
   closeShell,
+  defaultAgent,
   detectClaude,
   newChat,
+  newChatWith,
   newShell,
   restartChat,
   selectChat,
@@ -61,6 +63,8 @@ export function ClaudePanel(): React.JSX.Element {
   const chats = useStore((s) => s.chats)
   const activeId = useStore((s) => s.activeChatId)
   const claude = useStore((s) => s.claude)
+  // Codex / Gemini… alone is enough to chat; the install card is for when no agent is there at all
+  const anyAgent = useStore((s) => !!s.claude?.found || s.agents.some((a) => a.found))
   const active = chats.find((c) => c.id === activeId) ?? null
   const images = useChatImages(active?.sessionId)
   const tasks = useChatTasks(active?.sessionId)
@@ -89,8 +93,8 @@ export function ClaudePanel(): React.JSX.Element {
   // Chats are picked from the sidebar, so there is no tab strip here — just the open chat's title row.
   return (
     <div className="claude-panel">
-      {claude && !claude.found && <InstallCard />}
-      {claude?.found && !active && <NoChat />}
+      {claude && !anyAgent && <InstallCard />}
+      {anyAgent && !active && <NoChat />}
 
       {active && (
         <>
@@ -108,7 +112,7 @@ export function ClaudePanel(): React.JSX.Element {
                 </button>
               )}
               {agentDef(active.agent).id === 'claude' && <BypassProjectButton chat={active} />}
-              <NewChatMenu title="New chat — Claude, Codex, Grok, Gemini… (Ctrl+Shift+N: Claude)" onPick={(agent) => newChat({ agent })} />
+              <NewChatMenu title="New chat — Claude, Codex, Grok, Gemini… (Ctrl+Shift+N: the default agent)" onPick={newChatWith} />
               <button className="icon-btn" title="Close chat (it stays in the sidebar history)" onClick={() => closeChat(active.id)}>
                 <X size={15} />
               </button>
@@ -422,29 +426,35 @@ function Picker(props: { title: string; options: Opt[]; value: string; warn?: bo
 
 function NoChat(): React.JSX.Element {
   const agents = useStore((s) => s.agents)
-  const others = AGENTS.filter((a) => a.id !== 'claude' && agents.some((x) => x.id === a.id && x.found))
+  const claudeFound = useStore((s) => !!s.claude?.found)
+  const def = agentDef(defaultAgent())
+  const others = AGENTS.filter((a) => a.id !== def.id && (a.id === 'claude' ? claudeFound : agents.some((x) => x.id === a.id && x.found)))
   return (
     <div className="no-chat">
       <div className="glow-orb">
         <Logo size={56} />
       </div>
       <h3>What should we build?</h3>
-      <p>Each chat runs its own Claude Code session in this folder. Run several in parallel and hop between them.</p>
+      <p>Each chat runs its own {def.label} session in this folder. Run several in parallel and hop between them.</p>
       <div className="no-chat-actions">
         <button className="btn btn-primary btn-lg" onClick={() => newChat()}>
-          <Sparkles size={16} /> New chat
+          <Sparkles size={16} /> New chat{def.id !== 'claude' ? ` · ${def.label}` : ''}
         </button>
-        <button className="btn btn-ghost" onClick={() => newChat({ args: ['--continue'], title: 'Continued chat' })}>
-          <RotateCcw size={14} /> Continue last
-        </button>
-        <button className="btn btn-ghost" onClick={() => newChat({ args: ['--resume'], title: 'Resume…' })}>
-          <History size={14} /> Resume…
-        </button>
+        {claudeFound && (
+          <>
+            <button className="btn btn-ghost" onClick={() => newChat({ args: ['--continue'], title: 'Continued chat' })}>
+              <RotateCcw size={14} /> Continue last
+            </button>
+            <button className="btn btn-ghost" onClick={() => newChat({ args: ['--resume'], title: 'Resume…' })}>
+              <History size={14} /> Resume…
+            </button>
+          </>
+        )}
       </div>
       {others.length > 0 && (
         <div className="no-chat-actions no-chat-agents">
           {others.map((a) => (
-            <button key={a.id} className="btn btn-ghost btn-sm" onClick={() => newChat({ agent: a.id })}>
+            <button key={a.id} className="btn btn-ghost btn-sm" onClick={() => newChatWith(a.id)}>
               <Plus size={13} /> {a.label}
             </button>
           ))}

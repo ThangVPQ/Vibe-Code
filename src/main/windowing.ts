@@ -237,6 +237,18 @@ function buildTrayMenu(): void {
       },
       { type: 'separator' },
       {
+        label: app.isPackaged ? 'Start with Windows' : 'Start with Windows (installed app only)',
+        type: 'checkbox',
+        enabled: app.isPackaged,
+        checked: app.isPackaged && openAtLogin(),
+        click: async (item) => {
+          await updateSettings({ openAtLogin: item.checked })
+          applyLoginItem()
+          buildTrayMenu()
+        }
+      },
+      { type: 'separator' },
+      {
         label: 'Quit VIBE CODE',
         click: () => {
           quitting = true
@@ -247,12 +259,36 @@ function buildTrayMenu(): void {
   )
 }
 
+/** Launched by Windows at sign-in: start tucked away in the tray. */
+const HIDDEN_ARG = '--hidden'
+const openAtLogin = (): boolean => getSettings().openAtLogin ?? true
+
+/** Register / unregister the Windows sign-in entry. Only the installed app: in dev it would point at a bare electron.exe. */
+function applyLoginItem(): void {
+  if (!app.isPackaged) return
+  app.setLoginItemSettings({ openAtLogin: openAtLogin(), args: [HIDDEN_ARG] })
+}
+
+function showWindow(): void {
+  if (mode === 'dropdown') {
+    if (!win.isVisible() && !animating) slideDown()
+    else win.focus()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
 export function initWindowing(w: BrowserWindow): void {
   win = w
   const s = getSettings()
+  const startHidden = process.argv.includes(HIDDEN_ARG)
+  applyLoginItem()
 
   tray = new Tray(nativeImage.createFromPath(iconPath('tray.png')).resize({ width: 16, height: 16 }))
   tray.on('click', toggleWindow)
+  tray.on('double-click', showWindow)
   registerHotkey()
   buildTrayMenu()
 
@@ -277,22 +313,36 @@ export function initWindowing(w: BrowserWindow): void {
     })
   })
 
-  // In drop-down mode the close button just tucks the window away; the tray keeps us alive.
+  // The close button only tucks the window away — chats keep running and the tray icon brings it
+  // back. Quitting for real is "Quit VIBE CODE" in the tray menu.
+  let hinted = false
   win.on('close', (e) => {
-    if (mode === 'dropdown' && !quitting) {
-      e.preventDefault()
-      hideDropdown()
+    if (quitting) return
+    e.preventDefault()
+    if (mode === 'dropdown') return hideDropdown()
+    win.hide()
+    if (!hinted && tray) {
+      hinted = true
+      tray.displayBalloon({
+        iconType: 'info',
+        title: 'VIBE CODE is still running',
+        content: 'Your chats keep going. Click the tray icon to open it again, or right-click it → Quit.'
+      })
     }
   })
   app.on('before-quit', () => {
+    quitting = true
+  })
+  // Windows is signing out / shutting down: let the window close instead of hiding
+  win.on('session-end', () => {
     quitting = true
   })
   app.on('will-quit', () => globalShortcut.unregisterAll())
 
   if (s.mode === 'dropdown') {
     mode = 'dropdown'
-    win.once('ready-to-show', () => applyDropdown(true))
-  } else {
+    win.once('ready-to-show', () => applyDropdown(!startHidden))
+  } else if (!startHidden) {
     win.once('ready-to-show', () => win.show())
   }
 }
