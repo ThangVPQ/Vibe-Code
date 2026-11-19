@@ -229,6 +229,7 @@ impl CookieJar {
         Value::Array(self.cookies.iter().map(Cookie::to_json).collect())
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.cookies.len()
     }
@@ -329,7 +330,8 @@ mod tests {
         ]);
         let jar = CookieJar::from_credentials(&saved);
         assert_eq!(jar.len(), 4);
-        assert_eq!(jar.cookie_string("https://chat.zalo.me"), "a=1; c=3; zpw_sek=s e k");
+        // tough-cookie order: longer path first, then older creation first (c was "created" in 2099)
+        assert_eq!(jar.cookie_string("https://chat.zalo.me"), "a=1; zpw_sek=s e k; c=3");
         let back = jar.to_json();
         assert_eq!(back[0], saved[0]);
         assert_eq!(back[1], saved[1]);

@@ -100,7 +100,7 @@ pub fn cbc_encrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     let mut buf = data.to_vec();
     buf.extend(std::iter::repeat_n(pad as u8, pad));
     let mut prev = [0u8; 16];
-    for chunk in buf.chunks_exact_mut(16) {
+    for chunk in buf.as_chunks_mut::<16>().0 {
         let mut block = Block::default();
         for (i, b) in block.iter_mut().enumerate() {
             *b = chunk[i] ^ prev[i];
@@ -114,12 +114,12 @@ pub fn cbc_encrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
 
 pub fn cbc_decrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     let cipher = AesKey::new(key)?;
-    if data.is_empty() || data.len() % 16 != 0 {
+    if data.is_empty() || !data.len().is_multiple_of(16) {
         bail!("ciphertext is not a whole number of blocks");
     }
     let mut out = Vec::with_capacity(data.len());
     let mut prev = [0u8; 16];
-    for chunk in data.chunks_exact(16) {
+    for chunk in data.as_chunks::<16>().0 {
         let mut block = Block::default();
         block.copy_from_slice(chunk);
         cipher.decrypt(&mut block);

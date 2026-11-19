@@ -38,6 +38,7 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_visible,
             pty::claude_detect,
             pty::agents_detect,
             appcmds::claude_usage,

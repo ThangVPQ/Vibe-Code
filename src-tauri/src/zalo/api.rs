@@ -62,6 +62,13 @@ pub struct Credentials {
 
 /* ---------------- HTTP: zca-js `request()` ---------------- */
 
+/// `URLSearchParams` serialization (application/x-www-form-urlencoded).
+fn form_encode(pairs: &[(String, String)]) -> String {
+    let mut u = Url::parse("http://x/").expect("static URL");
+    u.query_pairs_mut().extend_pairs(pairs);
+    u.query().unwrap_or_default().to_owned()
+}
+
 pub enum Body {
     Empty,
     Form(Vec<(String, String)>),
@@ -142,7 +149,7 @@ impl Http {
                 req = req.header(k, v);
             }
             req = match body.take() {
-                Some(Body::Form(f)) => req.form(&f),
+                Some(Body::Form(f)) => req.body(form_encode(&f)),
                 Some(Body::Multipart(m)) => req.multipart(m),
                 _ => req,
             };
@@ -554,11 +561,10 @@ pub struct SeenMsg {
     pub st: Option<Value>,
     pub at: Option<Value>,
     pub cmd: Option<Value>,
-    pub ts: i64,
 }
 
 /// One request `sendMessage` makes.
-struct Send {
+struct SendReq {
     url: String,
     body: Body,
 }
@@ -767,7 +773,10 @@ impl Api {
             return Err(zerr("Missing sticker id"));
         }
         let base = self.url(&format!("{}/api/message/sticker/sticker_detail", self.svc("sticker")?), &[])?;
-        let all = join_all(ids.iter().map(|id| self.get_with(&base, &json!({ "sid": id })))).await;
+        let all = join_all(ids.iter().map(|id| {
+            let base = &base;
+            async move { self.get_with(base, &json!({ "sid": id })).await }
+        })).await;
         Ok(all.into_iter().filter_map(Result::ok).collect())
     }
 
@@ -929,6 +938,7 @@ impl Api {
                 "st": flag(&m.st),
                 "at": flag(&m.at),
                 "cmd": flag(&m.cmd),
+                // zca-js: `parseInt(ts) || 0 === parseInt(ts) ? 0 : -1`, so always 0 for a number
                 "ts": 0,
             }));
         }
@@ -997,7 +1007,7 @@ impl Api {
     }
 
     /// `handleMessage`: a text (or quote) message.
-    fn text_request(&self, m: &Outgoing, thread_id: &str, kind: ThreadType) -> Result<Send> {
+    fn text_request(&self, m: &Outgoing, thread_id: &str, kind: ThreadType) -> Result<SendReq> {
         if m.msg.is_empty() {
             return Err(zerr("Missing message content"));
         }
@@ -1060,11 +1070,11 @@ impl Api {
             "sms"
         };
         url.set_path(&format!("{}/{tail}", url.path()));
-        Ok(Send { url: url.to_string(), body: Body::Form(vec![("params".into(), self.enc(&params)?)]) })
+        Ok(SendReq { url: url.to_string(), body: Body::Form(vec![("params".into(), self.enc(&params)?)]) })
     }
 
     /// `send`: the requests at once, each resolved.
-    async fn send_all(&self, list: Vec<Send>) -> Result<Vec<Value>> {
+    async fn send_all(&self, list: Vec<SendReq>) -> Result<Vec<Value>> {
         let all = join_all(list.into_iter().map(|s| async move {
             let r = self.http.request(&s.url, Method::POST, vec![], s.body).await?;
             self.resolve(&r, true)
@@ -1108,7 +1118,7 @@ impl Api {
 
     /// `handleAttachment`: upload the files, then one send request per file.
     #[allow(clippy::too_many_arguments)]
-    async fn attachment_requests(&self, msg: &str, mentions: &[Mention], files: &[PathBuf], quoted: bool, ttl: i64, thread_id: &str, kind: ThreadType) -> Result<Vec<Send>> {
+    async fn attachment_requests(&self, msg: &str, mentions: &[Mention], files: &[PathBuf], quoted: bool, ttl: i64, thread_id: &str, kind: ThreadType) -> Result<Vec<SendReq>> {
         let group = kind == ThreadType::Group;
         let first_ext = file_ext(&files[0]);
         let can_be_desc = files.len() == 1 && ["jpg", "jpeg", "png", "webp"].contains(&first_ext.as_str());
@@ -1179,7 +1189,7 @@ impl Api {
             };
             let path = if file_type == "image" { "photo_original/send?" } else { "asyncfile/msg?" };
             let url = self.url(&format!("{}{path}", attach_base(kind)), &[("nretry", "0".into())])?;
-            out.push(Send { url, body: Body::Form(vec![("params".into(), self.enc(&params)?)]) });
+            out.push(SendReq { url, body: Body::Form(vec![("params".into(), self.enc(&params)?)]) });
         }
         for gif in gifs {
             let (width, height) = image::image_dimensions(gif).map_err(|_| zerr("Failed to get gif metadata"))?;
@@ -1208,7 +1218,7 @@ impl Api {
             ]);
             let url = self.url(&format!("{}gif?", attach_base(kind)), &[("nretry", "0".into()), ("params", self.enc(&params)?), ("type", "1".into())])?;
             let part = Part::bytes(bytes).file_name(name).mime_str("application/octet-stream")?;
-            out.push(Send { url, body: Body::Multipart(Form::new().part("chunkContent", part)) });
+            out.push(SendReq { url, body: Body::Multipart(Form::new().part("chunkContent", part)) });
         }
         Ok(out)
     }
@@ -1237,7 +1247,7 @@ impl Api {
         let url = format!("{svc}/api/{}/", if group { "group" } else { "message" });
         let type_param = if group { "11" } else { "2" };
         let restricted: Vec<String> = self.sharefile("restricted_ext_file").as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
-        let mut client_id = now_ms();
+        let first_id = now_ms();
 
         struct Prepared {
             kind: &'static str,
@@ -1250,7 +1260,7 @@ impl Api {
             chunks: usize,
         }
         let mut prepared = Vec::new();
-        for path in files {
+        for (client_id, path) in (first_id..).zip(files) {
             if !path.exists() {
                 return Err(zerr("File not found"));
             }
@@ -1285,7 +1295,6 @@ impl Api {
                 ("jxl", json!(0)),
                 ("chunkId", json!(1)),
             ]);
-            client_id += 1;
             prepared.push(Prepared { kind: file_kind, name, bytes, size, width, height, params, chunks });
         }
 

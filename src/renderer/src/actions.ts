@@ -1,6 +1,6 @@
 import { clearAttachments } from './attachments'
 import { basename, uid, useStore, type Chat, type EditorTab, type WebTab } from './store'
-import { createTerm, disposeTerm, focusTerm, onTerminalEvents, readScreen, restartTerm, setTerminalClear, setTerminalTheme, writeToTerm } from './terminals'
+import { createTerm, disposeTerm, focusTerm, onTerminalEvents, readScreen, restartTerm, setTerminalClear, setTerminalTheme, writeToTerm, readScreenTail } from './terminals'
 import { disposeModel, hasUnsaved } from './fileModelsLite'
 import type { SessionInfo } from '../../shared/types'
 import { AGENTS, agentDef, type AgentId } from '../../shared/agents'
@@ -14,24 +14,40 @@ const lastData = new Map<string, number>()
  * Claude Code redraws its screen even while idle (cursor, hints, focus), so "output arrived" isn't
  * "working". It shows "esc to interrupt" in its footer exactly while it is busy — use that.
  */
-const statusTimer = new Map<string, ReturnType<typeof setTimeout>>()
-function checkStatus(id: string): void {
-  clearTimeout(statusTimer.get(id))
-  statusTimer.set(
-    id,
-    setTimeout(() => {
-      statusTimer.delete(id)
-      const chat = st().chats.find((c) => c.id === id)
-      if (!chat || chat.status === 'exited') return
-      const busy = /esc to (interrupt|cancel)/i.test(readScreen(id).split('\n').slice(-8).join('\n'))
-      if (busy && chat.status !== 'working') st().patchChat(id, { status: 'working' })
-      if (!busy && chat.status !== 'idle') {
-        // finished work while you were looking elsewhere → needs a look
-        st().patchChat(id, { status: 'idle', attention: chat.status === 'working' && id !== st().activeChatId })
-      }
-    }, 200)
-  )
+/**
+ * Chats whose output changed since their status was last read. One shared ticker looks at them
+ * once output has settled for 200 ms — instead of a timer per chat re-armed on every chunk, which
+ * with many busy chats meant thousands of timers a second.
+ */
+const statusDirty = new Set<string>()
+
+function readStatus(id: string): void {
+  const chat = st().chats.find((c) => c.id === id)
+  if (!chat || chat.status === 'exited') return
+  const busy = /esc to (interrupt|cancel)/i.test(readScreenTail(id, 8))
+  if (busy && chat.status !== 'working') st().patchChat(id, { status: 'working' })
+  if (!busy && chat.status !== 'idle') {
+    // finished work while you were looking elsewhere → needs a look
+    st().patchChat(id, { status: 'idle', attention: chat.status === 'working' && id !== st().activeChatId })
+  }
 }
+
+function checkStatus(id: string): void {
+  statusDirty.add(id)
+}
+
+setInterval(() => {
+  if (!statusDirty.size) return
+  const now = Date.now()
+  for (const id of statusDirty) {
+    if (now - (lastData.get(id) ?? 0) < 200) continue
+    statusDirty.delete(id)
+    readStatus(id)
+  }
+}, 100)
+
+/** Chats past Claude Code's startup prompts: their output is no longer scanned for them. */
+const settled = new Set<string>()
 
 onTerminalEvents({
   activity: (id) => {
@@ -80,7 +96,7 @@ onTerminalEvents({
     // Startup prompts: the trust-folder question is always answered "Yes" (you only open your own
     // projects here); the bypass warning too when the chat or its project runs in bypass mode.
     const bypass = !!st().projectBypass[folderKey(chat.cwd)] || chat.permissionMode === 'bypassPermissions'
-    if (agentDef(chat.agent).id === 'claude') answerStartupDialog(id, bypass)
+    if (agentDef(chat.agent).id === 'claude' && !settled.has(id)) answerStartupDialog(id, bypass)
     if (pendingDraft.has(id)) typeDraftWhenReady(id)
     const text = ((outTail.get(id) ?? '') + data.replace(ANSI, '')).slice(-400)
     outTail.set(id, text)
@@ -144,6 +160,11 @@ function answerStartupDialog(id: string, acceptBypass: boolean, tries = 0): void
       dialogTimer.delete(id)
       if (!st().chats.some((c) => c.id === id)) return
       const screen = readScreen(id)
+      // the input box is up and no prompt is waiting: startup is over for this process
+      if (!/Enter to confirm/i.test(screen) && /for shortcuts|shift\+tab|─{10,}/i.test(screen)) {
+        settled.add(id)
+        return
+      }
       const yes = acceptBypass ? /Yes, I trust this folder|Yes, I accept/i : /Yes, I trust this folder/i
       if (!/Enter to confirm/i.test(screen) || !yes.test(screen)) return
       // Look only at the two option lines — other lines (your own "> message" echoes) can carry a
@@ -540,6 +561,8 @@ export function closeChat(id: string): void {
   disposeTerm(id)
   clearAttachments(id)
   lastData.delete(id)
+  statusDirty.delete(id)
+  settled.delete(id)
   useStore.setState((s) => {
     const idx = s.chats.findIndex((c) => c.id === id)
     const chats = s.chats.filter((c) => c.id !== id)
@@ -556,6 +579,7 @@ export function restartChat(id: string): void {
   const c = st().chats.find((x) => x.id === id)
   if (!c) return
   st().patchChat(id, { status: 'starting' })
+  settled.delete(id)
   if (agentDef(c.agent).id !== 'claude') {
     // other agents: pick their last conversation back up where they can, else start fresh
     restartTerm(id, { claudeArgs: [...agentDef(c.agent).resume, ...agentFlags(c.agent, c.permissionMode)] })

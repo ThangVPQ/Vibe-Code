@@ -66,8 +66,6 @@ pub fn group_message(uid: &str, mut data: Value) -> Msg {
 #[derive(Clone, Debug)]
 pub struct Action {
     pub thread_id: String,
-    pub is_self: bool,
-    pub is_group: bool,
     pub data: Value,
 }
 
@@ -80,7 +78,7 @@ fn action(uid: &str, mut data: Value, is_group: bool) -> Action {
     if is_self {
         data["uidFrom"] = json!(uid);
     }
-    Action { thread_id, is_self, is_group, data }
+    Action { thread_id, data }
 }
 
 /// A read receipt: the other side saw my messages up to `msg_id`.
@@ -522,7 +520,7 @@ mod tests {
         let g = group_message(me, json!({ "msgId": "3", "uidFrom": "0", "idTo": "g1" }));
         assert!(g.is_self && g.thread_id == "g1" && g.data["uidFrom"] == "999");
         let r = action(me, json!({ "uidFrom": "123", "idTo": "0" }), false);
-        assert_eq!((r.thread_id.as_str(), r.is_self), ("123", false));
+        assert_eq!(r.thread_id, "123");
         let r = action(me, json!({ "uidFrom": "123", "idTo": "g7" }), true);
         assert_eq!(r.thread_id, "g7");
     }

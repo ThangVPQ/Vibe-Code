@@ -119,6 +119,9 @@ struct Session {
 }
 
 static SESSIONS: LazyLock<Mutex<HashMap<String, Session>>> = LazyLock::new(Default::default);
+/// Terminals on screen right now. Their output goes out every 5 ms; the others' is gathered for
+/// 50 ms — ten busy chats in the background then wake the page ~200×/s instead of ~2000×/s.
+static VISIBLE: LazyLock<Mutex<std::collections::HashSet<String>>> = LazyLock::new(Default::default);
 static GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// PowerShell-safe argument.
@@ -239,7 +242,8 @@ pub async fn pty_spawn(opts: SpawnOptions, out: Channel<PtyMsg>) -> Res<()> {
                 Chunk::Exit(c) => exit = Some(c),
             }
             if exit.is_none() {
-                let deadline = tokio::time::sleep(Duration::from_millis(5));
+                let window = if VISIBLE.lock().contains(&id) { 5 } else { 50 };
+                let deadline = tokio::time::sleep(Duration::from_millis(window));
                 tokio::pin!(deadline);
                 while carry.len() < 256 * 1024 {
                     tokio::select! {
@@ -290,7 +294,18 @@ pub fn pty_resize(id: String, cols: u16, rows: u16) {
 }
 
 #[tauri::command]
+pub fn pty_visible(id: String, visible: bool) {
+    let mut v = VISIBLE.lock();
+    if visible {
+        v.insert(id);
+    } else {
+        v.remove(&id);
+    }
+}
+
+#[tauri::command]
 pub fn pty_kill(id: String) {
+    VISIBLE.lock().remove(&id);
     let sess = SESSIONS.lock().remove(&id);
     if let Some(mut s) = sess {
         // closing a ConPTY can stall: never on the caller's thread

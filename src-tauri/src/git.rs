@@ -168,7 +168,7 @@ pub async fn git_commit_files(root: String, hash: String) -> Res<Vec<GitCommitFi
     let stats = numstats([nums.as_str()]);
     let parts: Vec<&str> = names.split('\0').collect();
     Ok(parts
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .filter_map(|p| {
             let (code, rel) = (p[0].chars().next()?, p[1]);
             if rel.is_empty() {

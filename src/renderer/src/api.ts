@@ -96,6 +96,8 @@ export const api = {
     },
     resize: (id: string, cols: number, rows: number): void => void invoke('pty_resize', { id, cols, rows }),
     kill: (id: string): void => void invoke('pty_kill', { id }),
+    /** on screen → output every 5 ms; off screen → batched every 50 ms (far fewer wake-ups) */
+    visible: (id: string, visible: boolean): void => void invoke('pty_visible', { id, visible }),
     onData: (cb: (id: string, data: string) => void): Off => sub(ptyData, cb),
     onExit: (cb: (id: string, code: number) => void): Off => sub(ptyExit, cb)
   },

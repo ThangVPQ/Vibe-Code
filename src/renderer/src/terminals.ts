@@ -80,7 +80,8 @@ const footerCover = new WeakMap<Entry, HTMLDivElement>()
 const footerPending = new WeakSet<Entry>()
 
 function scheduleFooterHide(e: Entry): void {
-  if (footerPending.has(e)) return
+  // a chat that isn't on screen: done when it's shown again (attachTerm)
+  if (footerPending.has(e) || e.el.parentElement === parking) return
   footerPending.add(e)
   requestAnimationFrame(() => {
     footerPending.delete(e)
@@ -497,6 +498,9 @@ export function attachTerm(id: string, container: HTMLElement, focus = true): vo
   const e = entries.get(id)
   if (!e) return
   container.appendChild(e.el)
+  // on screen: its output streams at full rate again
+  window.api.pty.visible(id, true)
+  scheduleFooterHide(e)
   loadWebgl(e)
   // setTimeout, not requestAnimationFrame: rAF is paused while the window is hidden or
   // minimized, which would leave a new chat stuck at "Starting…" with no process.
@@ -515,6 +519,8 @@ export function detachTerm(id: string): void {
   const e = entries.get(id)
   if (!e || e.el.parentElement === parking) return
   parkingLot().appendChild(e.el)
+  // off screen: the backend batches its output into fewer, bigger pieces
+  window.api.pty.visible(id, false)
   e.webgl?.dispose()
   e.webgl = undefined
 }
@@ -611,6 +617,16 @@ export function disposeTerm(id: string): void {
   e.term.dispose()
   e.el.remove()
   entries.delete(id)
+}
+
+/** The last `n` rows of a terminal's screen as text (cheap: status checks run often). */
+export function readScreenTail(id: string, n: number): string {
+  const e = entries.get(id)
+  if (!e) return ''
+  const b = e.term.buffer.active
+  const lines: string[] = []
+  for (let i = Math.max(0, e.term.rows - n); i < e.term.rows; i++) lines.push(b.getLine(b.viewportY + i)?.translateToString(true) ?? '')
+  return lines.join('\n')
 }
 
 /** Plain-text dump of a terminal's visible screen (debugging / scripted checks). */

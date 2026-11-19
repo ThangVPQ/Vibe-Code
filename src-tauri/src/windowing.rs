@@ -1,7 +1,8 @@
 //! The main window and how it lives on screen:
 //!  - "window"   — an ordinary desktop window
-//!  - "dropdown" — Guake-style: a global hotkey slides it down from the top edge of the screen
-//!                 under the mouse, above every other app, and back up again.
+//!  - "dropdown" — Guake-style: a global hotkey slides it down from the top edge of the
+//!    screen under the mouse, above every other app, and back up again.
+//!
 //! Plus the tray icon, the taskbar badge and start-at-login.
 
 use std::{
@@ -545,8 +546,8 @@ pub fn on_event(window: &Window, event: &WindowEvent) {
                 }
             }
         }
-        WindowEvent::Focused(false) => {
-            if dropdown() && settings::get().hide_on_blur && !ANIMATING.load(Ordering::SeqCst) {
+        WindowEvent::Focused(false)
+            if dropdown() && settings::get().hide_on_blur && !ANIMATING.load(Ordering::SeqCst) => {
                 // let a click on the tray icon (which also blurs) toggle instead of double-hiding
                 tauri::async_runtime::spawn(async {
                     tokio::time::sleep(Duration::from_millis(120)).await;
@@ -559,7 +560,6 @@ pub fn on_event(window: &Window, event: &WindowEvent) {
                     }
                 });
             }
-        }
         _ => {}
     }
 }
