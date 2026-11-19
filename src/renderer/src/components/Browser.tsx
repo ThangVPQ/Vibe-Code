@@ -84,6 +84,22 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
   const [initialUa] = useState(device.ua)
   const [ready, setReady] = useState(false)
   const [box, setBox] = useState<{ w: number; h: number; zoom: number } | null>(null)
+  const addressRef = useRef<HTMLInputElement>(null)
+
+  /*
+   * A blank tab puts the cursor in the address bar — without scrolling: focusing an input inside the
+   * sliding, overflow-hidden deck made Chromium scroll it into view, so the whole page jumped. Not when
+   * a chat terminal has the cursor (a new chat opened while on Web keeps typing into the chat).
+   */
+  useEffect(() => {
+    if (!active || display(url)) return
+    const el = addressRef.current
+    if (!el || el.closest('[style*="display: none"]')) return
+    const cur = document.activeElement
+    if (cur && cur !== document.body && cur.closest('.xterm')) return
+    el.focus({ preventScroll: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
 
   useEffect(() => {
     const wv = ref.current
@@ -239,11 +255,11 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
         </button>
         <div className="browser-address-wrap">
           <input
+            ref={addressRef}
             className="browser-address"
             value={address}
             spellCheck={false}
             placeholder="Search or type a URL"
-            autoFocus={!address}
             onChange={(e) => onType(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             onBlur={() => setTimeout(() => setSugg([]), 120)}

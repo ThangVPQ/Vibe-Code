@@ -396,7 +396,7 @@ function Picker(props: { title: string; options: Opt[]; value: string; warn?: bo
   const cur = options.find((o) => o.value === value) ?? options[0]
   return (
     <div className="sb-picker" ref={ref}>
-      <button className={`sb-btn${open ? ' open' : ''}${warn ? ' warn' : ''}`} title={title} onClick={() => setOpen(!open)}>
+      <button className={`sb-btn${open ? ' open' : ''}${warn ? ' warn' : ''}`} title={`${cur.label} — ${title}`} onClick={() => setOpen(!open)}>
         {cur.label}
       </button>
       {open && (

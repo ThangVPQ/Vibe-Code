@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react'
 import { Code2, Columns2, Database, FileDiff, FileText, Rows2, X, Command, GitCompare, Globe, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
@@ -28,8 +28,8 @@ export function EditorArea(): React.JSX.Element {
     if (view === 'zalo') setZaloSeen(true)
   }, [view])
   const zaloBadge = useZaloBadge(view === 'zalo')
-  // switching chats while on Web: give that chat its own browser
-  useEffect(() => {
+  // switching chats while on Web: give that chat its own browser (before paint: no empty frame)
+  useLayoutEffect(() => {
     if (view === 'web' && !browsers[key]) openBrowser()
   }, [view, key, browsers])
   return (

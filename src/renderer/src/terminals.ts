@@ -375,7 +375,15 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
     return true
   })
 
-  term.onData((d) => {
+  term.onData((raw) => {
+    /*
+     * Focus in/out reports (ESC[I / ESC[O) never reach the process. xterm sends ESC[O whenever a
+     * chat's terminal loses focus, e.g. when you switch to another chat and this one is parked, and
+     * through ConPTY that can arrive as a bare Esc, which interrupts whatever Claude was doing.
+     */
+    // eslint-disable-next-line no-control-regex
+    const d = raw.replace(/\x1b\[[IO]/g, '')
+    if (!d) return
     // the handler may take the keystroke instead (e.g. to restart an ended chat)
     if (handlers.input?.(spawn.id, d)) return
     // Enter with files in the tray: their paths go into the prompt first, then the Enter.

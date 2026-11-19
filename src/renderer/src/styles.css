@@ -1475,6 +1475,10 @@ kbd {
   background: transparent;
   border: 1px solid transparent;
   white-space: nowrap;
+  /* long labels ("Bypass permissions") end in … — the full one is in the tooltip and the menu */
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: background 0.12s, color 0.12s;
 }
 .sb-btn:hover,
@@ -2557,6 +2561,22 @@ button.sb-item:hover {
   flex: 1;
   min-height: 0;
   flex-direction: column;
+  overflow: hidden;
+  overflow-anchor: none;
+}
+/* pages fade in only: a moving transform over a <webview> (its own compositor surface) shows as a jolt */
+.center-pane.browser-host {
+  animation-name: fade-enter;
+}
+@keyframes fade-enter {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .center-pane.browser-host {
+    animation: none;
+  }
 }
 /* browser tabs: iOS-style motion */
 .web-tab-strip {
@@ -2616,6 +2636,7 @@ button.sb-item:hover {
 .browser-tab-pane {
   position: absolute;
   inset: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   opacity: 0;

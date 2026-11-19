@@ -415,7 +415,7 @@ export function newChat(opts: NewChatOpts = {}): void {
   }
   if (opts.draft) pendingDraft.set(chat.id, opts.draft)
   createTerm({ id: chat.id, cwd: chat.cwd, kind: 'claude', claudeArgs: args })
-  useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id }))
+  useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id, ...browserForNewChat(s, chat.id) }))
 }
 
 /**
@@ -440,7 +440,7 @@ function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts): void {
     permissionMode
   }
   createTerm({ id: chat.id, cwd, kind: 'claude', agent: agentId, claudeArgs: args })
-  useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id }))
+  useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id, ...browserForNewChat(s, chat.id) }))
 }
 
 const agentFlags = (agentId: AgentId | undefined, permissionMode?: string): string[] =>
@@ -623,6 +623,16 @@ export const HOME_URL = 'about:blank'
 export const browserKey = (activeChatId: string | null): string => activeChatId ?? '_'
 
 const blankTab = (url = HOME_URL): WebTab => ({ id: 'w-' + uid(), url, title: '' })
+
+/**
+ * A chat opened while the Web tab is showing gets its browser in the same state update, so the
+ * Web pane never renders a frame with no page in it (that empty frame made the layout jump).
+ */
+function browserForNewChat(s: ReturnType<typeof st>, chatId: string): Partial<ReturnType<typeof st>> {
+  if (s.centerView !== 'web' || s.browsers[chatId]) return {}
+  const t = blankTab()
+  return { browsers: { ...s.browsers, [chatId]: { tabs: [t], active: t.id } } }
+}
 
 /** Show the Web tab for the current chat (optionally at a URL, in the tab you're on). */
 export function openBrowser(url?: string): void {
