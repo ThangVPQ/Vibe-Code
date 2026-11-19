@@ -1,3 +1,4 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SlidePill } from './motion'
 import {
@@ -37,6 +38,18 @@ import { revealIn } from '../scroll'
 
 /* ================================ Title bar ================================ */
 
+/** Empty parts of the title bar move the window (the drop-down stays pinned to the top edge). */
+const NO_DRAG = 'button, input, a, kbd, .menu, .search-box, .folder-switch, .win-controls'
+function dragWindow(e: React.MouseEvent): void {
+  if (e.button !== 0 || (e.target as HTMLElement).closest(NO_DRAG)) return
+  if (useStore.getState().win?.mode === 'dropdown') return
+  void getCurrentWindow().startDragging()
+}
+function maximizeFromTitle(e: React.MouseEvent): void {
+  if ((e.target as HTMLElement).closest(NO_DRAG) || useStore.getState().win?.mode === 'dropdown') return
+  window.api.win.toggleMaximize()
+}
+
 export function TitleBar(): React.JSX.Element {
   const root = useStore((s) => s.root)
   const recent = useStore((s) => s.recent)
@@ -50,7 +63,7 @@ export function TitleBar(): React.JSX.Element {
   }, [menu])
 
   return (
-    <div className={window.api.platform === 'darwin' ? 'titlebar mac' : 'titlebar'}>
+    <div className={window.api.platform === 'darwin' ? 'titlebar mac' : 'titlebar'} onMouseDown={dragWindow} onDoubleClick={maximizeFromTitle}>
       <div className="titlebar-left">
         <Logo size={18} />
         <span className="app-name">VIBE <b>CODE</b></span>

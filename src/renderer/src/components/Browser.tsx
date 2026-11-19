@@ -6,23 +6,6 @@ import { useStore } from '../store'
 import { HOME_URL, setBrowserUrl } from '../actions'
 import { SlidePill } from './motion'
 
-/** The parts of Electron's <webview> element this tab uses. */
-interface WebviewEl extends HTMLElement {
-  src: string
-  canGoBack(): boolean
-  canGoForward(): boolean
-  goBack(): void
-  goForward(): void
-  reload(): void
-  reloadIgnoringCache(): void
-  stop(): void
-  getURL(): string
-  loadURL(url: string): Promise<void>
-  setZoomFactor(factor: number): void
-  setUserAgent(ua: string): void
-  getWebContentsId(): number
-}
-
 /** Typed text → URL: keep real URLs, add https:// to bare hosts, search everything else. */
 function toUrl(input: string): string {
   const t = input.trim()
@@ -69,11 +52,23 @@ function savedDevice(): string {
   }
 }
 
+/**
+ * Anything drawn over the page area (menus, dialogs, lightboxes, address suggestions). The page
+ * itself is a native view stacked above the app's HTML, so it steps aside while one is open.
+ */
+const OVERLAYS = '.overlay, .menu, .ctx-menu, .image-lightbox, .term-image-hover, .bm-menu, .browser-sugg, .zl-lightbox, .zl-ctx'
+
+const overlaps = (a: DOMRect, b: DOMRect): boolean => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+
+let labelSeq = 0
+
 export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId: string; active: boolean }): React.JSX.Element {
-  const ref = useRef<WebviewEl>(null)
+  const viewRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const url = useStore((s) => s.browsers[chatKey]?.tabs.find((t) => t.id === tabId)?.url ?? HOME_URL)
-  // first URL only: later navigation happens inside the webview, not through `src`
+  // the native page this tab owns (labels: letters, digits, - _ only)
+  const [label] = useState(() => `web-${++labelSeq}-${tabId}`.replace(/[^\w-]/g, '_'))
+  // first URL only: later navigation happens inside the page
   const [initial] = useState(url)
   const [address, setAddress] = useState(display(url))
   const shown = useRef(url)
@@ -82,14 +77,13 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
   const [deviceKey, setDeviceKey] = useState(savedDevice)
   const device = DEVICES.find((d) => d.key === deviceKey) ?? DEVICES[0]
   const [initialUa] = useState(device.ua)
-  const [ready, setReady] = useState(false)
   const [box, setBox] = useState<{ w: number; h: number; zoom: number } | null>(null)
   const addressRef = useRef<HTMLInputElement>(null)
 
   /*
    * A blank tab puts the cursor in the address bar — without scrolling: focusing an input inside the
-   * sliding, overflow-hidden deck made Chromium scroll it into view, so the whole page jumped. Not when
-   * a chat terminal has the cursor (a new chat opened while on Web keeps typing into the chat).
+   * sliding, overflow-hidden deck made the whole page jump. Not when a chat terminal has the cursor
+   * (a new chat opened while on Web keeps typing into the chat).
    */
   useEffect(() => {
     if (!active || display(url)) return
@@ -101,57 +95,43 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active])
 
+  // the native page lives as long as this tab
   useEffect(() => {
-    const wv = ref.current
-    if (!wv) return
-    const sync = (e?: Event): void => {
-      const url = wv.getURL()
-      if (e?.type === 'did-navigate') window.api.browser.visit(url)
-      setAddress(display(url))
-      setNav({ back: wv.canGoBack(), fwd: wv.canGoForward() })
-      shown.current = url
-      setBrowserUrl(chatKey, url, tabId)
-    }
-    const onTitle = (e: Event): void => {
-      const title = (e as Event & { title?: string }).title ?? ''
-      window.api.browser.title(wv.getURL(), title)
-      setBrowserUrl(chatKey, wv.getURL(), tabId, title)
-    }
-    const start = (): void => setLoading(true)
-    const stop = (): void => {
-      setLoading(false)
-      sync()
-    }
-    const onReady = (): void => setReady(true)
-    wv.addEventListener('did-navigate', sync)
-    wv.addEventListener('did-navigate-in-page', sync)
-    wv.addEventListener('did-start-loading', start)
-    wv.addEventListener('did-stop-loading', stop)
-    wv.addEventListener('dom-ready', onReady)
-    wv.addEventListener('page-title-updated', onTitle)
-    return () => {
-      wv.removeEventListener('page-title-updated', onTitle)
-      wv.removeEventListener('did-navigate', sync)
-      wv.removeEventListener('did-navigate-in-page', sync)
-      wv.removeEventListener('did-start-loading', start)
-      wv.removeEventListener('did-stop-loading', stop)
-      wv.removeEventListener('dom-ready', onReady)
-    }
-  }, [chatKey, tabId])
+    void window.api.browser.open(label, chatKey, initial, initialUa)
+    return () => window.api.browser.close(label)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [label])
+
+  // address bar / buttons follow the page
+  useEffect(
+    () =>
+      window.api.browser.onNav((l, n) => {
+        if (l !== label) return
+        setLoading(n.loading)
+        setNav({ back: n.back, fwd: n.fwd })
+        if (!n.url) return
+        if (n.url !== shown.current && !n.loading) window.api.browser.visit(n.url)
+        if (n.title) window.api.browser.title(n.url, n.title)
+        if (document.activeElement !== addressRef.current) setAddress(display(n.url))
+        shown.current = n.url
+        setBrowserUrl(chatKey, n.url, tabId, n.title || undefined)
+      }),
+    [label, chatKey, tabId]
+  )
 
   // lets this chat's Claude drive the page (browser_* MCP tools): always the tab you're looking at
   useEffect(() => {
-    if (ready && active) window.api.browser.attach(chatKey, ref.current!.getWebContentsId())
-  }, [ready, active, chatKey])
+    if (active) window.api.browser.setActive(chatKey, label)
+  }, [active, chatKey, label])
 
   // openBrowser(url) from elsewhere in the app: navigate there
   useEffect(() => {
     if (url !== shown.current) {
       shown.current = url
       setAddress(display(url))
-      ref.current?.loadURL(url).catch(() => {})
+      void window.api.browser.navigate(label, url).catch(() => {})
     }
-  }, [url])
+  }, [url, label])
 
   /*
    * Emulated screen: the page lays out at the device's size (e.g. 1920×1080), then is zoomed out
@@ -174,26 +154,52 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
     return () => ro.disconnect()
   }, [device.w, device.h])
 
-  // apply the zoom (again after each page load: Chromium keeps zoom per site)
+  /*
+   * Keep the native page glued to its placeholder. It is shown only while this is the open tab of
+   * the chat on screen, the Web view is in front, nothing is drawn over it and the window is not
+   * hidden; otherwise it is parked — and the engine throttles, then freezes it.
+   */
   const zoom = box?.zoom ?? 1
   useEffect(() => {
-    if (!ready) return
-    const wv = ref.current
-    const apply = (): void => {
-      try {
-        wv?.setZoomFactor(zoom)
-      } catch {
-        /* webview not attached yet */
-      }
+    const el = viewRef.current
+    if (!el) return
+    let last = ''
+    const place = (): void => {
+      const r = el.getBoundingClientRect()
+      const onScreen = active && r.width > 4 && r.height > 4 && document.visibilityState === 'visible' && !el.closest('.browser-tab-pane:not(.on)')
+      const covered = onScreen && [...document.querySelectorAll(OVERLAYS)].some((o) => overlaps(o.getBoundingClientRect(), r))
+      const visible = onScreen && !covered
+      const key = visible ? `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)},${zoom}` : 'off'
+      if (key === last) return
+      last = key
+      window.api.browser.place(label, { x: r.left, y: r.top, w: r.width, h: r.height }, zoom, visible)
     }
-    apply()
-    wv?.addEventListener('did-navigate', apply)
-    wv?.addEventListener('did-stop-loading', apply)
+    let frame = 0
+    const soon = (): void => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(place)
+    }
+    place()
+    const ro = new ResizeObserver(soon)
+    ro.observe(el)
+    // menus / dialogs opening, panes sliding, the chat switching
+    const mo = new MutationObserver(soon)
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] })
+    window.addEventListener('resize', soon)
+    document.addEventListener('visibilitychange', soon)
+    document.addEventListener('transitionend', soon, true)
+    // slide-in animations move the placeholder without resizing it
+    const tick = active ? window.setInterval(place, 300) : 0
     return () => {
-      wv?.removeEventListener('did-navigate', apply)
-      wv?.removeEventListener('did-stop-loading', apply)
+      cancelAnimationFrame(frame)
+      ro.disconnect()
+      mo.disconnect()
+      window.removeEventListener('resize', soon)
+      document.removeEventListener('visibilitychange', soon)
+      document.removeEventListener('transitionend', soon, true)
+      window.clearInterval(tick)
     }
-  }, [zoom, ready])
+  }, [active, label, zoom])
 
   const pickDevice = (key: string): void => {
     const next = DEVICES.find((d) => d.key === key) ?? DEVICES[0]
@@ -203,10 +209,7 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
       /* per-viewer convenience only */
     }
     // phone/tablet ↔ desktop changes the browser identity; the page reloads to pick it up
-    if ((next.ua ?? '') !== (device.ua ?? '') && ready) {
-      ref.current?.setUserAgent(next.ua ?? navigator.userAgent)
-      ref.current?.reload()
-    }
+    if ((next.ua ?? '') !== (device.ua ?? '')) void window.api.browser.setUserAgent(label, next.ua ?? null)
     setDeviceKey(key)
   }
 
@@ -215,7 +218,7 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
     setClearing(true)
     try {
       await window.api.app.clearBrowserCache()
-      ref.current?.reloadIgnoringCache()
+      window.api.browser.reload(label, true)
     } finally {
       setClearing(false)
     }
@@ -224,7 +227,8 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
   const go = (to = toUrl(address)): void => {
     setAddress(to)
     setSugg([])
-    ref.current?.loadURL(to).catch(() => {})
+    shown.current = to
+    void window.api.browser.navigate(label, to).catch(() => {})
   }
 
   // address-bar suggestions from bookmarks + history
@@ -244,13 +248,13 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
   return (
     <div className="browser-tab">
       <div className="browser-bar">
-        <button className="icon-btn" title="Back" disabled={!nav.back} onClick={() => ref.current?.goBack()}>
+        <button className="icon-btn" title="Back" disabled={!nav.back} onClick={() => window.api.browser.back(label)}>
           <ArrowLeft size={15} />
         </button>
-        <button className="icon-btn" title="Forward" disabled={!nav.fwd} onClick={() => ref.current?.goForward()}>
+        <button className="icon-btn" title="Forward" disabled={!nav.fwd} onClick={() => window.api.browser.forward(label)}>
           <ArrowRight size={15} />
         </button>
-        <button className="icon-btn" title={loading ? 'Stop' : 'Reload'} onClick={() => (loading ? ref.current?.stop() : ref.current?.reload())}>
+        <button className="icon-btn" title={loading ? 'Stop' : 'Reload'} onClick={() => (loading ? window.api.browser.stop(label) : window.api.browser.reload(label))}>
           {loading ? <X size={15} /> : <RotateCw size={14} />}
         </button>
         <div className="browser-address-wrap">
@@ -308,14 +312,8 @@ export function BrowserTab({ chatKey, tabId, active }: { chatKey: string; tabId:
       <BookmarkBar onOpen={(u) => go(u)} />
       {loading && <div className="browser-progress" />}
       <div className={`browser-stage${box ? ' emulated' : ''}`} ref={stageRef}>
-        <webview
-          ref={ref as React.Ref<HTMLWebViewElement>}
-          className="browser-view"
-          style={box ? { width: box.w, height: box.h, flex: 'none' } : undefined}
-          src={initial}
-          partition="persist:tinjs-browser"
-          {...(initialUa ? { useragent: initialUa } : {})}
-        />
+        {/* placeholder: the native page is laid over exactly this box */}
+        <div ref={viewRef} className="browser-view" style={box ? { width: box.w, height: box.h, flex: 'none' } : undefined} />
       </div>
     </div>
   )

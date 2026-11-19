@@ -14,14 +14,16 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
       - run: npm ci
-      # unsigned build: no Apple Developer certificate configured
-      - run: npm run dist:mac
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # unsigned universal build: no Apple Developer certificate configured
+      - run: npx tauri build --target universal-apple-darwin --bundles dmg,app
       - uses: actions/upload-artifact@v4
         with:
           name: vibe-code-mac
-          path: |
-            dist/*.dmg
-            dist/*.zip
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg

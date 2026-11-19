@@ -1,3 +1,4 @@
+import type { VibeDrop } from '../../api'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -247,15 +248,34 @@ export function ZaloChat({ thread, self, online, changed, typing, draft, setDraf
     if (ok.length) setAttach((a) => [...(a ?? []), ...ok])
   }
 
+  // files dropped from Explorer (routed here by the window, see api.ts)
+  const chatRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = chatRef.current
+    if (!el) return
+    const onDrop = (ev: Event): void => {
+      const d = (ev as CustomEvent<VibeDrop>).detail
+      if (!d.paths.length) return
+      if (d.kind === 'drop') {
+        setDragging(false)
+        addFiles(d.paths)
+      } else setDragging(d.kind === 'enter')
+    }
+    el.addEventListener('vibe-drop', onDrop)
+    return () => el.removeEventListener('vibe-drop', onDrop)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const onPaste = async (e: React.ClipboardEvent): Promise<void> => {
     const files = [...e.clipboardData.files]
     if (!files.length) return
     e.preventDefault()
-    const paths: string[] = []
-    for (const f of files) {
-      const p = window.api.app.pathFor(f)
-      if (p) paths.push(p)
-      else if (f.type.startsWith('image/')) paths.push(await window.api.app.saveImage(new Uint8Array(await f.arrayBuffer()), f.type.split('/')[1] || 'png'))
+    // files copied in Explorer: the page only sees their bytes, the clipboard knows their paths
+    const paths: string[] = await window.api.app.clipboardFiles().catch(() => [])
+    if (!paths.length) {
+      for (const f of files) {
+        if (f.type.startsWith('image/')) paths.push(await window.api.app.saveImage(new Uint8Array(await f.arrayBuffer()), f.type.split('/')[1] || 'png'))
+      }
     }
     addFiles(paths)
   }
@@ -400,9 +420,7 @@ export function ZaloChat({ thread, self, online, changed, typing, draft, setDraf
       className={'zl-chat' + (showInfo ? ' with-info' : '')}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      onDragEnter={(e) => {
-        if (e.dataTransfer.types.includes('Files')) setDragging(true)
-      }}
+      ref={chatRef}
     >
       <div className="zl-chat-col">
         <header className="zl-head">
@@ -498,18 +516,7 @@ export function ZaloChat({ thread, self, online, changed, typing, draft, setDraf
       {showInfo && <InfoPanel thread={thread} info={info} msgs={msgs} onClose={() => setShowInfo(false)} onMedia={setMedia} onJump={jumpTo} />}
 
       {dragging && (
-        <div
-          className="zl-drop"
-          onDragOver={(e) => e.preventDefault()}
-          onDragLeave={(e) => {
-            if (e.currentTarget === e.target) setDragging(false)
-          }}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragging(false)
-            addFiles([...e.dataTransfer.files].map((f) => window.api.app.pathFor(f)))
-          }}
-        >
+        <div className="zl-drop">
           <div className="zl-drop-box">
             <Paperclip size={30} />
             <b>Thả file vào đây để gửi</b>

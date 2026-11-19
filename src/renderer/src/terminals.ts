@@ -1,3 +1,4 @@
+import type { VibeDrop } from './api'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -412,31 +413,19 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
       if (!files.length) return
       ev.preventDefault()
       ev.stopPropagation()
-      takeFiles(spawn.id, spawn.kind, files)
+      void takeFiles(spawn.id, spawn.kind, files)
     },
     true
   )
-  // Drop files (pictures or anything else) onto the chat → the attachment tray.
-  let dragDepth = 0
-  const hasFiles = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes('Files')
-  el.addEventListener('dragenter', (ev) => {
-    if (!hasFiles(ev)) return
-    dragDepth++
-    el.classList.add('drop-hover')
-  })
-  el.addEventListener('dragleave', () => {
-    if (--dragDepth <= 0) {
-      dragDepth = 0
-      el.classList.remove('drop-hover')
+  // Drop files from Explorer (pictures or anything else) onto the chat → the attachment tray.
+  el.addEventListener('vibe-drop', (ev) => {
+    const d = (ev as CustomEvent<VibeDrop>).detail
+    if (d.kind === 'enter') el.classList.add('drop-hover')
+    else if (d.kind === 'leave') el.classList.remove('drop-hover')
+    else {
+      takePaths(spawn.id, spawn.kind, d.paths)
+      term.focus()
     }
-  })
-  el.addEventListener('dragover', (ev) => ev.preventDefault())
-  el.addEventListener('drop', (ev) => {
-    ev.preventDefault()
-    dragDepth = 0
-    el.classList.remove('drop-hover')
-    takeFiles(spawn.id, spawn.kind, [...(ev.dataTransfer?.files ?? [])])
-    term.focus()
   })
   // Right-click: copy the selection, or paste when nothing is selected.
   el.addEventListener('contextmenu', (ev) => {
@@ -544,13 +533,14 @@ const quotePath = (p: string): string => (/\s/.test(p) ? `"${p}"` : p)
  * Files from a drop / paste. A chat puts them in its attachment tray (clipboard pictures saved to
  * temp first); a plain shell just gets the paths typed in.
  */
-function takeFiles(id: string, kind: PtySpawnOptions['kind'], files: File[]): void {
-  const paths: string[] = []
-  for (const f of files) {
-    const p = window.api.app.pathFor(f)
-    if (p) paths.push(p)
-    else if (f.type.startsWith('image/') && kind === 'claude') attachBlob(id, f)
-  }
+async function takeFiles(id: string, kind: PtySpawnOptions['kind'], files: File[]): Promise<void> {
+  // files copied in Explorer: the page only sees their bytes, the clipboard knows their paths
+  const copied: string[] = await window.api.app.clipboardFiles().catch(() => [])
+  if (copied.length) return takePaths(id, kind, copied)
+  for (const f of files) if (f.type.startsWith('image/') && kind === 'claude') await attachBlob(id, f)
+}
+
+function takePaths(id: string, kind: PtySpawnOptions['kind'], paths: string[]): void {
   if (kind === 'claude') attachPaths(id, paths)
   else if (paths.length) writeToTerm(id, paths.map(quotePath).join(' ') + ' ')
 }
