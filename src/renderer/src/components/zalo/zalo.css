@@ -1,7 +1,8 @@
 /* ================= Zalo tab — Telegram-style messenger ================= */
 
 .zl-pane,
-.zl-login {
+.zl-login,
+.zl-ctx {
   --zl-accent: #5b8def;
   --zl-accent-2: #79a3ff;
   --zl-side: var(--bg-1);
@@ -34,7 +35,8 @@
   color: var(--text);
 }
 :root[data-theme='light'] .zl-pane,
-:root[data-theme='light'] .zl-login {
+:root[data-theme='light'] .zl-login,
+:root[data-theme='light'] .zl-ctx {
   --zl-accent: #3d74e8;
   --zl-accent-2: #2a5fd0;
   --zl-row-on: linear-gradient(135deg, #4a80f0 0%, #3466d8 100%);
@@ -897,6 +899,8 @@
 
 .zl-ctx {
   position: fixed;
+  display: block;
+  flex: none;
   z-index: 41;
   min-width: 220px;
   border-radius: 14px;
@@ -1084,6 +1088,9 @@ button.zl-info-row:hover { background: var(--w-06) !important; }
 .zt-del { flex: none; opacity: 0; padding: 3px; border-radius: 6px; color: var(--zl-meta); }
 .zt-row:hover .zt-del { opacity: 1; }
 .zt-del:hover { color: var(--zl-red); }
+.zt-more { flex: none; padding: 2px 3px; border-radius: 6px; color: var(--zl-meta); opacity: 0.55; }
+.zt-row:hover .zt-more { opacity: 1; }
+.zt-more:hover { color: var(--text); background: var(--w-0a); }
 /* realtime: messages being turned into tasks */
 .zt-inc { margin: 8px 10px 0; padding: 8px 10px 0; border-radius: 10px; background: color-mix(in srgb, var(--accent, #3b82f6) 10%, transparent); overflow: hidden; display: flex; flex-direction: column; gap: 6px; }
 .zt-inc-h { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--accent, #3b82f6); }

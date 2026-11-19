@@ -98,6 +98,10 @@ const SNAPSHOT_JS = `(() => {
       .replace(/\\s+/g, ' ').trim().slice(0, 80)
     let line = '[' + n + '] ' + kind + ' "' + label + '"'
     if (tag === 'a') line += ' -> ' + (el.getAttribute('href') || '').slice(0, 120)
+    // what the user has typed / picked so far, so a half-filled form can be read without reloading
+    if (tag === 'input' || tag === 'textarea') {
+      if (el.type !== 'checkbox' && el.type !== 'radio' && el.type !== 'password' && el.value) line += ' value="' + String(el.value).slice(0, 120) + '"'
+    } else if (tag === 'select' && el.selectedIndex >= 0) line += ' selected="' + (el.options[el.selectedIndex].text || '').trim().slice(0, 80) + '"'
     if (el.disabled) line += ' (disabled)'
     if (el.checked) line += ' (checked)'
     elements.push(line)
@@ -163,13 +167,18 @@ const target = {
 const TOOLS = [
   {
     name: 'browser_navigate',
-    description: "Open a URL in this chat's Web tab (the built-in browser the user sees). Waits for the page to load.",
-    inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] }
+    description:
+      "Open a URL in this chat's Web tab (the built-in browser the user sees). Waits for the page to load. Do NOT use it to look at the page the user already has open — that throws away what they typed; use browser_snapshot instead. Opening the URL that is already loaded is a no-op unless `reload` is true.",
+    inputSchema: {
+      type: 'object',
+      properties: { url: { type: 'string' }, reload: { type: 'boolean', description: 'Reload even if this URL is already open (loses unsaved form input). Only when the user asks.' } },
+      required: ['url']
+    }
   },
   {
     name: 'browser_snapshot',
     description:
-      'Read the current page: URL, title, visible text, and a numbered list of interactive elements. Use the numbers as `ref` for browser_click / browser_type. Take a new snapshot after the page changes.',
+      'Start here. Reads the page that is open in the Web tab right now, exactly as the user left it (no reload): URL, title, visible text, and a numbered list of interactive elements with their current values. Use the numbers as `ref` for browser_click / browser_type. Take a new snapshot after the page changes.',
     inputSchema: { type: 'object', properties: {} }
   },
   {
@@ -220,6 +229,9 @@ async function callTool(chatId: string, name: string, args: Record<string, unkno
     case 'browser_navigate': {
       const url = String(args.url ?? '')
       if (!/^(https?|file):/i.test(url)) throw new Error('Only http(s) and file URLs.')
+      const same = (a: string, b: string): boolean => a.replace(/#.*$/, '').replace(/\/$/, '') === b.replace(/#.*$/, '').replace(/\/$/, '')
+      if (!args.reload && same(wc.getURL(), url))
+        return text(`Already open: ${wc.getURL()} — "${wc.getTitle()}". Not reloaded, so the user's form input is kept. Use browser_snapshot to read it.`)
       await wc.loadURL(url)
       return text(`Loaded ${wc.getURL()} — "${wc.getTitle()}"`)
     }
@@ -316,7 +328,11 @@ async function handleRpc(chatId: string, msg: RpcRequest, kind: string): Promise
         protocolVersion: (msg.params?.protocolVersion as string) ?? '2025-06-18',
         capabilities: { tools: {} },
         serverInfo: { name: SERVER_NAME, version: '0.1.0' },
-        instructions: "These tools drive the Web tab of this chat in VIBE CODE — the browser the user is looking at. Use them when the user refers to 'the browser', 'the web page' or 'tab Web'."
+        instructions:
+          "These tools drive the Web tab of this chat in VIBE CODE — the browser the user is looking at. Use them when the user refers to 'the browser', 'the web page', 'this page/form/screen', 'tab Web', or something visible on the page they have open " +
+          "(prefer them over Chrome or other browser tools: this is the page the user means). " +
+          'The page is usually already open, often mid-way through a form: start with browser_snapshot (or browser_screenshot) to see it as it is. ' +
+          'Do not navigate to it again, reload it, or open a new copy unless the user asks — that would wipe what they typed. Only call browser_navigate to go to a different page.'
       }
     case 'ping':
       return {}

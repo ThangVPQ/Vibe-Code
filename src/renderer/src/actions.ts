@@ -81,6 +81,7 @@ onTerminalEvents({
     // projects here); the bypass warning too when the chat or its project runs in bypass mode.
     const bypass = !!st().projectBypass[folderKey(chat.cwd)] || chat.permissionMode === 'bypassPermissions'
     if (agentDef(chat.agent).id === 'claude') answerStartupDialog(id, bypass)
+    if (pendingDraft.has(id)) typeDraftWhenReady(id)
     const text = ((outTail.get(id) ?? '') + data.replace(ANSI, '')).slice(-400)
     outTail.set(id, text)
     const seen = seenLocal.get(id) ?? new Set<string>()
@@ -156,6 +157,27 @@ function answerStartupDialog(id: string, acceptBypass: boolean, tries = 0): void
       else return // can't tell which option is selected: leave it to you
       if (tries < 6) answerStartupDialog(id, acceptBypass, tries + 1)
     }, tries ? 450 : 250)
+  )
+}
+
+/** text to type into a new chat's input box (not sent) once Claude is ready for it */
+const pendingDraft = new Map<string, string>()
+const draftTimer = new Map<string, ReturnType<typeof setTimeout>>()
+function typeDraftWhenReady(id: string): void {
+  clearTimeout(draftTimer.get(id))
+  draftTimer.set(
+    id,
+    setTimeout(() => {
+      draftTimer.delete(id)
+      const text = pendingDraft.get(id)
+      if (!text || !st().chats.some((c) => c.id === id)) return pendingDraft.delete(id)
+      const screen = readScreen(id)
+      // still on a startup dialog, or the input box isn't drawn yet
+      if (/Enter to confirm/i.test(screen) || !/for shortcuts|shift\+tab|bypass permissions|─{10,}/i.test(screen)) return
+      pendingDraft.delete(id)
+      writeToTerm(id, text)
+      focusTerm(id)
+    }, 600)
   )
 }
 
@@ -352,6 +374,8 @@ interface NewChatOpts {
   agent?: AgentId
   /** first message, sent as soon as Claude starts (one line) */
   prompt?: string
+  /** first message typed into the input box but not sent: you finish and send it yourself */
+  draft?: string
 }
 
 export function newChat(opts: NewChatOpts = {}): void {
@@ -389,6 +413,7 @@ export function newChat(opts: NewChatOpts = {}): void {
     effort,
     permissionMode
   }
+  if (opts.draft) pendingDraft.set(chat.id, opts.draft)
   createTerm({ id: chat.id, cwd: chat.cwd, kind: 'claude', claudeArgs: args })
   useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id }))
 }
@@ -506,8 +531,8 @@ export async function newChatFromZaloTask(taskId: string, title: string, project
     agent: 'claude',
     title: title.slice(0, 60),
     pinnedTitle: true,
-    // ASCII only: it goes through the shell's command line; the Vietnamese instructions are in the file
-    prompt: `Read the Zalo task context file ${ctx.file}${extra} and follow the instructions at its top.`
+    // typed into the input box, not sent: you add your own notes and press Enter yourself
+    draft: `Read the Zalo task context file ${ctx.file}${extra} and follow the instructions at its top. `
   })
 }
 

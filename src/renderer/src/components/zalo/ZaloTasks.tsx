@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Circle, CircleCheck, CircleDot, ClipboardList, Folder, FolderOpen, Loader2, MessageSquarePlus, RefreshCw, Sparkles, Trash2, Users } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Check, ChevronDown, Circle, CircleCheck, CircleDot, ClipboardList, Ellipsis, Folder, FolderOpen, Loader2, MessageSquarePlus, RefreshCw, Sparkles, Trash2, Users } from 'lucide-react'
 import type { ZaloIncoming, ZaloTask, ZaloTasksState } from '../../../../shared/types'
 import { listTime } from './util'
 import { Avatar } from './Avatar'
@@ -185,6 +186,16 @@ function Row({ t, tag, onMenu }: { t: ZaloTask; tag?: 'new' | 'updated'; onMenu:
           {tag === 'updated' && <span className="zt-new upd">cập nhật</span>}
         </span>
       </div>
+      <button
+        className="zt-more"
+        title="Tuỳ chọn: trạng thái, mở chat code…"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          onMenu(r.right - 4, r.bottom + 4)
+        }}
+      >
+        <Ellipsis size={15} />
+      </button>
       <button className="zt-del" title="Xoá khỏi danh sách" onClick={() => void window.api.zalo.removeTask(t.id)}>
         <Trash2 size={13} />
       </button>
@@ -237,7 +248,8 @@ function TaskMenu({ t, x, y, onClose, onChat }: { t: ZaloTask; x: number; y: num
     onClose()
     fn()
   }
-  return (
+  // portal to <body>: a transformed/blurred ancestor would offset position:fixed
+  return createPortal(
     <>
       <div
         className="zl-scrim"
@@ -282,6 +294,7 @@ function TaskMenu({ t, x, y, onClose, onChat }: { t: ZaloTask; x: number; y: num
           )}
         </div>
       </div>
-    </>
+    </>,
+    document.body
   )
 }

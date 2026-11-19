@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertCircle,
   ArrowDown,
@@ -1143,7 +1144,8 @@ function ContextMenu({
     fn()
   }
   const recent = Date.now() - m.ts < 24 * 3600_000
-  return (
+  // portal to <body>: a transformed/blurred ancestor would offset position:fixed
+  return createPortal(
     <>
       <div
         className="zl-scrim"
@@ -1190,7 +1192,8 @@ function ContextMenu({
         </div>
         <div className="zl-ctx-time">{new Date(m.ts).toLocaleString('vi-VN')}</div>
       </div>
-    </>
+    </>,
+    document.body
   )
 }
 
