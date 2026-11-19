@@ -49,17 +49,34 @@ export function ZaloTasks(): React.JSX.Element {
   }, [s.unseen, s.changed, s.fresh])
 
   useEffect(() => {
-    void window.api.zalo.tasks().then((st) => {
-      setS(st)
+    // a fetch answered after a newer push must not put the older list back (a task you just
+    // ticked flipped back): every push or new fetch makes the ones in flight stale
+    let seq = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const fetchTasks = (): Promise<ZaloTasksState> => {
+      const my = ++seq
+      return window.api.zalo.tasks().then((st) => {
+        if (my === seq) setS(st)
+        return st
+      })
+    }
+    void fetchTasks().then((st) => {
       // first look of the day: refresh once on its own
       if (!st.running && Date.now() - st.analyzedAt > 30 * 60_000) void window.api.zalo.analyzeTasks()
     })
-    const offT = window.api.zalo.onTasks(setS)
-    // avatars arrive with profile fetches → refresh so they show up
-    const offC = window.api.zalo.onChanged(() => void window.api.zalo.tasks().then(setS))
+    const offT = window.api.zalo.onTasks((st) => {
+      seq++
+      setS(st)
+    })
+    // avatars arrive with profile fetches (in bursts) → one refresh after the burst so they show up
+    const offC = window.api.zalo.onChanged(() => {
+      clearTimeout(timer)
+      timer = setTimeout(() => void fetchTasks(), 300)
+    })
     return () => {
       offT()
       offC()
+      clearTimeout(timer)
     }
   }, [])
 

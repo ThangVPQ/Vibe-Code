@@ -33,15 +33,27 @@ export function TerminalView({ id, autoFocus = true }: { id: string; autoFocus?:
   useEffect(() => {
     const el = ref.current!
     attachTerm(id, el, autoFocus)
+    // A fit that changes the column count re-wraps the whole scrollback: while a panel is dragged,
+    // at most ~12 a second (the last size always gets one), not one every frame.
     let raf = 0
+    let last = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const run = (): void => {
+      last = performance.now()
+      fitTerm(id)
+    }
     const ro = new ResizeObserver(() => {
+      clearTimeout(timer)
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => fitTerm(id))
+      const wait = 80 - (performance.now() - last)
+      if (wait <= 0) raf = requestAnimationFrame(run)
+      else timer = setTimeout(() => (raf = requestAnimationFrame(run)), wait)
     })
     ro.observe(el)
     return () => {
       ro.disconnect()
       cancelAnimationFrame(raf)
+      clearTimeout(timer)
       detachTerm(id)
     }
   }, [id, autoFocus])
@@ -366,7 +378,7 @@ function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
     }
     load()
     const off = window.api.sessions.onChanged((ids) => {
-      if (!ids.includes(sessionId)) return
+      if (!ids.includes(sessionId) && !ids.includes('*')) return
       clearTimeout(timer)
       timer = setTimeout(load, 400)
     })

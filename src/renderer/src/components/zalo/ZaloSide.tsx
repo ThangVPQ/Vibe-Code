@@ -25,9 +25,14 @@ export function ZaloSideGroup({ filter }: { filter: string }): React.JSX.Element
   })
 
   useEffect(() => {
-    void window.api.zalo.tasks().then(setS)
+    // a push that beats the first fetch is newer: the fetch must not overwrite it
+    let pushed = false
+    void window.api.zalo.tasks().then((st) => !pushed && setS(st))
     void window.api.zalo.state().then((z) => setOnline(z.status === 'online'))
-    const offT = window.api.zalo.onTasks(setS)
+    const offT = window.api.zalo.onTasks((st) => {
+      pushed = true
+      setS(st)
+    })
     const offS = window.api.zalo.onState((z) => setOnline(z.status === 'online'))
     return () => {
       offT()

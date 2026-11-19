@@ -106,6 +106,32 @@ pub async fn claude_set_project_bypass(folder: String, on: bool) -> Res<bool> {
     Ok(on)
 }
 
+/* ---------------- system memory ---------------- */
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemInfo {
+    used_bytes: u64,
+    total_bytes: u64,
+}
+
+/// Physical RAM in use across the whole machine (what Task Manager's Memory shows).
+#[tauri::command]
+pub fn sys_memory() -> Option<MemInfo> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut m = MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+        // SAFETY: plain out-param struct with dwLength set as the API requires.
+        unsafe { GlobalMemoryStatusEx(&mut m) }.ok()?;
+        Some(MemInfo { used_bytes: m.ullTotalPhys - m.ullAvailPhys, total_bytes: m.ullTotalPhys })
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 /* ---------------- settings ---------------- */
 
 #[tauri::command]

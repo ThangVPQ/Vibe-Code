@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ExternalLink, Laptop, Maximize, Monitor, RotateCw, Eraser, Smartphone, Star, Tablet, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, Laptop, Maximize, Monitor, RotateCw, Eraser, Search, Shuffle, Smartphone, Star, Tablet, X } from 'lucide-react'
 import type { WebSuggestion } from '../../../shared/types'
 import { BookmarkBar } from './BrowserBookmarks'
 import { useStore } from '../store'
 import { HOME_URL, setBrowserUrl } from '../actions'
 import { SlidePill } from './motion'
+
+/** transitions that never move anything (a slide or scale can move the page, so those still count) */
+const COLOR_ONLY = new Set(['background-color', 'color', 'opacity', 'box-shadow', 'border-color', 'outline-color', 'fill', 'stroke', 'text-decoration-color'])
 
 /** Typed text → URL: keep real URLs, add https:// to bare hosts, search everything else. */
 function toUrl(input: string): string {
@@ -79,6 +82,8 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
   const [initialUa] = useState(device.ua)
   const [box, setBox] = useState<{ w: number; h: number; zoom: number } | null>(null)
   const addressRef = useRef<HTMLInputElement>(null)
+  // blank tab: the native page is hidden and a start page with a random photo shows instead
+  const [home, setHome] = useState(url === HOME_URL)
 
   /*
    * A blank tab puts the cursor in the address bar — without scrolling: focusing an input inside the
@@ -110,6 +115,7 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
         setLoading(n.loading)
         setNav({ back: n.back, fwd: n.fwd })
         if (!n.url) return
+        if (!n.loading || n.url !== HOME_URL) setHome(n.url === HOME_URL)
         if (n.url !== shown.current && !n.loading) window.api.browser.visit(n.url)
         if (n.title) window.api.browser.title(n.url, n.title)
         if (document.activeElement !== addressRef.current) setAddress(display(n.url))
@@ -129,6 +135,7 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
     if (url !== shown.current) {
       shown.current = url
       setAddress(display(url))
+      setHome(url === HOME_URL)
       void window.api.browser.navigate(label, url).catch(() => {})
     }
   }, [url, label])
@@ -174,7 +181,7 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
       const r = el.getBoundingClientRect()
       const fits = r.width > 4 && r.height > 4 && document.visibilityState === 'visible' && !el.closest('.browser-tab-pane:not(.on)')
       const covered = fits && [...document.querySelectorAll(OVERLAYS)].some((o) => overlaps(o.getBoundingClientRect(), r))
-      const visible = fits && !covered
+      const visible = fits && !covered && !home
       const key = visible ? `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)},${zoom}` : 'off'
       if (key === last) return
       last = key
@@ -193,14 +200,35 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
     if (!live) return
     const ro = new ResizeObserver(soon)
     ro.observe(el)
-    // menus / dialogs opening, panes sliding, the chat switching
-    const mo = new MutationObserver(soon)
+    // menus / dialogs opening, panes sliding, the chat switching. Changes inside a terminal or an
+    // editor (every line of output, the cursor) can't move the page or cover it: skip those.
+    const mo = new MutationObserver((recs) => {
+      for (const r of recs) {
+        const el = r.target instanceof Element ? r.target : r.target.parentElement
+        if (el && !el.closest('.xterm, .monaco-editor')) return soon()
+      }
+    })
     mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] })
     window.addEventListener('resize', soon)
     document.addEventListener('visibilitychange', soon)
     document.addEventListener('transitionend', soon, true)
-    // slide-in animations move the placeholder without resizing it
-    const tick = window.setInterval(place, 300)
+    // slide-in animations move the placeholder without resizing it: follow it frame by frame while
+    // one runs (instead of measuring every 300 ms forever), plus a slow check as a safety net
+    let until = 0
+    let loop = 0
+    const step = (): void => {
+      place()
+      loop = performance.now() < until ? requestAnimationFrame(step) : 0
+    }
+    const follow = (e: Event): void => {
+      // hover colours and fades can't move the page
+      if (e instanceof TransitionEvent && COLOR_ONLY.has(e.propertyName)) return
+      until = performance.now() + 700
+      if (!loop) loop = requestAnimationFrame(step)
+    }
+    document.addEventListener('transitionrun', follow, true)
+    document.addEventListener('animationstart', follow, true)
+    const tick = window.setInterval(place, 1000)
     return () => {
       cancelAnimationFrame(frame)
       ro.disconnect()
@@ -209,8 +237,11 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
       document.removeEventListener('visibilitychange', soon)
       document.removeEventListener('transitionend', soon, true)
       window.clearInterval(tick)
+      cancelAnimationFrame(loop)
+      document.removeEventListener('transitionrun', follow, true)
+      document.removeEventListener('animationstart', follow, true)
     }
-  }, [live, label, zoom])
+  }, [live, label, zoom, home])
 
   const pickDevice = (key: string): void => {
     const next = DEVICES.find((d) => d.key === key) ?? DEVICES[0]
@@ -236,8 +267,10 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
   }
 
   const go = (to = toUrl(address)): void => {
+    typed.current = '' // a suggestion request still on its way must not reopen the list over the page
     setAddress(to)
     setSugg([])
+    setHome(to === HOME_URL)
     shown.current = to
     void window.api.browser.navigate(label, to).catch(() => {})
   }
@@ -277,10 +310,16 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
             placeholder="Search or type a URL"
             onChange={(e) => onType(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
-            onBlur={() => setTimeout(() => setSugg([]), 120)}
+            onBlur={() => {
+              typed.current = ''
+              setTimeout(() => setSugg([]), 120)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') go(pick >= 0 && sugg[pick] ? sugg[pick].url : undefined)
-              else if (e.key === 'Escape') setSugg([])
+              else if (e.key === 'Escape') {
+                typed.current = ''
+                setSugg([])
+              }
               else if (e.key === 'ArrowDown' && sugg.length) {
                 e.preventDefault()
                 setPick((i) => (i + 1) % sugg.length)
@@ -324,7 +363,61 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
       <div className={`browser-stage${box ? ' emulated' : ''}`} ref={stageRef}>
         {/* placeholder: the native page is laid over exactly this box */}
         <div ref={viewRef} className="browser-view" style={box ? { width: box.w, height: box.h, flex: 'none' } : undefined} />
+        {home && <StartPage onGo={(text) => go(toUrl(text))} />}
       </div>
+    </div>
+  )
+}
+
+/* ---------------- start page ---------------- */
+
+/** A random landscape photo (Unsplash pictures via picsum.photos, no key needed). */
+const randomPhoto = (): string => `https://picsum.photos/seed/${Math.random().toString(36).slice(2, 10)}/1920/1080`
+
+/** Blank tab: a new random photo every time, a clock and a search box — like a browser's new tab page. */
+function StartPage({ onGo }: { onGo: (text: string) => void }): React.JSX.Element {
+  const [photo, setPhoto] = useState(randomPhoto)
+  const [ready, setReady] = useState<string | null>(null)
+  const [now, setNow] = useState(() => new Date())
+  const [q, setQ] = useState('')
+
+  // show the photo only once it has loaded, so it fades in instead of painting line by line
+  useEffect(() => {
+    const img = new Image()
+    // a shuffle before this one loaded: the older photo must not land last
+    img.onload = () => setReady(photo)
+    img.src = photo
+    return () => {
+      img.onload = null
+      img.src = ''
+    }
+  }, [photo])
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 10000)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <div className="start-page">
+      <div className={`start-photo${ready ? ' on' : ''}`} style={ready ? { backgroundImage: `url("${ready}")` } : undefined} />
+      <div className="start-content">
+        <div className="start-clock">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="start-date">{now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+        <form
+          className="start-search"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (q.trim()) onGo(q)
+          }}
+        >
+          <Search size={16} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Google or type a URL" spellCheck={false} />
+        </form>
+      </div>
+      <button className="start-shuffle" title="Another photo" onClick={() => setPhoto(randomPhoto())}>
+        <Shuffle size={14} />
+      </button>
     </div>
   )
 }

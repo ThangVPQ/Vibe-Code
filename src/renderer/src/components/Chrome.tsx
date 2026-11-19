@@ -153,7 +153,11 @@ function OpacityControl(): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [val, setVal] = useState(saved)
   const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => setVal(saved), [saved])
+  // while the slider is open it shows what you drag, not a (possibly older) saved answer
+  useEffect(() => {
+    if (!open) setVal(saved)
+  }, [saved, open])
+  const saveSeq = useRef(0)
   useEffect(() => {
     if (!open) return
     const close = (e: MouseEvent): void => {
@@ -164,8 +168,10 @@ function OpacityControl(): React.JSX.Element {
   }, [open])
   const save = async (v: number): Promise<void> => {
     setVal(v)
+    const my = ++saveSeq.current
     const settings = await window.api.app.setSettings({ dropOpacity: v }).catch(() => null)
-    if (settings) useStore.setState({ settings })
+    // answers to earlier drags come back late: only the last one counts
+    if (settings && my === saveSeq.current) useStore.setState({ settings })
   }
   return (
     <div className="opacity-ctl" ref={ref}>
@@ -316,10 +322,9 @@ function UsageMeters(): React.JSX.Element | null {
       clearInterval(t)
     }
   }, [])
-  if (!limits?.length) return null
   return (
-    <div className="usage-meters" title="Plan usage limits">
-      {limits.map((l) => (
+    <div className="usage-meters">
+      {limits?.map((l) => (
         <div key={l.kind + l.label} className={`usage-meter sev-${l.severity}`} title={`${l.label}: ${l.percent}% used · resets ${resetLabel(l.resetsAt)}`}>
           <span className="usage-label">{l.label}</span>
           <span className="usage-bar">
@@ -329,6 +334,40 @@ function UsageMeters(): React.JSX.Element | null {
           {l.resetsAt && <span className="usage-reset">↻ {resetLabel(l.resetsAt)}</span>}
         </div>
       ))}
+      <RamMeter />
+    </div>
+  )
+}
+
+/** Machine-wide RAM in use, refreshed every 5 seconds. */
+function RamMeter(): React.JSX.Element | null {
+  const [mem, setMem] = useState<{ usedBytes: number; totalBytes: number } | null>(null)
+  useEffect(() => {
+    let live = true
+    const load = (): void => {
+      window.api.claude.memory?.().then((m) => live && setMem(m)).catch(() => {})
+    }
+    load()
+    const t = setInterval(load, 5000)
+    return () => {
+      live = false
+      clearInterval(t)
+    }
+  }, [])
+  if (!mem?.totalBytes) return null
+  const percent = Math.round((mem.usedBytes / mem.totalBytes) * 100)
+  const gb = (b: number): string => (b / 1024 ** 3).toFixed(1)
+  const severity = percent >= 90 ? 'critical' : percent >= 75 ? 'warning' : 'normal'
+  return (
+    <div className={`usage-meter sev-${severity}`} title={`RAM: ${gb(mem.usedBytes)} GB of ${gb(mem.totalBytes)} GB in use`}>
+      <span className="usage-label">RAM</span>
+      <span className="usage-bar">
+        <span style={{ width: `${Math.min(100, percent)}%` }} />
+      </span>
+      <span className="usage-pct">{percent}%</span>
+      <span className="usage-reset">
+        {gb(mem.usedBytes)}/{gb(mem.totalBytes)} GB
+      </span>
     </div>
   )
 }

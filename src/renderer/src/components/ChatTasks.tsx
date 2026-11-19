@@ -26,7 +26,7 @@ export function useChatTasks(sessionId: string | undefined): ChatTask[] {
     }
     load()
     const off = window.api.sessions.onChanged((ids) => {
-      if (!ids.includes(sessionId)) return
+      if (!ids.includes(sessionId) && !ids.includes('*')) return
       clearTimeout(timer)
       timer = setTimeout(load, 700)
     })
@@ -51,6 +51,14 @@ const took = (t: ChatTask): string => (t.endedAt ? dur(t.endedAt - t.startedAt) 
 
 export function ChatTasks({ tasks }: { tasks: ChatTask[] }): React.JSX.Element {
   const [open, setOpen] = useState<string | null>(null)
+  // "running 4s" is computed at render: tick while something runs, or it stays frozen
+  const [, tick] = useState(0)
+  const anyRunning = tasks.some((t) => t.status === 'running')
+  useEffect(() => {
+    if (!anyRunning) return
+    const i = setInterval(() => tick((n) => n + 1), 1000)
+    return () => clearInterval(i)
+  }, [anyRunning])
   if (!tasks.length) return <div className="chat-tasks"><div className="chat-images-empty">No background tasks in this chat yet. When Claude runs something in the background (a build, a dev server…), it shows up here.</div></div>
   return (
     <div className="chat-tasks">

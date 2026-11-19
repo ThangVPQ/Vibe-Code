@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, lazy, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Code2, Columns2, Database, FileDiff, FileText, Rows2, X, Command, GitCompare, Globe, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
@@ -216,7 +216,8 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
 }
 
 /** Left column of Source code: the project's files, or its Git changes (click one for the diff). */
-function CodeSide(): React.JSX.Element {
+// memo (no props): EditorArea re-renders whenever any web page changes its address or title
+const CodeSide = memo(function CodeSide(): React.JSX.Element {
   // in the store: Ctrl+Shift+E / Ctrl+Shift+G switch it
   const side = useStore((s) => s.codeSide)
   const setSide = (codeSide: 'files' | 'changes'): void => useStore.setState({ codeSide })
@@ -237,13 +238,21 @@ function CodeSide(): React.JSX.Element {
       {hasRoot && (side === 'files' ? <ExplorerView /> : <ChangesView />)}
     </div>
   )
-}
+})
 
-function CodeArea(): React.JSX.Element {
+const CodeArea = memo(function CodeArea(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const activeId = useStore((s) => s.activeTabId)
   const active = tabs.find((t) => t.id === activeId) ?? null
   const stripRef = useRef<HTMLDivElement>(null)
+  // The file editor and the diff view both stay mounted once used (the other one is just hidden):
+  // going file ↔ diff no longer builds a new Monaco editor on every click.
+  const fileId = useRef<string | null>(null)
+  const diffId = useRef<string | null>(null)
+  if (active?.kind === 'file') fileId.current = active.id
+  if (active?.kind === 'diff') diffId.current = active.id
+  const fileTab = tabs.find((t): t is Extract<EditorTab, { kind: 'file' }> => t.kind === 'file' && t.id === fileId.current)
+  const diffTab = tabs.find((t): t is Extract<EditorTab, { kind: 'diff' }> => t.kind === 'diff' && t.id === diffId.current)
 
   useEffect(() => {
     revealIn(stripRef.current, stripRef.current?.querySelector('.tab.active'), { inline: 'nearest', smooth: true })
@@ -290,14 +299,22 @@ function CodeArea(): React.JSX.Element {
       <div className="editor-body">
         {!active && <EmptyEditor />}
         <Suspense fallback={null}>
-          {/* no key: one editor serves every file tab (see FileEditor) */}
-          {active?.kind === 'file' && <FileEditor tab={active} />}
-          {active?.kind === 'diff' && <DiffView key={active.id} tab={active} />}
+          {/* no key: one editor serves every file tab, one diff view every diff tab */}
+          {fileTab && (
+            <div className={`editor-layer${active === fileTab ? ' on' : ''}`} inert={active !== fileTab}>
+              <FileEditor tab={fileTab} />
+            </div>
+          )}
+          {diffTab && (
+            <div className={`editor-layer${active === diffTab ? ' on' : ''}`} inert={active !== diffTab}>
+              <DiffView tab={diffTab} />
+            </div>
+          )}
         </Suspense>
       </div>
     </div>
   )
-}
+})
 
 /* ================================ Empty state ================================ */
 

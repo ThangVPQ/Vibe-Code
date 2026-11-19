@@ -15,7 +15,7 @@ use std::{
         mpsc::{self, RecvTimeoutError},
     },
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
@@ -466,17 +466,18 @@ fn watch_sessions() {
         return;
     }
     let root = projects_dir();
-    // the session ids whose transcript changed ("" for a project folder coming or going)
+    // the session ids whose transcript changed ("" for a project folder coming or going, "*" when
+    // events were lost and any chat may have changed)
     let (tx, rx) = mpsc::channel::<String>();
     let filter_root = root.clone();
     let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        // a watcher error or overflow (many chats writing at once) loses events: re-read the list
+        // a watcher error or overflow (many chats writing at once) loses events: every chat re-reads
         let Ok(ev) = res else {
-            let _ = tx.send(String::new());
+            let _ = tx.send("*".into());
             return;
         };
         if ev.need_rescan() {
-            let _ = tx.send(String::new());
+            let _ = tx.send("*".into());
         } else if relevant(&filter_root, &ev) {
             for p in &ev.paths {
                 let id = if p.extension().is_some_and(|e| e == "jsonl") { p.file_stem().map(|s| s.to_string_lossy().into_owned()) } else { None };
@@ -489,14 +490,17 @@ fn watch_sessions() {
     if watcher.watch(&root, RecursiveMode::Recursive).is_err() {
         return;
     }
-    // trailing debounce: one ping 600 ms after the last change
+    // trailing debounce: one ping 600 ms after the last change, but at least every 1.5 s - several
+    // chats streaming at once never go quiet for 600 ms, which held every ping back until all stopped
     thread::Builder::new()
         .name("sessions-watch".into())
         .spawn(move || {
             while let Ok(first) = rx.recv() {
                 let mut ids: HashSet<String> = HashSet::from([first]);
+                let deadline = Instant::now() + Duration::from_millis(1500);
                 loop {
-                    match rx.recv_timeout(Duration::from_millis(600)) {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    match rx.recv_timeout(left.min(Duration::from_millis(600))) {
                         Ok(id) => {
                             ids.insert(id);
                         }
@@ -504,7 +508,7 @@ fn watch_sessions() {
                         Err(RecvTimeoutError::Disconnected) => return,
                     }
                 }
-                // listeners for one chat (its images, tasks, context) skip pings for other chats
+                // listeners for one chat (its images, tasks, context) skip pings for other chats ("*": none skip)
                 ids.remove("");
                 emit("sessions:changed", (ids.into_iter().collect::<Vec<_>>(),));
             }

@@ -59,7 +59,8 @@ pub async fn git_state(folder: String) -> Res<GitState> {
     };
     let (branch, status, num, num_cached) = tokio::join!(
         git(&root, &["branch", "--show-current"]),
-        git(&root, &["status", "--porcelain=v1", "-z", "-uall"]),
+        // no index refresh: that write fires the watcher, which runs yet another status
+        git(&root, &["--no-optional-locks", "status", "--porcelain=v1", "-z", "-uall"]),
         git(&root, &["diff", "--numstat", "-z"]),
         git(&root, &["diff", "--numstat", "--cached", "-z"]),
     );

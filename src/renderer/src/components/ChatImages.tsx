@@ -25,7 +25,7 @@ export function useChatImages(sessionId: string | undefined): string[] {
     load()
     // this chat's transcript changed (pings for other chats are ignored)
     const off = window.api.sessions.onChanged((ids) => {
-      if (!ids.includes(sessionId)) return
+      if (!ids.includes(sessionId) && !ids.includes('*')) return
       clearTimeout(timer)
       timer = setTimeout(load, 700)
     })

@@ -63,12 +63,15 @@ export function useEditorFont(): { fontFamily: string; fontSize: number; lineHei
   )
 }
 
+let saveSeq = 0
 async function save(patch: Partial<AppSettings>): Promise<void> {
   // show it right away, then persist
+  const my = ++saveSeq
   const cur = useStore.getState().settings
   if (cur) useStore.setState({ settings: { ...cur, ...patch } })
   const settings = await window.api.app.setSettings(patch).catch(() => null)
-  if (settings) useStore.setState({ settings })
+  // dragging the size slider sends many saves: an older answer must not undo a newer value
+  if (settings && my === saveSeq) useStore.setState({ settings })
 }
 
 /** "Aa" button at the end of the editor tab bar: font family, size, ligatures. */

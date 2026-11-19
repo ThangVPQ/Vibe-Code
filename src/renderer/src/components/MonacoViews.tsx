@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import Editor, { type OnMount } from '@monaco-editor/react'
 import { Braces, Columns2, FileText, GitCompare, Rows2 } from 'lucide-react'
 import { openFile } from '../actions'
 import { SlidePill } from './motion'
@@ -38,6 +38,9 @@ const useMonacoTheme = (): string => useStore((s) => (s.themeResolved === 'light
 export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> }): React.JSX.Element {
   const theme = useMonacoTheme()
   const font = useEditorFont()
+  // a new object on every render made Monaco re-apply all its options each time
+  const options = useMemo(() => ({ ...editorOptions, ...font }), [font])
+  const onScreen = useStore((s) => s.activeTabId === tab.id)
   // One editor for every file tab: switching tabs swaps its model (Monaco keeps each file's scroll
   // and cursor) instead of tearing the whole editor down and building a new one.
   const [loaded, setLoaded] = useState<{ path: string; error?: string } | null>(null)
@@ -60,8 +63,8 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
   const pathRef = useRef(path)
   useEffect(() => {
     pathRef.current = path
-    editorRef.current?.focus()
-  }, [path])
+    if (onScreen) editorRef.current?.focus()
+  }, [path, onScreen])
 
   // Ctrl+Shift+O, "@" in Ctrl+P or the breadcrumb button → "Go to Symbol" in the open file
   useEffect(() => {
@@ -113,7 +116,7 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
           path={fileUri(path)}
           language={languageFor(path)}
           theme={theme}
-          options={{ ...editorOptions, ...font }}
+          options={options}
           keepCurrentModel
           onMount={onMount}
         />
@@ -124,14 +127,21 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
 
 /* ================================ Diff view ================================ */
 
+/**
+ * One diff editor for every diff tab (it stays mounted): switching files swaps its two models in a
+ * single step instead of tearing the editor down and building a new one, and the previous diff
+ * stays on screen until the next one has been read - no blank frame in between.
+ */
 export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> }): React.JSX.Element {
   const theme = useMonacoTheme()
   const font = useEditorFont()
   const gitRoot = useStore((s) => s.git.root)
   const file = useStore((s) => s.git.files.find((f) => f.abs.toLowerCase() === tab.path.toLowerCase()))
   const sideBySide = useStore((s) => s.diffSideBySide)
-  const [texts, setTexts] = useState<{ original: string; modified: string } | null>(null)
+  const [texts, setTexts] = useState<{ id: string; original: string; modified: string } | null>(null)
   const [version, setVersion] = useState(0)
+  const hostRef = useRef<HTMLDivElement>(null)
+  const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
 
   useEffect(() => {
     const onChange = (e: Event): void => {
@@ -143,6 +153,8 @@ export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> })
   }, [tab.path])
 
   const commit = tab.commit
+  // a commit changes HEAD, not the file: the status line changing re-reads the diff too
+  const fileSig = commit ? '' : file ? `${file.status}:${file.added}:${file.deleted}` : '-'
   useEffect(() => {
     if (!gitRoot) return
     let live = true
@@ -156,13 +168,74 @@ export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> })
               .then((r) => (r.binary ? '[binary file]' : r.content))
               .catch(() => '')
           ]
-    ).then(([original, modified]) => live && setTexts({ original, modified }))
+    ).then(([original, modified]) => live && setTexts({ id: tab.id, original, modified }))
     return () => {
       live = false
     }
-  }, [gitRoot, tab.rel, tab.path, commit, version])
+  }, [gitRoot, tab.id, tab.rel, tab.path, commit, version, fileSig])
 
-  const lang = languageFor(tab.path)
+  const options = useMemo<monaco.editor.IDiffEditorConstructionOptions>(
+    () => ({
+      ...editorOptions,
+      ...font,
+      readOnly: true,
+      originalEditable: false,
+      renderSideBySide: sideBySide,
+      useInlineViewWhenSpaceIsLimited: true,
+      ignoreTrimWhitespace: false,
+      renderOverviewRuler: true,
+      hideUnchangedRegions: { enabled: true, contextLineCount: 4, minimumLineCount: 6, revealLineCount: 20 },
+      diffWordWrap: 'off',
+      minimap: { enabled: false },
+      stickyScroll: { enabled: false }
+    }),
+    [font, sideBySide]
+  )
+  const optionsRef = useRef(options)
+  optionsRef.current = options
+
+  // created once; its models go with it
+  useEffect(() => {
+    const d = monaco.editor.createDiffEditor(hostRef.current!, optionsRef.current)
+    diffRef.current = d
+    return () => {
+      const m = d.getModel()
+      d.dispose()
+      m?.original.dispose()
+      m?.modified.dispose()
+      diffRef.current = null
+    }
+  }, [])
+  useEffect(() => diffRef.current?.updateOptions(options), [options])
+  useEffect(() => monaco.editor.setTheme(theme), [theme])
+
+  // the texts just read → the diff on screen
+  const shownId = useRef<string | null>(null)
+  useEffect(() => {
+    const d = diffRef.current
+    if (!d || !texts || texts.id !== tab.id) return
+    const prev = d.getModel()
+    // same tab, file changed on disk: update in place (keeps the scroll position)
+    if (prev && shownId.current === tab.id) {
+      const pairs: [monaco.editor.ITextModel, string][] = [
+        [prev.original, texts.original],
+        [prev.modified, texts.modified]
+      ]
+      for (const [m, text] of pairs) {
+        if (m.getValue() !== text) m.pushEditOperations([], [{ range: m.getFullModelRange(), text }], () => null)
+      }
+      return
+    }
+    // throwaway models (Monaco names them): never mixed up with the file editor's models
+    const lang = languageFor(tab.path)
+    const original = monaco.editor.createModel(texts.original, lang)
+    const modified = monaco.editor.createModel(texts.modified, lang)
+    d.setModel({ original, modified })
+    shownId.current = tab.id
+    prev?.original.dispose()
+    prev?.modified.dispose()
+  }, [texts, tab.id, tab.path])
+
   const label = commit
     ? `${commit.short} · ${commit.subject}`
     : file?.status === '?' || file?.status === 'A'
@@ -202,32 +275,7 @@ export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> })
           )}
         </div>
       </div>
-      <div className="monaco-wrap">
-        {texts && (
-          <DiffEditor
-            original={texts.original}
-            modified={texts.modified}
-            language={lang}
-            originalModelPath={(commit ? `git-${commit.short}-parent:///` : 'git-head:///') + tab.rel}
-            modifiedModelPath={(commit ? `git-${commit.short}:///` : 'working:///') + tab.rel}
-            theme={theme}
-            options={{
-              ...editorOptions,
-              ...font,
-              readOnly: true,
-              originalEditable: false,
-              renderSideBySide: sideBySide,
-              useInlineViewWhenSpaceIsLimited: true,
-              ignoreTrimWhitespace: false,
-              renderOverviewRuler: true,
-              hideUnchangedRegions: { enabled: true, contextLineCount: 4, minimumLineCount: 6, revealLineCount: 20 },
-              diffWordWrap: 'off',
-              minimap: { enabled: false },
-              stickyScroll: { enabled: false }
-            }}
-          />
-        )}
-      </div>
+      <div className="monaco-wrap" ref={hostRef} />
     </>
   )
 }

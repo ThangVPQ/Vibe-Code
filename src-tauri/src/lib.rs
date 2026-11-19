@@ -42,6 +42,7 @@ pub fn run() {
             pty::claude_detect,
             pty::agents_detect,
             appcmds::claude_usage,
+            appcmds::sys_memory,
             appcmds::claude_get_project_bypass,
             appcmds::claude_set_project_bypass,
             // built-in browser

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
 import {
@@ -109,9 +109,15 @@ export function DatabasePane(): React.JSX.Element {
   const [objs, setObjs] = useState<Record<string, ObjNode>>({})
   const [editing, setEditing] = useState<DbConnection | 'new' | null>(null)
   const [importing, setImporting] = useState(false)
-  const [sql, setSql] = useState('')
+  // the SQL text lives in Monaco + this ref, not in state: a keystroke used to re-render the whole
+  // tab (tree, results grid) and rewrite localStorage
+  const sqlRef = useRef(activeId ? (LS.get(`vibe.db.sql.${activeId}`) ?? '') : '')
   const [running, setRunning] = useState(false)
+  const runningRef = useRef(false)
+  const runSeq = useRef(0)
   const [result, setResult] = useState<DbQueryResult | null>(null)
+  // each result mounts a fresh Results (its tab / selected cell start over)
+  const [resultKey, setResultKey] = useState(0)
   const [maxRows, setMaxRows] = useState(() => Number(LS.get('vibe.db.maxRows')) || 1000)
   const sideLayout = useDefaultLayout({ id: 'vibe-db-side', storage: localStorage })
   const splitLayout = useDefaultLayout({ id: 'vibe-db-split', storage: localStorage })
@@ -119,6 +125,10 @@ export function DatabasePane(): React.JSX.Element {
   const font = useEditorFont()
   const theme = useStore((s) => (s.themeResolved === 'light' ? 'studio-light' : 'studio-dark'))
   const active = conns.find((c) => c.id === activeId) ?? null
+  const sqlOptions = useMemo(
+    () => ({ ...editorOptions, ...font, minimap: { enabled: false }, stickyScroll: { enabled: false }, padding: { top: 10, bottom: 10 } }),
+    [font]
+  )
 
   const reload = useCallback(async () => {
     const list = await window.api.db.list().catch(() => [] as DbConnection[])
@@ -140,13 +150,27 @@ export function DatabasePane(): React.JSX.Element {
   useEffect(() => LS.set('vibe.db.maxRows', String(maxRows)), [maxRows])
 
   // each connection keeps its own SQL text
+  const setSql = (text: string): void => {
+    sqlRef.current = text
+    const ed = editorRef.current
+    if (ed && ed.getValue() !== text) ed.setValue(text)
+  }
+  const onSqlChange = (v?: string): void => {
+    sqlRef.current = v ?? ''
+    if (activeId) LS.set(`vibe.db.sql.${activeId}`, sqlRef.current)
+  }
   useEffect(() => {
     setSql(activeId ? (LS.get(`vibe.db.sql.${activeId}`) ?? '') : '')
+    // a query still running is for the old connection: its rows must not land under this one
+    if (runningRef.current) {
+      window.api.db.cancel()
+      runSeq.current++
+      runningRef.current = false
+      setRunning(false)
+    }
     setResult(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId])
-  useEffect(() => {
-    if (activeId) LS.set(`vibe.db.sql.${activeId}`, sql)
-  }, [sql, activeId])
 
   const loadDbs = useCallback(async (id: string, force = false) => {
     if (!force && dbs[id]?.databases) return dbs[id].databases!
@@ -185,28 +209,37 @@ export function DatabasePane(): React.JSX.Element {
 
   const run = useCallback(
     async (text?: string, conn = activeId, db = database) => {
-      if (!conn || running) return
+      // a ref, not `running`: two Ctrl+Enter within one frame both passed the state check
+      if (!conn || runningRef.current) return
       const ed = editorRef.current
       const sel = ed?.getSelection()
       const picked = !text && ed && sel && !sel.isEmpty() ? ed.getModel()?.getValueInRange(sel) : undefined
-      const q = (text ?? picked ?? sql).trim()
+      const q = (text ?? picked ?? sqlRef.current).trim()
       if (!q) return
+      const my = ++runSeq.current
+      runningRef.current = true
       setRunning(true)
+      let r: DbQueryResult
       try {
-        setResult(await window.api.db.query(conn, q, db || undefined, maxRows))
+        r = await window.api.db.query(conn, q, db || undefined, maxRows)
       } catch (e) {
-        setResult({ ok: false, error: errText(e), results: [], messages: [], affected: -1, ms: 0 })
-      } finally {
-        setRunning(false)
+        r = { ok: false, error: errText(e), results: [], messages: [], affected: -1, ms: 0 }
       }
+      // switched connection meanwhile: that run was dropped
+      if (my !== runSeq.current) return
+      runningRef.current = false
+      setRunning(false)
+      setResult(r)
+      setResultKey((k) => k + 1)
     },
-    [activeId, database, running, sql, maxRows]
+    [activeId, database, maxRows]
   )
   const runRef = useRef(run)
   runRef.current = run
 
   const onMount: OnMount = (editor) => {
     editorRef.current = editor
+    if (editor.getValue() !== sqlRef.current) editor.setValue(sqlRef.current)
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runRef.current())
     editor.addCommand(monaco.KeyCode.F5, () => runRef.current())
   }
@@ -349,16 +382,16 @@ export function DatabasePane(): React.JSX.Element {
                   <Editor
                     language="sql"
                     theme={theme}
-                    value={sql}
-                    onChange={(v) => setSql(v ?? '')}
+                    defaultValue={sqlRef.current}
+                    onChange={onSqlChange}
                     onMount={onMount}
-                    options={{ ...editorOptions, ...font, minimap: { enabled: false }, stickyScroll: { enabled: false }, padding: { top: 10, bottom: 10 } }}
+                    options={sqlOptions}
                   />
                 </div>
               </Panel>
               <Separator className="db-resize" />
               <Panel id="results" minSize="15%">
-                <Results result={result} running={running} />
+                <Results key={resultKey} result={result} running={running} />
               </Panel>
             </Group>
           </>
@@ -592,14 +625,20 @@ function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node
 
 /* ---------------- results ---------------- */
 
-function Results({ result, running }: { result: DbQueryResult | null; running: boolean }): React.JSX.Element {
-  const [tab, setTab] = useState(0)
+/** Keyed per result by the pane, so a new result starts on its own first tab with nothing selected. */
+const Results = memo(function Results({ result, running }: { result: DbQueryResult | null; running: boolean }): React.JSX.Element {
+  const [tab, setTab] = useState(() => (result && !result.ok && !result.results.length ? -1 : 0))
   const [copied, setCopied] = useState('')
   const [sel, setSel] = useState<[number, number] | null>(null)
-  useEffect(() => {
-    setTab(result && !result.ok && !result.results.length ? -1 : 0)
-    setSel(null)
-  }, [result])
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const copy = useCallback((what: string, text: string): void => {
+    navigator.clipboard.writeText(text)
+    setCopied(what)
+    clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(''), 1200)
+  }, [])
+  const copyCell = useCallback((v: string) => copy('cell', v), [copy])
+  useEffect(() => () => clearTimeout(copiedTimer.current), [])
 
   if (!result)
     return (
@@ -616,18 +655,13 @@ function Results({ result, running }: { result: DbQueryResult | null; running: b
 
   const sets = result.results
   const cur = tab >= 0 ? sets[tab] : undefined
-  const copy = (what: string, text: string): void => {
-    navigator.clipboard.writeText(text)
-    setCopied(what)
-    setTimeout(() => setCopied(''), 1200)
-  }
   const hasMessages = result.messages.length > 0 || !result.ok || result.affected >= 0
 
   return (
     <div className="db-results">
       <div className="db-results-bar">
         {sets.map((r, i) => (
-          <button key={i} className={`db-rtab${tab === i ? ' on' : ''}`} onClick={() => setTab(i)}>
+          <button key={i} className={`db-rtab${tab === i ? ' on' : ''}`} onClick={() => (setTab(i), setSel(null))}>
             Result {sets.length > 1 ? i + 1 : ''}
             <span className="db-rtab-count">
               {r.rows.length.toLocaleString()}
@@ -636,7 +670,7 @@ function Results({ result, running }: { result: DbQueryResult | null; running: b
           </button>
         ))}
         {hasMessages && (
-          <button className={`db-rtab${tab === -1 ? ' on' : ''}${result.ok ? '' : ' error'}`} onClick={() => setTab(-1)}>
+          <button className={`db-rtab${tab === -1 ? ' on' : ''}${result.ok ? '' : ' error'}`} onClick={() => (setTab(-1), setSel(null))}>
             Messages
           </button>
         )}
@@ -681,20 +715,85 @@ function Results({ result, running }: { result: DbQueryResult | null; running: b
         </div>
       ) : (
         <Grid
+          key={tab}
           set={cur}
           sel={sel}
           onSel={setSel}
-          onCopyCell={(v) => copy('cell', v)}
+          onCopyCell={copyCell}
         />
       )}
     </div>
   )
+})
+
+/** results grid: row height (keep in step with `.db-grid.virtual` in styles.css), row-number column width */
+const ROW_H = 22
+const RN_W = 52
+const CHUNK = 20
+/** above this many rows the grid renders only what's in view */
+const VIRTUAL_MIN = 300
+
+/** Column widths from the header and a sample of the values (monospace 12px ≈ 7.3px a character). */
+function columnWidths(set: DbResultSet): number[] {
+  const sample = set.rows.length > 1000 ? set.rows.slice(0, 1000) : set.rows
+  return set.columns.map((c, i) => {
+    let chars = (c.name || '(no name)').length + c.type.length * 0.75 + 1
+    for (const row of sample) {
+      const len = Math.min(48, cellText(row[i]).length)
+      if (len > chars) chars = len
+    }
+    return Math.round(Math.min(360, Math.max(56, chars * 7.3 + 22)))
+  })
 }
 
 function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number, number] | null; onSel: (s: [number, number] | null) => void; onCopyCell: (v: string) => void }): React.JSX.Element {
   const numeric = useMemo(() => set.columns.map((c) => NUMERIC.test(c.type)), [set])
+  const n = set.rows.length
+  // Big results render only the rows in view (plus a margin): 20k rows × every column used to be
+  // laid out up front and froze the tab. Rows have a fixed height (CSS), and columns fixed widths
+  // estimated from their text, so nothing shifts while scrolling.
+  const virtual = n > VIRTUAL_MIN
+  const widths = useMemo(() => (virtual ? columnWidths(set) : null), [virtual, set])
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [range, setRange] = useState<[number, number]>([0, Math.min(n, 120)])
+  // the real row height (CSS asks for ROW_H; measured so the spacers can never drift from it)
+  const [rowH, setRowH] = useState(ROW_H)
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!virtual || !el) return
+    const tr = el.querySelector<HTMLElement>('tbody tr:not([aria-hidden])')
+    if (tr && tr.offsetHeight && tr.offsetHeight !== rowH) return setRowH(tr.offsetHeight)
+    let raf = 0
+    const update = (): void => {
+      raf = 0
+      // whole chunks, so a scroll of a row or two doesn't re-render the window
+      const first = Math.max(0, Math.floor(el.scrollTop / rowH / CHUNK) * CHUNK - CHUNK)
+      const last = Math.min(n, (Math.ceil((el.scrollTop + el.clientHeight) / rowH / CHUNK) + 1) * CHUNK)
+      setRange((r) => (r[0] === first && r[1] === last ? r : [first, last]))
+    }
+    const soon = (): void => {
+      if (!raf) raf = requestAnimationFrame(update)
+    }
+    update()
+    el.addEventListener('scroll', soon, { passive: true })
+    const ro = new ResizeObserver(soon)
+    ro.observe(el)
+    return () => {
+      cancelAnimationFrame(raf)
+      el.removeEventListener('scroll', soon)
+      ro.disconnect()
+    }
+  }, [virtual, n, rowH])
+  const [from, to] = virtual ? range : [0, n]
+  const spacer = (h: number): React.JSX.Element | null =>
+    h > 0 ? (
+      <tr aria-hidden>
+        <td className="db-spacer" colSpan={set.columns.length + 1} style={{ height: h }} />
+      </tr>
+    ) : null
   return (
     <div
+      ref={wrapRef}
       className="db-grid-wrap"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -704,7 +803,15 @@ function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number,
         }
       }}
     >
-      <table className="db-grid">
+      <table className={`db-grid${virtual ? ' virtual' : ''}`} style={widths ? { width: widths.reduce((a, b) => a + b, RN_W) } : undefined}>
+        {widths && (
+          <colgroup>
+            <col style={{ width: RN_W }} />
+            {widths.map((w, i) => (
+              <col key={i} style={{ width: w }} />
+            ))}
+          </colgroup>
+        )}
         <thead>
           <tr>
             <th className="db-rn">#</th>
@@ -717,32 +824,49 @@ function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number,
           </tr>
         </thead>
         <tbody>
-          {set.rows.map((row, r) => (
-            <tr key={r}>
-              <td className="db-rn">{r + 1}</td>
-              {row.map((v, c) => {
-                const on = sel && sel[0] === r && sel[1] === c
-                const t = cellText(v)
-                return (
-                  <td
-                    key={c}
-                    className={`${v === null ? 'null ' : ''}${numeric[c] ? 'num ' : ''}${on ? 'sel' : ''}`}
-                    title={t.length > 40 ? t.slice(0, 2000) : undefined}
-                    onClick={() => onSel([r, c])}
-                    onDoubleClick={() => onCopyCell(t)}
-                  >
-                    {t.length > 300 ? t.slice(0, 300) + '…' : t}
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
+          {spacer(from * rowH)}
+          {set.rows.slice(from, to).map((row, i) => {
+            const r = from + i
+            return <GridRow key={r} row={row} r={r} selCol={sel && sel[0] === r ? sel[1] : -1} numeric={numeric} onSel={onSel} onCopyCell={onCopyCell} />
+          })}
+          {spacer((n - to) * rowH)}
         </tbody>
       </table>
       {set.rows.length === 0 && <div className="db-grid-empty">No rows.</div>}
     </div>
   )
 }
+
+/** One row; memoized so selecting a cell re-renders only the rows it leaves and enters (results go up to 20k rows). */
+const GridRow = memo(function GridRow(props: {
+  row: unknown[]
+  r: number
+  selCol: number
+  numeric: boolean[]
+  onSel: (s: [number, number]) => void
+  onCopyCell: (v: string) => void
+}): React.JSX.Element {
+  const { row, r, selCol, numeric, onSel, onCopyCell } = props
+  return (
+    <tr>
+      <td className="db-rn">{r + 1}</td>
+      {row.map((v, c) => {
+        const t = cellText(v)
+        return (
+          <td
+            key={c}
+            className={`${v === null ? 'null ' : ''}${numeric[c] ? 'num ' : ''}${c === selCol ? 'sel' : ''}`}
+            title={t.length > 40 ? t.slice(0, 2000) : undefined}
+            onClick={() => onSel([r, c])}
+            onDoubleClick={() => onCopyCell(t)}
+          >
+            {t.length > 300 ? t.slice(0, 300) + '…' : t}
+          </td>
+        )
+      })}
+    </tr>
+  )
+})
 
 /* ---------------- add / edit connection ---------------- */
 
@@ -782,7 +906,7 @@ function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | nul
     window.api.db.get(conn.id).then((c) => {
       if (!c) return
       setConnStr(c.conn)
-      fillFrom(c.conn)
+      fillFrom(c.conn).catch(() => setMode('string'))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn?.id])
@@ -812,8 +936,14 @@ function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | nul
     if (!cs || (mode === 'fields' && !server.trim())) return
     setSaving(true)
     const fallback = connSummary(cs)
-    const list = await window.api.db.save({ id: conn?.id, name: name.trim() || fallback.database || fallback.server, conn: cs, claudeReadOnly: readOnly })
-    onSaved(list, conn?.id ?? list[list.length - 1]?.id)
+    try {
+      const list = await window.api.db.save({ id: conn?.id, name: name.trim() || fallback.database || fallback.server, conn: cs, claudeReadOnly: readOnly })
+      onSaved(list, conn?.id ?? list[list.length - 1]?.id)
+    } catch (e) {
+      // the button used to stay disabled for good, with no word of what went wrong
+      setTest({ ok: false, text: errText(e) })
+      setSaving(false)
+    }
   }
 
   return (
@@ -963,8 +1093,12 @@ function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[];
     const list = all.filter(({ f, s }) => picked.has(`${s}:${f.file}:${f.name}:${f.conn.length}`)).map(({ f }) => f)
     if (!list.length) return
     setSaving(true)
-    const saved = await window.api.db.saveMany(list.map((f) => ({ name: f.name, conn: f.conn, claudeReadOnly: true })))
-    onDone(saved)
+    try {
+      onDone(await window.api.db.saveMany(list.map((f) => ({ name: f.name, conn: f.conn, claudeReadOnly: true }))))
+    } catch (e) {
+      setSaving(false)
+      window.alert(errText(e))
+    }
   }
 
   return (

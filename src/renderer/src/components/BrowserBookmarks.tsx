@@ -12,10 +12,15 @@ function useWebData(): WebData | null {
   useEffect(() => {
     subs.add(setD)
     if (!data && !loading)
-      loading = window.api.browser.data().then((x) => {
-        data = x
-        subs.forEach((f) => f(x))
-      })
+      loading = window.api.browser.data().then(
+        (x) => {
+          data = x
+          subs.forEach((f) => f(x))
+        },
+        () => {
+          loading = null // let the next tab try again
+        }
+      )
     return () => void subs.delete(setD)
   }, [])
   return d

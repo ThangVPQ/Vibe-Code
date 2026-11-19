@@ -138,8 +138,20 @@ export const useStore = create<State>((set) => ({
   projectBypass: {},
 
   set: (p) => set(p),
-  patchChat: (id, p) => set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, ...p } : c)) })),
-  patchShell: (id, p) => set((s) => ({ shells: s.shells.map((c) => (c.id === id ? { ...c, ...p } : c)) }))
+  // a patch that changes nothing keeps the same array: the terminal title (Claude's spinner) and
+  // status checks patch many times a second, and each new array re-rendered every chat list
+  patchChat: (id, p) =>
+    set((s) => {
+      const c = s.chats.find((x) => x.id === id)
+      if (!c || (Object.keys(p) as (keyof Chat)[]).every((k) => c[k] === p[k])) return s
+      return { chats: s.chats.map((x) => (x.id === id ? { ...x, ...p } : x)) }
+    }),
+  patchShell: (id, p) =>
+    set((s) => {
+      const c = s.shells.find((x) => x.id === id)
+      if (!c || (Object.keys(p) as (keyof ShellTab)[]).every((k) => c[k] === p[k])) return s
+      return { shells: s.shells.map((x) => (x.id === id ? { ...x, ...p } : x)) }
+    })
 }))
 
 export const uid = (): string => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)

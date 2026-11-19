@@ -289,13 +289,25 @@ useStore.subscribe((s, prev) => {
 const samePath = (a: string, b: string): boolean =>
   a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase()
 
+let openSeq = 0
 export async function openFolder(folder?: string | null, opts: { autoChat?: boolean } = {}): Promise<void> {
+  // clicking through chats of different projects fires several of these: only the last one may win,
+  // or the root and the file watcher could end up on a project you already left
+  const seq = ++openSeq
   const f = folder ?? (await window.api.app.pickFolder())
-  if (!f) return
+  if (!f || seq !== openSeq) return
   const s = await window.api.app.rememberFolder(f)
+  if (seq !== openSeq) return
   const same = st().root && samePath(st().root!, f)
-  useStore.setState({ root: f, recent: s.recentFolders, ...(same ? {} : { tabs: [], activeTabId: null, git: { isRepo: false, root: null, branch: null, files: [] } }) })
+  let tabs = st().tabs
+  if (!same) {
+    // the old project's tabs close (their editor models freed), except files with unsaved edits
+    tabs = tabs.filter((t) => t.kind === 'file' && hasUnsaved(t.path))
+    for (const t of st().tabs) if (t.kind === 'file' && !tabs.includes(t)) disposeModel(t.path)
+  }
+  useStore.setState({ root: f, recent: s.recentFolders, ...(same ? {} : { tabs, activeTabId: tabs[0]?.id ?? null, git: { isRepo: false, root: null, branch: null, files: [] } }) })
   await window.api.fs.watch(f)
+  if (seq !== openSeq) return
   refreshGit()
   const autoChat = opts.autoChat ?? true
   if (autoChat && installedAgents().length && !st().chats.some((c) => samePath(c.cwd, f))) newChat()
@@ -314,6 +326,11 @@ export function loadSessions(): void {
     const json = JSON.stringify(projects)
     if (json === lastProjects) return
     lastProjects = json
+    // a working chat changes only its own session: the others keep their objects, so their
+    // (memoized) sidebar rows don't re-render
+    const prev = new Map(st().projects.flatMap((g) => g.sessions.map((s) => [s.id, s] as const)))
+    const same = (a: SessionInfo, b: SessionInfo): boolean => (Object.keys(b) as (keyof SessionInfo)[]).every((k) => a[k] === b[k])
+    for (const g of projects) g.sessions = g.sessions.map((s) => (prev.has(s.id) && same(prev.get(s.id)!, s) ? prev.get(s.id)! : s))
     useStore.setState({ projects })
     // Titles Claude generates (or that were renamed in the Claude app) flow into open chats.
     const byId = new Map(projects.flatMap((g) => g.sessions.map((s) => [s.id, s] as const)))
@@ -378,17 +395,36 @@ export async function detectClaude(): Promise<void> {
   useStore.setState({ claude, agents })
 }
 
+// Throttled, not debounced: with several chats editing, file events never pause for long, and a
+// timer reset on each one held the Changes panel back until they all stopped.
 let gitTimer: ReturnType<typeof setTimeout> | null = null
+let gitBusy = false
+let gitAgain = false
 export function refreshGit(): void {
-  if (gitTimer) clearTimeout(gitTimer)
+  if (gitTimer) return // the pending run starts after this change, so it sees it
   gitTimer = setTimeout(async () => {
-    const root = st().root
-    if (!root) return
-    const git = await window.api.git.state(root).catch(() => null)
-    // unchanged status (most file events): keep the same object, so nothing re-renders or re-fetches
-    if (!git || st().root !== root || JSON.stringify(git) === JSON.stringify(st().git)) return
-    useStore.setState({ git })
-  }, 120)
+    gitTimer = null
+    // one `git status` at a time; a change during it gets one more run afterwards
+    if (gitBusy) {
+      gitAgain = true
+      return
+    }
+    gitBusy = true
+    try {
+      const root = st().root
+      if (!root) return
+      const git = await window.api.git.state(root).catch(() => null)
+      // unchanged status (most file events): keep the same object, so nothing re-renders or re-fetches
+      if (!git || st().root !== root || JSON.stringify(git) === JSON.stringify(st().git)) return
+      useStore.setState({ git })
+    } finally {
+      gitBusy = false
+      if (gitAgain) {
+        gitAgain = false
+        refreshGit()
+      }
+    }
+  }, 150)
 }
 
 /* ---------------- Chats ---------------- */

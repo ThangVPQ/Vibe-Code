@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Collapse, SlidePill } from './motion'
 import {
@@ -104,6 +104,31 @@ interface RecentItem {
   session?: SessionInfo
 }
 
+/** A row of Recent; plain props, so it skips re-rendering while nothing about it changed. */
+const RecentRow = memo(function RecentRow(props: {
+  title: string
+  project: string
+  updated: number
+  chatId?: string
+  status?: Chat['status']
+  attention?: boolean
+  session?: SessionInfo
+  active: boolean
+}): React.JSX.Element {
+  const { title, project, updated, chatId, status, attention, session, active } = props
+  return (
+    <div
+      className={`sess-row${active ? ' active' : ''}`}
+      onClick={() => (chatId ? selectChat(chatId) : session && void openSession(session))}
+      title={`${title}\n${project} · ${new Date(updated).toLocaleString()}`}
+    >
+      {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
+      <span className="sess-title">{title}</span>
+      <span className="sess-time">{shortAgo(updated)}</span>
+    </div>
+  )
+})
+
 /** The newest chats of every project: open ones not in the history yet, then the history. */
 function recentItems(projects: ProjectGroup[], chats: Chat[]): RecentItem[] {
   const live = new Map(chats.filter((c) => c.sessionId).map((c) => [c.sessionId!, c]))
@@ -206,17 +231,17 @@ function ProjectsTree(): React.JSX.Element {
             <span className="proj-name">Recent</span>
           </div>
           {recent.map((it) => (
-            <div
+            <RecentRow
               key={it.key}
-              className={`sess-row${it.chat && it.chat.id === activeChatId ? ' active' : ''}`}
-              onClick={() => (it.chat ? selectChat(it.chat.id) : it.session && void openSession(it.session))}
-              title={`${it.title}
-${it.project} · ${new Date(it.updated).toLocaleString()}`}
-            >
-              {it.chat ? <StatusDot status={it.chat.status} attention={it.chat.attention} /> : <span className="sess-bullet" />}
-              <span className="sess-title">{it.title}</span>
-              <span className="sess-time">{shortAgo(it.updated)}</span>
-            </div>
+              title={it.title}
+              project={it.project}
+              updated={it.updated}
+              chatId={it.chat?.id}
+              status={it.chat?.status}
+              attention={it.chat?.attention}
+              session={it.session}
+              active={!!it.chat && it.chat.id === activeChatId}
+            />
           ))}
         </div>
       )}
@@ -260,18 +285,7 @@ ${it.project} · ${new Date(it.updated).toLocaleString()}`}
             ))}
             {shown.map((s) => {
               const live = liveBySession.get(s.id)
-              return (
-                <div
-                  key={s.id}
-                  className={`sess-row${activeSession === s.id ? ' active' : ''}${s.cwdExists ? '' : ' gone'}`}
-                  onClick={() => openSession(s)}
-                  title={`${s.title}\n${s.cwd}\nUpdated ${new Date(s.updated).toLocaleString()}`}
-                >
-                  {live ? <StatusDot status={live.status} attention={live.attention} /> : <span className="sess-bullet" />}
-                  <span className="sess-title">{s.title}</span>
-                  <span className="sess-time">{shortAgo(s.updated)}</span>
-                </div>
-              )
+              return <SessRow key={s.id} s={s} active={activeSession === s.id} status={live?.status} attention={live?.attention} />
             })}
             {!needle && g.sessions.length > PAGE && (
               <button className="sess-more" onClick={() => flip(setMore, g.key)}>
@@ -285,6 +299,25 @@ ${it.project} · ${new Date(it.updated).toLocaleString()}`}
     </div>
   )
 }
+
+/**
+ * One conversation under its project. Memoized: the tree re-renders on every sessions ping while a
+ * chat works; rows whose session object loadSessions kept (unchanged) skip it.
+ */
+const SessRow = memo(function SessRow(props: { s: SessionInfo; active: boolean; status?: Chat['status']; attention?: boolean }): React.JSX.Element {
+  const { s, active, status, attention } = props
+  return (
+    <div
+      className={`sess-row${active ? ' active' : ''}${s.cwdExists ? '' : ' gone'}`}
+      onClick={() => openSession(s)}
+      title={`${s.title}\n${s.cwd}\nUpdated ${new Date(s.updated).toLocaleString()}`}
+    >
+      {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
+      <span className="sess-title">{s.title}</span>
+      <span className="sess-time">{shortAgo(s.updated)}</span>
+    </div>
+  )
+})
 
 /** "now", "5m", "3h", "2d", then the date. */
 export function shortAgo(t: number): string {
@@ -301,9 +334,12 @@ export function shortAgo(t: number): string {
 /* ================================ Explorer ================================ */
 
 function useGitDecorations(): Map<string, GitFile['status']> {
-  const files = useStore((s) => s.git.files)
+  // only paths + statuses matter here; +/- counts change on every edit Claude makes, and a new map
+  // re-rendered the whole tree each time
+  const sig = useStore((s) => s.git.files.map((f) => f.status + f.abs).join('\n'))
   return useMemo(() => {
     const m = new Map<string, GitFile['status']>()
+    const files = useStore.getState().git.files
     for (const f of files) {
       const abs = f.abs.replace(/\\/g, '/').toLowerCase()
       m.set(abs, f.status)
@@ -315,7 +351,8 @@ function useGitDecorations(): Map<string, GitFile['status']> {
       }
     }
     return m
-  }, [files])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig])
 }
 
 export function ExplorerView(): React.JSX.Element | null {
@@ -337,11 +374,12 @@ type OpenCtx = (e: React.MouseEvent, path: string, isDir: boolean) => void
 function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey: (f: (k: number) => number) => void; deco: Map<string, string> }): React.JSX.Element {
   const { root, collapseKey, setCollapseKey, deco } = props
   const [ctx, setCtx] = useState<CtxTarget | null>(null)
-  const openCtx: OpenCtx = (e, path, isDir) => {
+  // stable, so the memoized tree nodes don't all re-render with this one
+  const openCtx = useCallback<OpenCtx>((e, path, isDir) => {
     e.preventDefault()
     e.stopPropagation()
     setCtx({ x: e.clientX, y: e.clientY, path, isDir })
-  }
+  }, [])
   return (
     <>
       <SectionHeader title="Explorer">
@@ -485,10 +523,10 @@ function DirChildren({ dir, depth, deco, openCtx }: { dir: string; depth: number
   )
 }
 
-function TreeNode({ item, depth, deco, openCtx }: { item: DirEntry; depth: number; deco: Map<string, string>; openCtx: OpenCtx }): React.JSX.Element {
+const TreeNode = memo(function TreeNode({ item, depth, deco, openCtx }: { item: DirEntry; depth: number; deco: Map<string, string>; openCtx: OpenCtx }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const activeTab = useStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
-  const isActive = activeTab?.kind === 'file' && activeTab.path.toLowerCase() === item.path.toLowerCase()
+  // a boolean: re-renders only when this row starts / stops being the open file
+  const isActive = useStore((s) => s.activeTabId === 'f:' + item.path.toLowerCase())
   const status = deco.get(item.path.replace(/\\/g, '/').toLowerCase())
   return (
     <>
@@ -512,7 +550,7 @@ function TreeNode({ item, depth, deco, openCtx }: { item: DirEntry; depth: numbe
       {item.isDir && open && <DirChildren dir={item.path} depth={depth + 1} deco={deco} openCtx={openCtx} />}
     </>
   )
-}
+})
 
 /* ================================ Changes ================================ */
 
@@ -618,8 +656,8 @@ export function ChangesView(): React.JSX.Element {
 
 /** Commits on the current branch, newest first; click one to see the files it touched. */
 function HistoryList(): React.JSX.Element | null {
-  const git = useStore((s) => s.git)
-  const gitRoot = git.root
+  const gitRoot = useStore((s) => s.git.root)
+  const branch = useStore((s) => s.git.branch)
   const [commits, setCommits] = useState<GitCommit[] | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   // a commit / pull / checkout moves HEAD or a ref even when the working tree status stays the same
@@ -638,7 +676,7 @@ function HistoryList(): React.JSX.Element | null {
     }
   }, [])
 
-  // refetch whenever git state refreshes (new commits, checkout, pull…)
+  // refetch when HEAD / a ref moves (new commits, checkout, pull…), not on every working-tree change
   useEffect(() => {
     if (!gitRoot) return
     let live = true
@@ -646,7 +684,7 @@ function HistoryList(): React.JSX.Element | null {
     return () => {
       live = false
     }
-  }, [gitRoot, git, refs])
+  }, [gitRoot, branch, refs])
 
   if (!gitRoot || !commits) return null
   return (

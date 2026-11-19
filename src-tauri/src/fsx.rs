@@ -137,7 +137,13 @@ pub async fn fs_watch(root: Option<String>) -> Res<()> {
     let Some(root) = root else { return Ok(()) };
     let base = PathBuf::from(&root);
     let mut deb = new_debouncer(Duration::from_millis(200), None, move |res: DebounceEventResult| {
-        let Ok(events) = res else { return };
+        // lost events (overflow while several chats write at once): report the root, so the Changes
+        // panel still refreshes instead of waiting for the next change
+        let lost = || emit("fs:changed", (vec![base.to_string_lossy().into_owned()],));
+        let Ok(events) = res else { return lost() };
+        if events.iter().any(|e| e.need_rescan()) {
+            return lost();
+        }
         let mut paths: Vec<String> = events
             .iter()
             .flat_map(|e| e.paths.iter())

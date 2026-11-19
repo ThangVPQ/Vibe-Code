@@ -60,7 +60,14 @@ let currentTheme: ITheme = termTheme
 /** see-through mode: the terminal paints no background, the panel behind it does */
 let clearBg = false
 
-const shownTheme = (): ITheme => (clearBg ? { ...currentTheme, background: '#00000000' } : currentTheme)
+/** one see-through copy per palette: a new object each time made every terminal rebuild its colours */
+const clearThemes = new WeakMap<ITheme, ITheme>()
+const shownTheme = (): ITheme => {
+  if (!clearBg) return currentTheme
+  let t = clearThemes.get(currentTheme)
+  if (!t) clearThemes.set(currentTheme, (t = { ...currentTheme, background: '#00000000' }))
+  return t
+}
 
 /**
  * Claude Code and most CLIs paint for a dark terminal: pale greys and pure white, which all but
@@ -79,7 +86,10 @@ function applyColors(): void {
 
 /** Switch every open terminal (and future ones) between the dark and light palettes. */
 export function setTerminalTheme(light: boolean): void {
-  currentTheme = light ? termThemeLight : termTheme
+  // runs on every settings change (a slider drag): only an actual switch re-themes the terminals
+  const next = light ? termThemeLight : termTheme
+  if (next === currentTheme) return
+  currentTheme = next
   applyColors()
 }
 
@@ -162,6 +172,9 @@ type DataFn = (id: string, data: string) => void
 type LinkFn = (id: string, url: string) => void
 
 const entries = new Map<string, Entry>()
+/** parked terminals still holding their WebGL renderer, oldest first */
+const warm: Entry[] = []
+const WARM_MAX = 1
 
 /* Terminal font size: Ctrl + / Ctrl − / Ctrl 0 in any terminal, shared by all, remembered. */
 const FONT_KEY = 'tinjs.termFontSize'
@@ -591,6 +604,8 @@ function loadWebgl(e: Entry): void {
 export function attachTerm(id: string, container: HTMLElement, focus = true): void {
   const e = entries.get(id)
   if (!e) return
+  const w = warm.indexOf(e)
+  if (w >= 0) warm.splice(w, 1)
   container.appendChild(e.el)
   // on screen: its output streams at full rate again
   window.api.pty.visible(id, true)
@@ -627,8 +642,17 @@ export function detachTerm(id: string): void {
   parkingLot().appendChild(e.el)
   // off screen: the backend batches its output into fewer, bigger pieces
   window.api.pty.visible(id, false)
-  e.webgl?.dispose()
-  e.webgl = undefined
+  // the chat you just left keeps its GPU renderer, so switching back and forth doesn't rebuild one
+  // each time; older parked ones give theirs up (contexts are limited, see loadWebgl)
+  if (!e.webgl) return
+  warm.push(e)
+  while (warm.length > WARM_MAX) {
+    const o = warm.shift()!
+    if (o.el.parentElement === parking) {
+      o.webgl?.dispose()
+      o.webgl = undefined
+    }
+  }
 }
 
 export function fitTerm(id: string): void {
@@ -719,6 +743,8 @@ export function disposeTerm(id: string): void {
   if (!e) return
   window.api.pty.kill(id)
   clearTimeout(e.resizeTimer)
+  const w = warm.indexOf(e)
+  if (w >= 0) warm.splice(w, 1)
   e.webgl?.dispose()
   e.term.dispose()
   e.el.remove()

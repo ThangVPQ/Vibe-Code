@@ -683,10 +683,18 @@ kbd {
   background: var(--blue);
   animation: pulse 1.2s infinite;
 }
+/* the ring is a scaled, fading copy (transform/opacity run on the GPU; an animated box-shadow
+   repainted every frame while any chat worked) */
 .status-dot.s-working {
   background: var(--accent);
-  box-shadow: 0 0 0 0 var(--accent);
-  animation: ring 1.4s infinite;
+}
+.status-dot.s-working::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #0a84ff99;
+  animation: ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 .status-dot.s-idle {
   background: var(--green);
@@ -1052,6 +1060,17 @@ kbd {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+/* the file editor and the diff view stay laid out; only the one in use shows */
+.editor-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.editor-layer:not(.on) {
+  visibility: hidden;
 }
 .monaco-wrap {
   flex: 1;
@@ -1788,8 +1807,8 @@ button.sb-item:hover {
 .overlay {
   position: fixed;
   inset: 0;
-  background: #05050a80;
-  backdrop-filter: blur(2px);
+  /* no full-window blur: redrawn every frame while a chat streams behind it */
+  background: #05050aa6;
   z-index: 100;
   display: flex;
   justify-content: center;
@@ -1979,17 +1998,6 @@ button.sb-item:hover {
   }
   50% {
     opacity: 0.35;
-  }
-}
-@keyframes ring {
-  0% {
-    box-shadow: 0 0 0 0 #0a84ff99;
-  }
-  70% {
-    box-shadow: 0 0 0 6px #0a84ff00;
-  }
-  100% {
-    box-shadow: 0 0 0 0 #0a84ff00;
   }
 }
 @keyframes ping {
@@ -3024,6 +3032,99 @@ button.sb-item:hover {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+/* web tab: start page of a blank tab */
+.start-page {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1d2b3a, #3a2f4a);
+  color: #fff;
+}
+.start-photo {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 0.8s ease, transform 1.6s ease;
+}
+.start-photo.on {
+  opacity: 1;
+  transform: none;
+}
+.start-photo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.15), rgb(0 0 0 / 0.35));
+}
+.start-content {
+  position: relative;
+  width: min(560px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-shadow: 0 2px 12px rgb(0 0 0 / 0.4);
+}
+.start-clock {
+  font-size: 64px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.start-date {
+  margin-top: 8px;
+  font-size: 15px;
+  opacity: 0.9;
+}
+.start-search {
+  margin-top: 28px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+  height: 46px;
+  border-radius: 23px;
+  background: rgb(255 255 255 / 0.92);
+  color: #5f6368;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+  text-shadow: none;
+}
+.start-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #202124;
+  font-size: 15px;
+}
+.start-shuffle {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.35);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.start-shuffle:hover {
+  opacity: 1;
 }
 .browser-stage.emulated {
   align-items: center;
@@ -3952,6 +4053,11 @@ button.sb-item:hover {
   font-size: 11px;
 }
 .db-grid th.db-rn { z-index: 3; background: var(--bg-elev); }
+/* big results render only the rows in view: every row exactly ROW_H (22px) tall, fixed columns */
+.db-grid.virtual { table-layout: fixed; }
+.db-grid.virtual td { height: 22px; line-height: 15px; box-sizing: border-box; max-width: none; }
+.db-grid.virtual td.db-spacer { padding: 0; border: 0; }
+.db-grid tr:hover td.db-spacer { background: none; }
 .db-grid-empty { padding: 14px; font-size: 12px; color: var(--text-faint); }
 
 .db-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 30px; color: var(--text-faint); text-align: center; }

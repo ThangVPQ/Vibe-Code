@@ -55,9 +55,10 @@ export function disposeModel(path: string): void {
 
 export function markTab(path: string, dirty: boolean): void {
   const id = 'f:' + path.toLowerCase()
-  useStore.setState((s) => ({
-    tabs: s.tabs.map((t) => (t.id === id && t.kind === 'file' && t.dirty !== dirty ? { ...t, dirty } : t))
-  }))
+  // every keystroke lands here: only a real flip of the flag may touch the tab list
+  const tab = useStore.getState().tabs.find((t) => t.id === id)
+  if (!tab || tab.kind !== 'file' || tab.dirty === dirty) return
+  useStore.setState((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === 'file' ? { ...t, dirty } : t)) }))
 }
 
 export { languageFor }

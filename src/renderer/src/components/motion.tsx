@@ -6,6 +6,9 @@ const reducedMotion = (): boolean => window.matchMedia?.('(prefers-reduced-motio
  * A highlight that glides to the selected item of its parent (a tab strip, a segmented switch, a list).
  * Drop it in as a child; the parent gets `has-pill` and its selected item's own background is turned off in CSS.
  */
+/** Transitions that never change an item's layout box. */
+const PAINT_ONLY = new Set(['background-color', 'color', 'opacity', 'box-shadow', 'border-color', 'outline-color', 'fill', 'stroke', 'filter', 'transform', 'scale', 'translate', 'text-decoration-color'])
+
 export function SlidePill({ selector = ':scope > .on, :scope > .active', className = '' }: { selector?: string; className?: string }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -72,6 +75,8 @@ export function SlidePill({ selector = ':scope > .on, :scope > .active', classNa
     }
     const follow = (e: Event): void => {
       if (e.target === pill) return
+      // hover colours / fades / scaling can't move a neighbour: no need to measure every frame for them
+      if (e instanceof TransitionEvent && PAINT_ONLY.has(e.propertyName)) return
       until = performance.now() + 500
       if (!loop) loop = requestAnimationFrame(tick)
     }
@@ -112,11 +117,18 @@ export function Collapse({ open, children }: { open: boolean; children: ReactNod
   useEffect(() => {
     if (open) {
       setMounted(true)
-      // next frame, so the 0 → full height change is animated
-      const r = requestAnimationFrame(() => requestAnimationFrame(() => setExpanded(true)))
-      return () => cancelAnimationFrame(r)
+      // next frame, so the 0 → full height change is animated (both frames cancel: a quick
+      // open → close used to leave the inner one to re-open the group)
+      let r2 = 0
+      const r1 = requestAnimationFrame(() => (r2 = requestAnimationFrame(() => setExpanded(true))))
+      return () => {
+        cancelAnimationFrame(r1)
+        cancelAnimationFrame(r2)
+      }
     }
     setExpanded(false)
+    // no transition runs with reduced motion, so no transitionend would ever unmount it
+    if (reducedMotion()) setMounted(false)
     return undefined
   }, [open])
   if (!mounted) return null
@@ -124,7 +136,8 @@ export function Collapse({ open, children }: { open: boolean; children: ReactNod
     <div
       className={`collapse${expanded ? ' open' : ''}`}
       onTransitionEnd={(e) => {
-        if (e.target === e.currentTarget && !open) setMounted(false)
+        // the height transition is the longer one: unmounting on the opacity one cut it short
+        if (e.target === e.currentTarget && e.propertyName === 'grid-template-rows' && !open) setMounted(false)
       }}
     >
       <div className="collapse-inner">{children}</div>
