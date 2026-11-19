@@ -350,6 +350,8 @@ interface NewChatOpts {
   pinnedTitle?: boolean
   /** coding agent to run — default Claude Code */
   agent?: AgentId
+  /** first message, sent as soon as Claude starts (one line) */
+  prompt?: string
 }
 
 export function newChat(opts: NewChatOpts = {}): void {
@@ -371,6 +373,7 @@ export function newChat(opts: NewChatOpts = {}): void {
   const effort = NEW_CHAT_DEFAULTS.effort
   const permissionMode = NEW_CHAT_DEFAULTS.permissionMode
   args = [...args, ...launchFlags({ model, effort, permissionMode })]
+  if (opts.prompt) args = [...args, opts.prompt]
   const n = st().chats.length + 1
   const chat: Chat = {
     id: 'chat-' + uid(),
@@ -482,6 +485,30 @@ export function selectChat(id: string): void {
     if (st().root && !samePath(st().root!, folder) && !samePath(st().root!, chat.cwd)) openFolder(folder, { autoChat: false })
   }
   setTimeout(() => focusTerm(id), 0)
+}
+
+/**
+ * A new Claude chat in `projectCwd` that starts by reading a Zalo task: the conversation, its photos and
+ * files are saved to disk first, and the chat's first message points Claude at them.
+ */
+export async function newChatFromZaloTask(taskId: string, title: string, projectCwd?: string | null): Promise<void> {
+  const cwd = projectCwd ?? (await window.api.app.pickFolder())
+  if (!cwd) return
+  if (!st().claude?.found) {
+    window.alert('Chưa cài Claude Code trên máy này.')
+    return
+  }
+  const ctx = await window.api.zalo.taskContext(taskId)
+  if (!st().root || !samePath(st().root!, cwd)) await openFolder(cwd, { autoChat: false })
+  const extra = ctx.images.length || ctx.files.length ? ` (${ctx.images.length} images, ${ctx.files.length} files attached)` : ''
+  newChat({
+    cwd,
+    agent: 'claude',
+    title: title.slice(0, 60),
+    pinnedTitle: true,
+    // ASCII only: it goes through the shell's command line; the Vietnamese instructions are in the file
+    prompt: `Read the Zalo task context file ${ctx.file}${extra} and follow the instructions at its top.`
+  })
 }
 
 export function closeChat(id: string): void {

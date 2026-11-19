@@ -176,6 +176,93 @@ export function setStatus(id: string, status: ZaloTask['status']): ZaloTasksStat
   return getTasks()
 }
 
+/* ------------------------- context for a new chat ------------------------- */
+
+const MAX_DOWNLOAD = 25 * 1024 * 1024
+// eslint-disable-next-line no-control-regex
+const safeName = (s: string): string => s.replace(/[<>:"/\\|?*\x00-\x1f]+/g, '_').replace(/\s+/g, ' ').trim().slice(0, 80) || 'file'
+
+async function download(url: string, path: string): Promise<boolean> {
+  try {
+    const r = await fetch(url)
+    if (!r.ok) return false
+    const len = Number(r.headers.get('content-length'))
+    if (len > MAX_DOWNLOAD) return false
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (buf.length > MAX_DOWNLOAD) return false
+    await fsp.writeFile(path, buf)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const extOf = (url: string, fallback: string): string => {
+  const m = /\.(png|jpe?g|gif|webp|bmp)(?:$|[?#])/i.exec(url)
+  return m ? m[1].toLowerCase() : fallback
+}
+
+/**
+ * Everything a coding chat needs about a task: the conversation around it written to a Markdown file,
+ * with photos and files sent in that chat downloaded next to it. Returns the file's path.
+ */
+export async function taskContext(id: string): Promise<{ file: string; images: string[]; files: string[] }> {
+  load()
+  const t = tasks.find((x) => x.id === id)
+  if (!t) throw new Error('Không tìm thấy việc này')
+  const all = zalo.getMessages(t.threadId, 400).filter((m) => !m.recalled)
+  let start = t.msgId ? all.findIndex((m) => m.id === t.msgId) : -1
+  if (start < 0) start = all.findIndex((m) => m.ts >= t.ts)
+  if (start < 0) start = Math.max(0, all.length - 30)
+  // a little of what came before (the question often builds on it), then everything since, capped
+  const msgs = all.slice(Math.max(0, start - 15)).slice(0, 120)
+  const out = join(dir(), 'context', t.id)
+  await fsp.rm(out, { recursive: true, force: true })
+  await fsp.mkdir(out, { recursive: true })
+  const images: string[] = []
+  const files: string[] = []
+  let n = 0
+  const lines: string[] = []
+  for (const m of msgs) {
+    const who = m.self ? 'Tôi' : m.fromName
+    const reply = m.reply ? ` _(trả lời ${m.reply.from}: "${m.reply.text.replace(/\s+/g, ' ').slice(0, 120)}")_` : ''
+    let body = m.text.replace(/\r?\n/g, '\n  ')
+    const a = m.att
+    if (a && (a.kind === 'photo' || a.kind === 'gif') && (a.url || a.thumb)) {
+      const url = a.url ?? a.thumb!
+      const path = join(out, `img-${String(++n).padStart(2, '0')}.${extOf(url, 'jpg')}`)
+      if (await download(url, path)) {
+        images.push(path)
+        body = `[ảnh] ${path}` + (a.desc ? ` — ${a.desc}` : '')
+      }
+    } else if (a?.kind === 'file' && a.url && (a.size ?? 0) <= MAX_DOWNLOAD) {
+      const name = safeName(a.title ?? `file-${++n}${a.ext ? '.' + a.ext : ''}`)
+      const path = join(out, name)
+      if (await download(a.url, path)) {
+        files.push(path)
+        body = `[tệp] ${path}`
+      }
+    }
+    lines.push(`- **${who}** (${fmt(m.ts)})${reply}${m.id === t.msgId ? ' ⟵ **yêu cầu**' : ''}: ${body}`)
+  }
+  const list = (title: string, paths: string[]): string => (paths.length ? `- ${title}:\n${paths.map((p) => `  - ${p}`).join('\n')}\n` : '')
+  const md = `# Việc từ Zalo: ${t.title}
+
+**Hướng dẫn cho bạn (Claude):** Đây là một việc tôi nhận qua Zalo. Hãy đọc kỹ đoạn chat bên dưới${images.length ? ' và XEM TẤT CẢ ảnh đính kèm (dùng Read với đường dẫn ảnh)' : ''}${files.length ? ', mở các tệp đính kèm' : ''}, rồi tìm hiểu code trong project hiện tại liên quan tới yêu cầu. Sau đó tóm tắt lại yêu cầu bằng tiếng Việt, nêu nguyên nhân / vị trí code liên quan và đề xuất cách xử lý. CHƯA sửa code cho tới khi tôi xác nhận.
+
+- Người yêu cầu: ${t.from}${t.group ? ` (nhóm "${t.threadName}")` : ''}
+- Thời gian: ${fmt(t.ts)}
+- Tóm tắt: ${t.title}
+${t.detail ? `- Ngữ cảnh: ${t.detail}\n` : ''}${list('Ảnh đính kèm', images)}${list('Tệp đính kèm', files)}
+## Đoạn chat ${t.group ? `nhóm "${t.threadName}"` : `với ${t.threadName}`}
+
+${lines.join('\n')}
+`
+  const file = join(out, 'context.md')
+  await fsp.writeFile(file, md, 'utf8')
+  return { file, images, files }
+}
+
 export function removeTask(id: string): ZaloTasksState {
   load()
   tasks = tasks.filter((x) => x.id !== id)

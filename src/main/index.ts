@@ -199,6 +199,7 @@ function registerIpc(): void {
   ipcMain.handle('zalo:tasks', () => zaloTasks.getTasks())
   ipcMain.handle('zalo:tasksAnalyze', () => zaloTasks.analyze())
   ipcMain.handle('zalo:taskStatus', (_e, id: string, status: ZaloTask['status']) => zaloTasks.setStatus(id, status))
+  ipcMain.handle('zalo:taskContext', (_e, id: string) => zaloTasks.taskContext(id))
   ipcMain.handle('zalo:taskRemove', (_e, id: string) => zaloTasks.removeTask(id))
   ipcMain.on('zalo:tasksViewing', (_e, on: boolean) => zaloTasks.setViewing(on))
 

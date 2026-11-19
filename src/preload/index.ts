@@ -98,6 +98,7 @@ const api = {
     tasks: (): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:tasks'),
     analyzeTasks: (): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:tasksAnalyze'),
     setTaskStatus: (id: string, status: ZaloTask['status']): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:taskStatus', id, status),
+    taskContext: (id: string): Promise<{ file: string; images: string[]; files: string[] }> => ipcRenderer.invoke('zalo:taskContext', id),
     removeTask: (id: string): Promise<ZaloTasksState> => ipcRenderer.invoke('zalo:taskRemove', id),
     onTasks: (cb: (s: ZaloTasksState) => void) => on('zalo:tasks', cb),
     /** the task list is (not) on screen in a focused window → clears the badge, no pop-ups meanwhile */

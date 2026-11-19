@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, CircleDot, ClipboardList, Loader2, RefreshCw, Sparkles, Trash2, Users } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Check, ChevronDown, Circle, CircleCheck, CircleDot, ClipboardList, Folder, FolderOpen, Loader2, MessageSquarePlus, RefreshCw, Sparkles, Trash2, Users } from 'lucide-react'
 import type { ZaloIncoming, ZaloTask, ZaloTasksState } from '../../../../shared/types'
 import { listTime } from './util'
 import { Avatar } from './Avatar'
-import { useStore } from '../../store'
+import { basename, useStore } from '../../store'
+import { newChatFromZaloTask } from '../../actions'
 
 const SECTIONS: { key: ZaloTask['status']; label: string }[] = [
   { key: 'todo', label: 'Cần làm' },
@@ -19,6 +20,20 @@ const NEXT: Record<ZaloTask['status'], ZaloTask['status']> = { todo: 'doing', do
 export function ZaloTasks(): React.JSX.Element {
   const [s, setS] = useState<ZaloTasksState>({ tasks: [], running: false, analyzedAt: 0 })
   const [showDone, setShowDone] = useState(false)
+  const [menu, setMenu] = useState<{ t: ZaloTask; x: number; y: number } | null>(null)
+  /** a chat being prepared from a task (downloading its photos / files) */
+  const [preparing, setPreparing] = useState<string | null>(null)
+  const startChat = async (t: ZaloTask, cwd: string | null): Promise<void> => {
+    setPreparing(t.title)
+    try {
+      await newChatFromZaloTask(t.id, t.title, cwd)
+      if (t.status === 'todo') void window.api.zalo.setTaskStatus(t.id, 'doing')
+    } catch (e) {
+      window.alert('Không tạo được chat: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setPreparing(null)
+    }
+  }
   // "mới" / "cập nhật" tags: kept while I'm on the tab even though main already counts them as seen
   const [tags, setTags] = useState<Record<string, 'new' | 'updated'>>({})
   const onTab = useStore((st) => st.centerView === 'zalo')
@@ -65,6 +80,11 @@ export function ZaloTasks(): React.JSX.Element {
         </button>
       </div>
       {s.error && <div className="zt-error">{s.error}</div>}
+      {preparing && (
+        <div className="zt-prep">
+          <Loader2 size={13} className="zl-spin" /> Đang lấy đoạn chat, ảnh và tệp cho chat mới: {preparing}
+        </div>
+      )}
       {!!s.incoming?.length && <Incoming list={s.incoming} running={s.running} dueAt={s.dueAt} />}
       <div className="zt-body">
         {s.tasks.length === 0 && !s.incoming?.length && (
@@ -85,12 +105,13 @@ export function ZaloTasks(): React.JSX.Element {
                 <span className="zt-sec-n">{list.length}</span>
                 {key === 'done' && <ChevronDown size={14} className={folded ? 'zt-fold' : ''} />}
               </button>
-              {!folded && list.map((t) => <Row key={t.id} t={t} tag={tags[t.id]} />)}
+              {!folded && list.map((t) => <Row key={t.id} t={t} tag={tags[t.id]} onMenu={(x, y) => setMenu({ t, x, y })} />)}
             </section>
           )
         })}
       </div>
-      <div className="zt-foot">Trả lời trên Zalo điện thoại — tin của bạn đồng bộ về và việc tự chuyển trạng thái.</div>
+      <div className="zt-foot">Trả lời trên Zalo điện thoại — tin của bạn đồng bộ về và việc tự chuyển trạng thái. Chuột phải vào việc để đổi trạng thái hoặc tạo chat.</div>
+      {menu && <TaskMenu {...menu} onClose={() => setMenu(null)} onChat={(cwd) => void startChat(menu.t, cwd)} />}
     </div>
   )
 }
@@ -134,9 +155,17 @@ function Incoming({ list, running, dueAt }: { list: ZaloIncoming[]; running: boo
   )
 }
 
-function Row({ t, tag }: { t: ZaloTask; tag?: 'new' | 'updated' }): React.JSX.Element {
+function Row({ t, tag, onMenu }: { t: ZaloTask; tag?: 'new' | 'updated'; onMenu: (x: number, y: number) => void }): React.JSX.Element {
   return (
-    <div className={'zt-row ' + t.status + (tag ? ' fresh' : '')}>
+    <div
+      className={'zt-row ' + t.status + (tag ? ' fresh' : '')}
+      onContextMenu={(e) => {
+        // keep the browser menu (Copy) while text is selected inside the task
+        if (window.getSelection()?.toString()) return
+        e.preventDefault()
+        onMenu(e.clientX, e.clientY)
+      }}
+    >
       <button
         className="zt-check"
         title={t.status === 'todo' ? 'Đánh dấu đang xử lý' : t.status === 'doing' ? 'Đánh dấu hoàn thành' : 'Mở lại'}
@@ -160,5 +189,99 @@ function Row({ t, tag }: { t: ZaloTask; tag?: 'new' | 'updated' }): React.JSX.El
         <Trash2 size={13} />
       </button>
     </div>
+  )
+}
+
+const STATUS_ITEMS: { key: ZaloTask['status']; label: string; icon: React.JSX.Element }[] = [
+  { key: 'todo', label: 'Cần làm', icon: <Circle size={16} /> },
+  { key: 'doing', label: 'Đang xử lý', icon: <CircleDot size={16} /> },
+  { key: 'done', label: 'Hoàn thành', icon: <CircleCheck size={16} /> }
+]
+
+/** Right-click on a task: set its status by hand, or start a coding chat in a project with the conversation as context. */
+function TaskMenu({ t, x, y, onClose, onChat }: { t: ZaloTask; x: number; y: number; onClose: () => void; onChat: (cwd: string | null) => void }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
+  const [pick, setPick] = useState(false)
+  const root = useStore((s) => s.root)
+  const projects = useStore((s) => s.projects)
+  const recent = useStore((s) => s.recent)
+  const folders = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    const add = (p?: string | null): void => {
+      const k = p?.replace(/[\\/]+$/, '').toLowerCase()
+      if (!p || !k || seen.has(k)) return
+      seen.add(k)
+      out.push(p)
+    }
+    add(root)
+    ;[...projects].sort((a, b) => b.updated - a.updated).forEach((g) => add(g.cwd))
+    recent.forEach(add)
+    return out.slice(0, 8)
+  }, [root, projects, recent])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPos({ left: Math.max(8, Math.min(x, window.innerWidth - r.width - 8)), top: Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) })
+  }, [x, y, pick])
+  useEffect(() => {
+    const k = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [onClose])
+  const run = (fn: () => void) => () => {
+    onClose()
+    fn()
+  }
+  return (
+    <>
+      <div
+        className="zl-scrim"
+        onMouseDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+      <div className="zl-ctx zt-ctx" ref={ref} style={pos}>
+        <div className="zl-ctx-list">
+          {!pick ? (
+            <>
+              {STATUS_ITEMS.map((it) => (
+                <button key={it.key} className={t.status === it.key ? 'on' : ''} onClick={run(() => void window.api.zalo.setTaskStatus(t.id, it.key))}>
+                  {it.icon} {it.key === 'done' && t.status !== 'done' ? 'Đánh dấu hoàn thành' : it.label}
+                  {t.status === it.key && <Check size={14} className="zt-ctx-tick" />}
+                </button>
+              ))}
+              <div className="zt-ctx-sep" />
+              <button onClick={() => setPick(true)}>
+                <MessageSquarePlus size={16} /> Tạo chat mới từ việc này…
+              </button>
+              <div className="zt-ctx-sep" />
+              <button className="danger" onClick={run(() => void window.api.zalo.removeTask(t.id))}>
+                <Trash2 size={16} /> Xoá khỏi danh sách
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="zt-ctx-h">Chọn project cho chat mới</div>
+              {folders.map((f) => (
+                <button key={f} title={f} onClick={run(() => onChat(f))}>
+                  <Folder size={16} /> <span className="zt-ctx-name">{basename(f)}</span>
+                  <span className="zt-ctx-path">{f}</span>
+                </button>
+              ))}
+              <button onClick={run(() => onChat(null))}>
+                <FolderOpen size={16} /> Chọn thư mục khác…
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </>
   )
 }
