@@ -499,9 +499,9 @@ export function newChat(opts: NewChatOpts = {}): void {
     sessionId = crypto.randomUUID()
     args = [...args, '--session-id', sessionId]
   }
-  // New chats start the same way, except the model: the last one picked in any chat is kept.
-  const model = rememberedModel()
-  const effort = NEW_CHAT_DEFAULTS.effort
+  // New chats start the same way, except the model and effort: the last ones picked in any chat are kept.
+  const model = remembered(MODEL_KEY, NEW_CHAT_DEFAULTS.model)
+  const effort = remembered(EFFORT_KEY, NEW_CHAT_DEFAULTS.effort)
   const permissionMode = NEW_CHAT_DEFAULTS.permissionMode
   args = [...args, ...launchFlags({ model, effort, permissionMode })]
   if (opts.prompt) args = [...args, opts.prompt]
@@ -555,19 +555,29 @@ function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts, blank: b
 const agentFlags = (agentId: AgentId | undefined, permissionMode?: string): string[] =>
   permissionMode === 'bypassPermissions' ? agentDef(agentId).yolo : []
 
-/** What every new chat starts with: Opus 5.5 (or the model last picked), medium effort, bypass permissions. */
+/** What every new chat starts with: Opus 5.5 and medium effort (or the ones last picked), bypass permissions. */
 const NEW_CHAT_DEFAULTS = { model: 'claude-opus-5-5', effort: 'medium', permissionMode: 'bypassPermissions' }
 
 const MODEL_KEY = 'vibe.newChatModel'
-/** The model last picked in a chat's model menu ('' = Claude Code's default), else Opus 5.5. */
-function rememberedModel(): string | undefined {
+const EFFORT_KEY = 'vibe.newChatEffort'
+/** The value last picked in a chat's menu ('' = Claude Code's default), else the fallback. */
+function remembered(key: string, fallback: string): string | undefined {
   try {
-    const m = localStorage.getItem(MODEL_KEY)
+    const m = localStorage.getItem(key)
     if (m !== null) return m || undefined
   } catch {
     /* storage unavailable */
   }
-  return NEW_CHAT_DEFAULTS.model
+  return fallback
+}
+
+/** New chats start with what was just picked. */
+function remember(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* they keep the default */
+  }
 }
 
 /** CLI flags that carry a chat's model, effort and permission mode across (re)starts. */
@@ -583,12 +593,7 @@ function launchFlags(c: { model?: string; effort?: string; permissionMode?: stri
 export function setChatModel(id: string, model: string): void {
   writeToTerm(id, `/model ${model || 'default'}\r`)
   st().patchChat(id, { model: model || undefined })
-  // new chats start with it too
-  try {
-    localStorage.setItem(MODEL_KEY, model)
-  } catch {
-    /* they keep the default */
-  }
+  remember(MODEL_KEY, model)
   focusTerm(id)
 }
 
@@ -596,6 +601,7 @@ export function setChatModel(id: string, model: string): void {
 export function setChatEffort(id: string, effort: string): void {
   writeToTerm(id, `/effort ${effort || 'auto'}\r`)
   st().patchChat(id, { effort: effort || undefined })
+  remember(EFFORT_KEY, effort)
   focusTerm(id)
 }
 
