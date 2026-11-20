@@ -3906,7 +3906,8 @@ button.sb-item:hover {
 .db-row-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .db-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .db-row-sub { font-size: 10.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; }
-.db-row-actions { margin-left: auto; display: none; gap: 0; }
+/* negative margin: the 22px buttons showing on hover must not make a 24px row taller (rows below jumped) */
+.db-row-actions { margin-left: auto; margin-block: -3px; display: none; gap: 0; }
 .db-row:hover .db-row-actions { display: flex; }
 .db-row-actions .icon-btn { width: 22px; height: 22px; }
 .db-children { padding-left: 12px; }

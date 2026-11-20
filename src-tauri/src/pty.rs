@@ -230,10 +230,13 @@ pub async fn pty_spawn(opts: SpawnOptions, out: Channel<PtyMsg>) -> Res<()> {
     })?;
 
     // Claude Code redraws in many tiny chunks; one message per chunk floods the page and makes the
-    // chat stutter. Gather what arrives within 5 ms and send it as one piece.
+    // chat stutter. But a fixed gathering delay lands on every keystroke's echo (and a 5 ms sleep is
+    // really ~16 ms on Windows' default timer), which made typing lag. So: output after a quiet
+    // moment goes out at once; a running stream is sent at most once a frame (hidden: every 50 ms).
     let id = opts.id;
     tauri::async_runtime::spawn(async move {
         let mut carry: Vec<u8> = Vec::new();
+        let mut last_send = std::time::Instant::now() - Duration::from_secs(1);
         let send = |carry: &mut Vec<u8>, out: &Channel<PtyMsg>| {
             if carry.is_empty() {
                 return;
@@ -257,9 +260,18 @@ pub async fn pty_spawn(opts: SpawnOptions, out: Channel<PtyMsg>) -> Res<()> {
                 Chunk::Data(d) => carry.extend(d),
                 Chunk::Exit(c) => exit = Some(c),
             }
-            if exit.is_none() {
-                let window = if VISIBLE.lock().contains(&id) { 5 } else { 50 };
-                let deadline = tokio::time::sleep(Duration::from_millis(window));
+            // whatever is already queued goes in the same piece
+            while exit.is_none() {
+                match rx.try_recv() {
+                    Ok(Chunk::Data(d)) => carry.extend(d),
+                    Ok(Chunk::Exit(c)) => exit = Some(c),
+                    Err(_) => break,
+                }
+            }
+            let gap = Duration::from_millis(if VISIBLE.lock().contains(&id) { 16 } else { 50 });
+            let wait = gap.saturating_sub(last_send.elapsed());
+            if exit.is_none() && !wait.is_zero() {
+                let deadline = tokio::time::sleep(wait);
                 tokio::pin!(deadline);
                 while carry.len() < 256 * 1024 {
                     tokio::select! {
@@ -273,6 +285,7 @@ pub async fn pty_spawn(opts: SpawnOptions, out: Channel<PtyMsg>) -> Res<()> {
                 }
             }
             send(&mut carry, &out);
+            last_send = std::time::Instant::now();
             if let Some(code) = exit {
                 // a process we killed or replaced (restart) must not report "exited": the id
                 // already belongs to a new, live process
