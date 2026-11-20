@@ -499,10 +499,11 @@ export function newChat(opts: NewChatOpts = {}): void {
     sessionId = crypto.randomUUID()
     args = [...args, '--session-id', sessionId]
   }
-  // New chats start the same way, except the model and effort: the last ones picked in any chat are kept.
-  const model = remembered(MODEL_KEY, NEW_CHAT_DEFAULTS.model)
+  // New chats start with the model last picked in this project (else in any chat), and the effort and
+  // permission mode last picked in any chat.
+  const model = rememberedModel(cwd)
   const effort = remembered(EFFORT_KEY, NEW_CHAT_DEFAULTS.effort)
-  const permissionMode = NEW_CHAT_DEFAULTS.permissionMode
+  const permissionMode = remembered(PERMISSION_KEY, NEW_CHAT_DEFAULTS.permissionMode)
   args = [...args, ...launchFlags({ model, effort, permissionMode })]
   if (opts.prompt) args = [...args, opts.prompt]
   const n = st().chats.length + 1
@@ -532,7 +533,9 @@ export function newChat(opts: NewChatOpts = {}): void {
  */
 function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts, blank: boolean): void {
   const agent = agentDef(agentId)
-  const permissionMode = agent.yolo.length ? NEW_CHAT_DEFAULTS.permissionMode : undefined
+  // Other agents only know default or bypass, so a Claude-only mode (plan, accept edits…) falls back to default.
+  const last = remembered(PERMISSION_KEY, NEW_CHAT_DEFAULTS.permissionMode)
+  const permissionMode = agent.yolo.length && last === 'bypassPermissions' ? last : undefined
   const args = [...(opts.args ?? []), ...agentFlags(agentId, permissionMode)]
   const n = st().chats.filter((c) => c.agent === agentId).length + 1
   const chat: Chat = {
@@ -555,11 +558,16 @@ function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts, blank: b
 const agentFlags = (agentId: AgentId | undefined, permissionMode?: string): string[] =>
   permissionMode === 'bypassPermissions' ? agentDef(agentId).yolo : []
 
-/** What every new chat starts with: Opus 5.5 and medium effort (or the ones last picked), bypass permissions. */
+/** What every new chat starts with, unless another value was picked last: Opus 5.5, medium effort, bypass permissions. */
 const NEW_CHAT_DEFAULTS = { model: 'claude-opus-5-5', effort: 'medium', permissionMode: 'bypassPermissions' }
 
 const MODEL_KEY = 'vibe.newChatModel'
+const projectModelKey = (cwd: string): string => `${MODEL_KEY}:${folderKey(cwd)}`
+/** The model last picked in this project, else the one last picked anywhere, else Opus 5.5. */
+const rememberedModel = (cwd: string): string | undefined =>
+  remembered(projectModelKey(cwd), remembered(MODEL_KEY, NEW_CHAT_DEFAULTS.model) ?? '')
 const EFFORT_KEY = 'vibe.newChatEffort'
+const PERMISSION_KEY = 'vibe.newChatPermission'
 /** The value last picked in a chat's menu ('' = Claude Code's default), else the fallback. */
 function remembered(key: string, fallback: string): string | undefined {
   try {
@@ -568,7 +576,7 @@ function remembered(key: string, fallback: string): string | undefined {
   } catch {
     /* storage unavailable */
   }
-  return fallback
+  return fallback || undefined
 }
 
 /** New chats start with what was just picked. */
@@ -593,6 +601,8 @@ function launchFlags(c: { model?: string; effort?: string; permissionMode?: stri
 export function setChatModel(id: string, model: string): void {
   writeToTerm(id, `/model ${model || 'default'}\r`)
   st().patchChat(id, { model: model || undefined })
+  const c = st().chats.find((x) => x.id === id)
+  if (c) remember(projectModelKey(c.cwd), model)
   remember(MODEL_KEY, model)
   focusTerm(id)
 }
@@ -611,6 +621,7 @@ export function setChatPermission(id: string, mode: string): void {
   if (!c) return
   if (c.status === 'working' && !window.confirm(`${agentDef(c.agent).label} is still working. Restart this chat with the new permission mode?`)) return
   st().patchChat(id, { permissionMode: mode || undefined })
+  remember(PERMISSION_KEY, mode)
   restartChat(id)
 }
 
