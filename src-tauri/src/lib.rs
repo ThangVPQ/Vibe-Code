@@ -11,6 +11,7 @@ mod fsx;
 mod git;
 mod mcp;
 mod mssql;
+mod plugins;
 mod pty;
 mod sessions;
 mod settings;
@@ -150,6 +151,7 @@ pub fn run() {
         ])
         .setup(|app| {
             core::init(app.handle());
+            plugins::init();
             // before any chat starts: chats get the MCP server's address at launch
             tauri::async_runtime::block_on(mcp::start())?;
             windowing::init(app)?;
