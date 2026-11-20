@@ -16,7 +16,7 @@ Run the installer (no admin rights needed, it installs for the current user). VI
 
 **Updates:** when a new version is published, an **Update vX.Y.Z** button appears at the left of the status bar. Click it: the app downloads the installer, updates itself and restarts.
 
-![VIBE CODE demo: open a project, go to file, ask Claude for a change, review the diff, run git in the terminal, switch theme](docs/demo.gif)
+![VIBE CODE demo: open a project, start a chat, go to file, run a failing test, capture and mark up the error with Ctrl+Alt+Z, send it to Claude, review the diff, tests pass](docs/demo.gif)
 
 ## Features
 
