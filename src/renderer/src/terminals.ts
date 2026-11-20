@@ -291,39 +291,55 @@ type Line = ReturnType<typeof logicalLine>
 
 /**
  * Claude Code wraps long lines itself (a newline plus indentation, not a terminal soft wrap), which
- * cut paths in two. `b` goes on from `a` when `a` runs to the right edge and `b` is indented text.
+ * cut paths in two. `b` goes on from `a` when `b` is indented text and either `a` runs to the right
+ * edge ('char': cut mid-word) or `b`'s first word would not have fit after `a` ('word': wrapped at
+ * a space, which Claude Code drops, e.g. "...\Roaming\TINJS" / "Studio\zalo\...").
  */
-function continues(term: Terminal, a: Line, b: Line): boolean {
+function continues(term: Terminal, a: Line, b: Line): 'char' | 'word' | null {
   const end = a.pos[a.pos.length - 1]
-  return !!end && end.x >= term.cols - 2 && /^\s+\S/.test(b.text)
+  const word = /^\s+(\S+)/.exec(b.text)?.[1]
+  if (!end || !word) return null
+  if (end.x >= term.cols - 2) return 'char'
+  return end.x + 1 + word.length >= term.cols - 2 ? 'word' : null
 }
 
 /**
  * The logical line through row `y` joined with the lines Claude Code hard-wrapped it into (a few
- * each way); `joins` are the text offsets where a wrapped row's text was appended.
+ * each way); `joins` are the text offsets where a row cut mid-word was appended. A row wrapped at
+ * a space is appended after a space, so a path with spaces is still checked on disk whole.
  */
 function wrappedBlock(term: Terminal, y: number): { text: string; pos: CellPos[]; joins: number[] } {
   const rows = term.buffer.active.length
   const lines = [logicalLine(term, y)]
+  const kinds: ('char' | 'word')[] = []
   for (let i = 0; i < 4 && lines[0].first > 1; i++) {
     const prev = logicalLine(term, lines[0].first - 1)
-    if (!continues(term, prev, lines[0])) break
+    const kind = continues(term, prev, lines[0])
+    if (!kind) break
     lines.unshift(prev)
+    kinds.unshift(kind)
   }
   for (let i = 0; i < 4 && lines[lines.length - 1].last < rows; i++) {
     const next = logicalLine(term, lines[lines.length - 1].last + 1)
-    if (!continues(term, lines[lines.length - 1], next)) break
+    const kind = continues(term, lines[lines.length - 1], next)
+    if (!kind) break
     lines.push(next)
+    kinds.push(kind)
   }
   let text = lines[0].text
   const pos = lines[0].pos.slice()
   const joins: number[] = []
-  for (const l of lines.slice(1)) {
+  lines.slice(1).forEach((l, i) => {
     const indent = l.text.length - l.text.trimStart().length
-    joins.push(text.length)
+    if (kinds[i] === 'word') {
+      // the dropped space sat right after the previous row's last character
+      const last = pos[pos.length - 1]
+      text += ' '
+      pos.push({ x: last.x + 1, y: last.y })
+    } else joins.push(text.length)
     text += l.text.slice(indent)
     pos.push(...l.pos.slice(indent))
-  }
+  })
   return { text, pos, joins }
 }
 
