@@ -224,8 +224,8 @@ export const api = {
     checkUpdate: (): Promise<string | null> => invoke('app_check_update'),
     /** downloads and runs the newest installer; the app quits and the installer restarts it */
     installUpdate: (): Promise<void> => invoke('app_install_update'),
-    /** hides the app and opens the screen-capture editor (Windows) */
-    capture: (): Promise<void> => invoke('capture_start'),
+    /** opens the screen-capture editor (Windows); `hide` takes the app off the screen first */
+    capture: (hide: boolean): Promise<void> => invoke('capture_start', { hide }),
     /** a capture was sent to chat: the saved PNG's path (it is on the clipboard too) */
     onCaptured: (cb: (path: string) => void): Off => on('capture:done', cb),
     saveImage: (data: Uint8Array, ext: string): Promise<string> => invoke('app_save_image', data, { headers: { 'x-ext': ext } }),

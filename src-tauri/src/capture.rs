@@ -1,4 +1,5 @@
-//! Screen capture: hides the app, grabs the monitor under the mouse, and shows it in a frameless
+//! Screen capture: grabs the monitor under the mouse (the title-bar button hides the app first, the
+//! hotkey grabs the screen as it is, app included), and shows it in a frameless
 //! full-screen window where you pick a region and mark it up (boxes, arrows, pen, text, numbered
 //! steps, mosaic…). The result goes to the clipboard and, by default, into the active chat.
 //!
@@ -44,9 +45,10 @@ fn register_protocol() -> bool {
     })
 }
 
-/// Title-bar button: hide the app, grab the screen, open the editor over it.
+/// Grab the screen and open the editor over it. `hide`: take the app off the screen first (the
+/// title-bar button); the hotkey keeps it, so what is on screen, VIBE CODE included, is grabbed.
 #[tauri::command]
-pub async fn capture_start() -> Res<()> {
+pub async fn capture_start(hide: bool) -> Res<()> {
     if app().get_webview_window(LABEL).is_some() || !register_protocol() {
         return Ok(());
     }
@@ -55,6 +57,7 @@ pub async fn capture_start() -> Res<()> {
     WAS_VISIBLE.store(visible, Ordering::SeqCst);
     if let Some(w) = &main
         && visible
+        && hide
     {
         let _ = w.hide();
         // let the window actually leave the screen before it is grabbed

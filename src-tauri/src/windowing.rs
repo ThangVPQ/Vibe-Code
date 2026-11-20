@@ -322,7 +322,7 @@ fn register_hotkey() {
     let _ = gs.on_shortcut(crate::capture::HOTKEY, |_app, _shortcut, ev| {
         if ev.state == ShortcutState::Pressed {
             tauri::async_runtime::spawn(async {
-                let _ = crate::capture::capture_start().await;
+                let _ = crate::capture::capture_start(false).await;
             });
         }
     });

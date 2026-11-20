@@ -150,7 +150,7 @@ function CaptureButton(): React.JSX.Element | null {
   )
   if (window.api.platform !== 'win32') return null
   return (
-    <button className="icon-btn" title="Capture screen (Ctrl+Alt+Z): pick a region, mark it up, send it to chat" onClick={() => void window.api.app.capture()}>
+    <button className="icon-btn" title="Capture what is behind VIBE CODE: pick a region, mark it up, send it to chat (Ctrl+Alt+Z captures the screen as it is, VIBE CODE included)" onClick={() => void window.api.app.capture(true)}>
       <SquareDashedPlus size={15} />
     </button>
   )
