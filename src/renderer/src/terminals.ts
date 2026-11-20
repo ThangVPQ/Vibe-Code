@@ -750,6 +750,14 @@ function takePaths(id: string, kind: PtySpawnOptions['kind'], paths: string[]): 
   else if (paths.length) writeToTerm(id, paths.map(quotePath).join(' ') + ' ')
 }
 
+/** Files from outside the page (a screen capture): into the chat's tray, or typed into a shell. */
+export function giveFiles(id: string, paths: string[]): void {
+  const e = entries.get(id)
+  if (!e) return
+  takePaths(id, e.spawn.kind, paths)
+  focusTerm(id)
+}
+
 /** Claude is showing a numbered choice (permission prompt, plan approval…): "❯ 1. Yes" near the bottom. */
 function menuOnScreen(term: Terminal): boolean {
   const b = term.buffer.active

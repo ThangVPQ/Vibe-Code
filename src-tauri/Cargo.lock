@@ -5524,6 +5524,7 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "parking_lot",
+ "png",
  "portable-pty",
  "rand",
  "regex",

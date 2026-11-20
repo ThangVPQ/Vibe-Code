@@ -10,7 +10,8 @@
     "build:web": "vite build",
     "build": "tauri build",
     "typecheck": "tsc -p tsconfig.json",
-    "dist": "tauri build"
+    "dist": "tauri build",
+    "release": "node scripts/release.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.5"

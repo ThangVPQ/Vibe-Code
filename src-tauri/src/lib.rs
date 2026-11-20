@@ -6,6 +6,7 @@ pub mod secure;
 
 mod appcmds;
 mod browser;
+mod capture;
 mod fsx;
 mod git;
 mod mcp;
@@ -131,6 +132,13 @@ pub fn run() {
             appcmds::app_open_external,
             appcmds::app_clear_browser_cache,
             appcmds::app_relaunch,
+            appcmds::app_check_update,
+            appcmds::app_install_update,
+            capture::capture_start,
+            capture::capture_frame,
+            capture::capture_ready,
+            capture::capture_cancel,
+            capture::capture_done,
             appcmds::app_save_image,
             appcmds::app_clipboard_files,
         ])

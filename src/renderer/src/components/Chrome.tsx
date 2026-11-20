@@ -26,7 +26,8 @@ import {
   Droplet,
   Globe,
   Moon,
-  Sun
+  Sun,
+  SquareDashedPlus
 } from 'lucide-react'
 import { basename, useStore, type SidebarView } from '../store'
 import { defaultAgent, installedAgents, openBrowser, openFile, openFolder, openSession, setDefaultAgent, toggleBottom, toggleTheme } from '../actions'
@@ -35,6 +36,7 @@ import { languageOf } from '../fileModelsLite'
 import { FileIcon, Logo } from './icons'
 import type { UsageLimit } from '../../../shared/types'
 import { revealIn } from '../scroll'
+import { giveFiles } from '../terminals'
 import { COMMANDS, type Command } from '../shortcuts'
 
 /* ================================ Title bar ================================ */
@@ -126,12 +128,31 @@ export function TitleBar(): React.JSX.Element {
         <button className="icon-btn" title="Open browser" onClick={() => openBrowser()}>
           <Globe size={15} />
         </button>
+        <CaptureButton />
         <ThemeToggle />
         <OpacityControl />
         <ModeSwitch />
       </div>
       <WindowControls />
     </div>
+  )
+}
+
+/** Screen capture: pick a region, mark it up, and it lands in the active chat (and the clipboard). */
+function CaptureButton(): React.JSX.Element | null {
+  useEffect(
+    () =>
+      window.api.app.onCaptured((path) => {
+        const id = useStore.getState().activeChatId
+        if (id) giveFiles(id, [path])
+      }),
+    []
+  )
+  if (window.api.platform !== 'win32') return null
+  return (
+    <button className="icon-btn" title="Capture screen: pick a region, mark it up, send it to chat" onClick={() => void window.api.app.capture()}>
+      <SquareDashedPlus size={15} />
+    </button>
   )
 }
 
@@ -388,6 +409,7 @@ export function StatusBar(): React.JSX.Element {
             {git.files.length > 0 && <span className="sb-muted">· {git.files.length} changed</span>}
           </button>
         )}
+        <UpdateButton />
         {total > 0 && (
           <button className="sb-item" onClick={() => useStore.setState({ sidebarView: 'chats', sidebarOpen: true })}>
             {working > 0 ? <Loader2 size={12} className="spin" /> : <MessagesSquare size={12} />}
@@ -402,6 +424,31 @@ export function StatusBar(): React.JSX.Element {
         {claude && <AgentPicker />}
       </div>
     </div>
+  )
+}
+
+/** Status-bar button shown when GitHub has a newer release: click to download and install it. */
+function UpdateButton(): React.JSX.Element | null {
+  const [version, setVersion] = useState<string | null>(null)
+  const [state, setState] = useState<'idle' | 'busy' | 'failed'>('idle')
+
+  useEffect(() => {
+    const check = (): void => void window.api.app.checkUpdate().then(setVersion, () => {})
+    check()
+    const t = setInterval(check, 6 * 60 * 60 * 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  if (!version) return null
+  const install = (): void => {
+    setState('busy')
+    window.api.app.installUpdate().catch(() => setState('failed'))
+  }
+  return (
+    <button className="sb-item sb-update" disabled={state === 'busy'} onClick={install} title={state === 'failed' ? 'Update failed, click to retry' : `Download and install v${version}`}>
+      {state === 'busy' ? <Loader2 size={12} className="spin" /> : <ArrowDownToLine size={12} />}
+      {state === 'busy' ? 'Updating…' : state === 'failed' ? 'Update failed · retry' : `Update v${version}`}
+    </button>
   )
 }
 

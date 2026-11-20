@@ -251,6 +251,56 @@ pub async fn app_relaunch() -> Res<bool> {
     app().restart();
 }
 
+/* ---------------- updates (GitHub releases) ---------------- */
+
+const RELEASES: &str = "https://api.github.com/repos/nguyentrantin98/vibecode/releases/latest";
+
+/// The newest release's version and installer url, when it is newer than this build.
+async fn newer_release() -> anyhow::Result<Option<(String, String)>> {
+    let r = reqwest::Client::new()
+        .get(RELEASES)
+        .header("User-Agent", "vibe-code")
+        .header("Accept", "application/vnd.github+json")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await?;
+    if r.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None); // no release yet
+    }
+    let j: Value = r.error_for_status()?.json().await?;
+    let latest = j["tag_name"].as_str().unwrap_or_default().trim_start_matches('v').to_owned();
+    let parse = |v: &str| v.split('.').map(|n| n.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
+    if parse(&latest) <= parse(&app().package_info().version.to_string()) {
+        return Ok(None);
+    }
+    let url = j["assets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|a| a["name"].as_str().is_some_and(|n| n.ends_with("-setup.exe")))
+        .and_then(|a| a["browser_download_url"].as_str());
+    Ok(url.map(|u| (latest, u.to_owned())))
+}
+
+/// The newer version on GitHub, or None when this build is the latest.
+#[tauri::command]
+pub async fn app_check_update() -> Res<Option<String>> {
+    Ok(newer_release().await?.map(|(v, _)| v))
+}
+
+/// Downloads the newest installer, runs it in passive update mode (it restarts the app) and quits.
+#[tauri::command]
+pub async fn app_install_update() -> Res<()> {
+    let (version, url) = newer_release().await?.ok_or_else(|| err("already up to date"))?;
+    let bytes = reqwest::Client::new().get(&url).header("User-Agent", "vibe-code").send().await?.error_for_status()?.bytes().await?;
+    let path = std::env::temp_dir().join(format!("vibe-code_{version}_setup.exe"));
+    tokio::fs::write(&path, &bytes).await?;
+    std::process::Command::new(&path).args(["/P", "/R", "/UPDATE"]).spawn()?;
+    crate::pty::kill_all();
+    app().exit(0);
+    Ok(())
+}
+
 /// Pasted / dropped image bytes (raw request body, extension in `x-ext`) → a temp file path.
 #[tauri::command]
 pub async fn app_save_image(request: Request<'_>) -> Res<String> {

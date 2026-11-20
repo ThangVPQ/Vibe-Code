@@ -220,6 +220,14 @@ export const api = {
     openExternal: (url: string): Promise<void> => invoke('app_open_external', { url }),
     clearBrowserCache: (): Promise<void> => invoke('app_clear_browser_cache'),
     relaunch: (): Promise<boolean> => invoke('app_relaunch'),
+    /** the newer version published on GitHub, null when up to date */
+    checkUpdate: (): Promise<string | null> => invoke('app_check_update'),
+    /** downloads and runs the newest installer; the app quits and the installer restarts it */
+    installUpdate: (): Promise<void> => invoke('app_install_update'),
+    /** hides the app and opens the screen-capture editor (Windows) */
+    capture: (): Promise<void> => invoke('capture_start'),
+    /** a capture was sent to chat: the saved PNG's path (it is on the clipboard too) */
+    onCaptured: (cb: (path: string) => void): Off => on('capture:done', cb),
     saveImage: (data: Uint8Array, ext: string): Promise<string> => invoke('app_save_image', data, { headers: { 'x-ext': ext } }),
     /** paths of files copied in Explorer (Ctrl+C on a file), [] when the clipboard holds none */
     clipboardFiles: (): Promise<string[]> => invoke('app_clipboard_files'),

@@ -1946,6 +1946,14 @@ button.sb-item:hover {
 .sb-item.warn {
   color: var(--yellow);
 }
+.sb-item.sb-update {
+  color: #fff;
+  background: var(--accent);
+}
+button.sb-item.sb-update:hover {
+  color: #fff;
+  background: var(--accent-2);
+}
 .spin {
   animation: spin 0.9s linear infinite;
   color: var(--accent-2);
