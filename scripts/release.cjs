@@ -54,7 +54,8 @@ async function main() {
     method: 'POST',
     body: JSON.stringify({ tag_name: `v${version}`, target_commitish: branch, name: `v${version}` })
   })
-  const name = `vibe-code_${version}_x64-setup.exe`
+  // same name every release, so releases/latest/download/vibe-code_x64-setup.exe always gets the newest
+  const name = 'vibe-code_x64-setup.exe'
   await gh(`https://uploads.github.com/repos/${repo}/releases/${rel.id}/assets?name=${name}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
