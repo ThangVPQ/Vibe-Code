@@ -318,6 +318,14 @@ pub fn apply_drop_prefs() {
 fn register_hotkey() {
     let gs = app().global_shortcut();
     let _ = gs.unregister_all();
+    // screen capture, from any app
+    let _ = gs.on_shortcut(crate::capture::HOTKEY, |_app, _shortcut, ev| {
+        if ev.state == ShortcutState::Pressed {
+            tauri::async_runtime::spawn(async {
+                let _ = crate::capture::capture_start().await;
+            });
+        }
+    });
     let wanted = settings::get().hotkey;
     HOTKEY_OK.store(false, Ordering::Relaxed);
     let candidates = std::iter::once(wanted.as_str()).chain(HOTKEY_FALLBACKS.iter().copied().filter(|k| *k != wanted));

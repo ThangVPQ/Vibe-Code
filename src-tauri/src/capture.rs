@@ -20,6 +20,8 @@ use tauri_plugin_dialog::DialogExt;
 use crate::core::{Res, app, emit, err, main_window, now_ms};
 
 const LABEL: &str = "capture";
+/// Global shortcut that starts a capture.
+pub const HOTKEY: &str = "Ctrl+Alt+A";
 const PAGE: &str = include_str!("capture.html");
 
 /// The grabbed screen: width, height, RGBA pixels.
