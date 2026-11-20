@@ -31,6 +31,7 @@ import type { DbColumn, DbConnection, DbFound, DbObject, DbQueryResult, DbResult
 import { useStore } from '../store'
 import { editorOptions, monaco } from '../monaco'
 import { useEditorFont } from './EditorFont'
+import { forgetSqlSchema, refreshSqlSchema, setSqlTarget } from '../sqlComplete'
 
 /* ---------------- small helpers ---------------- */
 
@@ -126,7 +127,7 @@ export function DatabasePane(): React.JSX.Element {
   const theme = useStore((s) => (s.themeResolved === 'light' ? 'studio-light' : 'studio-dark'))
   const active = conns.find((c) => c.id === activeId) ?? null
   const sqlOptions = useMemo(
-    () => ({ ...editorOptions, ...font, minimap: { enabled: false }, stickyScroll: { enabled: false }, padding: { top: 10, bottom: 10 } }),
+    () => ({ ...editorOptions, ...font, minimap: { enabled: false }, stickyScroll: { enabled: false }, padding: { top: 10, bottom: 10 }, wordBasedSuggestions: 'off' as const }),
     [font]
   )
 
@@ -174,6 +175,7 @@ export function DatabasePane(): React.JSX.Element {
 
   const loadDbs = useCallback(async (id: string, force = false) => {
     if (!force && dbs[id]?.databases) return dbs[id].databases!
+    if (force) forgetSqlSchema(id)
     setDbs((d) => ({ ...d, [id]: { loading: true } }))
     try {
       const list = await window.api.db.databases(id)
@@ -188,6 +190,7 @@ export function DatabasePane(): React.JSX.Element {
   const loadObjs = async (id: string, name: string, force = false): Promise<void> => {
     const key = `${id}/${name}`
     if (!force && objs[key]?.objects) return
+    if (force) forgetSqlSchema(id)
     setObjs((o) => ({ ...o, [key]: { loading: true } }))
     try {
       const list = await window.api.db.objects(id, name)
@@ -237,11 +240,26 @@ export function DatabasePane(): React.JSX.Element {
   const runRef = useRef(run)
   runRef.current = run
 
+  // autocomplete reads the schema of the database the editor runs against
+  const syncSqlTarget = (): void => {
+    const model = editorRef.current?.getModel()
+    setSqlTarget(model && activeId ? { model: model.uri.toString(), id: activeId, database } : null)
+  }
+  useEffect(() => {
+    syncSqlTarget()
+    return () => setSqlTarget(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, database])
+
   const onMount: OnMount = (editor) => {
     editorRef.current = editor
     if (editor.getValue() !== sqlRef.current) editor.setValue(sqlRef.current)
+    syncSqlTarget()
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runRef.current())
     editor.addCommand(monaco.KeyCode.F5, () => runRef.current())
+    // as in SSMS: Ctrl+J lists members, Ctrl+Shift+R refreshes the IntelliSense cache
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyJ, () => editor.trigger('keyboard', 'editor.action.triggerSuggest', {}))
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyR, () => refreshSqlSchema())
   }
 
   const openTable = (c: DbConnection, db: string, o: DbObject): void => {
@@ -406,7 +424,10 @@ export function DatabasePane(): React.JSX.Element {
           onSaved={(list, id) => {
             setConns(list)
             setActiveId(id ?? list[list.length - 1]?.id ?? null)
-            if (id) setDbs((d) => ({ ...d, [id]: {} }))
+            if (id) {
+              setDbs((d) => ({ ...d, [id]: {} }))
+              forgetSqlSchema(id)
+            }
             setEditing(null)
           }}
         />
