@@ -112,51 +112,100 @@ const SKIP_WATCH: [&str; 18] = [
     ".svelte-kit", ".parcel-cache", ".gradle", "__pycache__", ".venv", "venv",
 ];
 
-/// `p` relative to the watched root (a project that itself lives under e.g. `D:uild` still counts).
-fn ignored(root: &Path, p: &Path) -> bool {
+/// Inside a git directory, only what changes the Changes panel or the history: the branch, refs,
+/// the index (staging). `rest` is the path below the git directory.
+fn git_relevant(rest: &[&std::ffi::OsStr], p: &Path) -> bool {
+    let keep = match rest.first().and_then(|s| s.to_str()) {
+        Some("HEAD" | "index" | "packed-refs" | "MERGE_HEAD") => rest.len() == 1,
+        Some("refs") => true,
+        None => true,
+        _ => false,
+    };
+    keep && !p.extension().is_some_and(|e| e == "lock")
+}
+
+enum Seen {
+    Skip,
+    File,
+    Git,
+}
+
+/// `p` relative to the watched root (a project that itself lives under e.g. `D:\build` still
+/// counts). `git_dir`: the repository's git directory when it is outside the root (the folder
+/// opened is inside a bigger repo, or is a worktree).
+fn classify(root: &Path, git_dir: Option<&Path>, p: &Path) -> Seen {
+    if let Some(g) = git_dir
+        && let Ok(rest) = p.strip_prefix(g)
+    {
+        let parts: Vec<&std::ffi::OsStr> = rest.components().map(|c| c.as_os_str()).collect();
+        return if git_relevant(&parts, p) { Seen::Git } else { Seen::Skip };
+    }
     let rel = p.strip_prefix(root).unwrap_or(p);
     let parts: Vec<&std::ffi::OsStr> = rel.components().map(|c| c.as_os_str()).collect();
     if let Some(i) = parts.iter().position(|s| *s == ".git") {
-        // inside .git only what changes the Changes panel: the branch, refs, the index (staging)
-        let rest = &parts[i + 1..];
-        let keep = match rest.first().and_then(|s| s.to_str()) {
-            Some("HEAD" | "index" | "packed-refs" | "MERGE_HEAD") => rest.len() == 1,
-            Some("refs") => true,
-            None => true,
-            _ => false,
-        };
-        return !keep || p.extension().is_some_and(|e| e == "lock");
+        return if git_relevant(&parts[i + 1..], p) { Seen::Git } else { Seen::Skip };
     }
-    parts.iter().any(|s| SKIP_WATCH.iter().any(|k| *s == *k))
+    if parts.iter().any(|s| SKIP_WATCH.iter().any(|k| *s == *k)) { Seen::Skip } else { Seen::File }
+}
+
+/// The repository's git directory when it is not `<root>/.git` (opened a subfolder of a repo, or a
+/// worktree): a commit only touches that directory, so it has to be watched as well.
+async fn outside_git_dir(root: &Path) -> Option<PathBuf> {
+    let out = crate::core::command("git").args(["rev-parse", "--absolute-git-dir"]).current_dir(root).output().await.ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let dir = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim().replace('/', std::path::MAIN_SEPARATOR_STR));
+    let lower = |p: &Path| p.to_string_lossy().to_lowercase();
+    (!lower(&dir).starts_with(&lower(root))).then_some(dir)
 }
 
 #[tauri::command]
 pub async fn fs_watch(root: Option<String>) -> Res<()> {
-    let mut slot = WATCHER.lock();
-    *slot = None; // drops (stops) the previous watcher
-    let Some(root) = root else { return Ok(()) };
+    let Some(root) = root else {
+        *WATCHER.lock() = None; // drops (stops) the previous watcher
+        return Ok(());
+    };
     let base = PathBuf::from(&root);
+    let git_dir = outside_git_dir(&base).await;
+    let mut slot = WATCHER.lock();
+    *slot = None;
+    let gd = git_dir.clone();
     let mut deb = new_debouncer(Duration::from_millis(200), None, move |res: DebounceEventResult| {
         // lost events (overflow while several chats write at once): report the root, so the Changes
-        // panel still refreshes instead of waiting for the next change
-        let lost = || emit("fs:changed", (vec![base.to_string_lossy().into_owned()],));
+        // panel and the history still refresh instead of waiting for the next change
+        let lost = || {
+            emit("fs:changed", (vec![base.to_string_lossy().into_owned()],));
+            emit("git:changed", ((),)); // payload is the listener's argument list
+        };
         let Ok(events) = res else { return lost() };
         if events.iter().any(|e| e.need_rescan()) {
             return lost();
         }
-        let mut paths: Vec<String> = events
-            .iter()
-            .flat_map(|e| e.paths.iter())
-            .filter(|p| !ignored(&base, p))
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
+        let mut git = false;
+        let mut paths: Vec<String> = Vec::new();
+        for p in events.iter().flat_map(|e| e.paths.iter()) {
+            match classify(&base, gd.as_deref(), p) {
+                Seen::Skip => {}
+                Seen::Git => git = true,
+                Seen::File => paths.push(p.to_string_lossy().into_owned()),
+            }
+        }
         paths.sort_unstable();
         paths.dedup();
         if !paths.is_empty() {
             emit("fs:changed", (paths,));
         }
+        // a commit, checkout, pull or staging: only the git directory changes
+        if git {
+            emit("git:changed", ((),)); // payload is the listener's argument list
+        }
     })?;
-    deb.watch(PathBuf::from(root), RecursiveMode::Recursive)?;
+    deb.watch(PathBuf::from(&root), RecursiveMode::Recursive)?;
+    if let Some(g) = git_dir {
+        // best effort: the panel still refreshes on the project's own file changes without it
+        let _ = deb.watch(&g, RecursiveMode::Recursive);
+    }
     *slot = Some(deb);
     Ok(())
 }

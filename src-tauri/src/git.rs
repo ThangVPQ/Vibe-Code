@@ -186,3 +186,48 @@ pub async fn git_commit_files(root: String, hash: String) -> Res<Vec<GitCommitFi
         })
         .collect())
 }
+
+#[derive(Serialize)]
+pub struct GitBranch {
+    name: String,
+    current: bool,
+    /// only on the remote (e.g. `origin/feature`): checking it out makes a local tracking branch
+    remote: bool,
+}
+
+/// Local branches, then remote ones that have no local branch of the same name.
+#[tauri::command]
+pub async fn git_branches(root: String) -> Res<Vec<GitBranch>> {
+    let out = git(&root, &["for-each-ref", "--sort=-committerdate", "--format=%(refname)%1f%(HEAD)", "refs/heads", "refs/remotes"]).await?;
+    let mut local = Vec::new();
+    let mut remote = Vec::new();
+    for line in out.lines() {
+        let Some((refname, head)) = line.split_once('\x1f') else { continue };
+        if let Some(name) = refname.strip_prefix("refs/heads/") {
+            local.push(GitBranch { name: name.into(), current: head == "*", remote: false });
+        } else if let Some(name) = refname.strip_prefix("refs/remotes/")
+            && !name.ends_with("/HEAD")
+        {
+            remote.push(name.to_owned());
+        }
+    }
+    for name in remote {
+        let short = name.split_once('/').map_or(name.as_str(), |(_, b)| b);
+        if !local.iter().any(|b| b.name == short) && !local.iter().any(|b| b.name == name) {
+            local.push(GitBranch { name, current: false, remote: true });
+        }
+    }
+    Ok(local)
+}
+
+/// Switch to a branch; a remote one (`origin/x`) becomes local `x` tracking it. Git refuses when
+/// uncommitted changes would be overwritten: its message comes back as the error.
+#[tauri::command]
+pub async fn git_checkout(root: String, name: String, remote: bool) -> Res<()> {
+    if remote {
+        let local = name.split_once('/').map_or(name.as_str(), |(_, b)| b);
+        git(&root, &["switch", "-c", local, "--track", &name]).await.map(drop)
+    } else {
+        git(&root, &["switch", &name]).await.map(drop)
+    }
+}

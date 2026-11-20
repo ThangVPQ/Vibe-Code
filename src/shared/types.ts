@@ -35,6 +35,13 @@ export interface GitCommit {
   subject: string
 }
 
+export interface GitBranch {
+  name: string
+  current: boolean
+  /** only on the remote (e.g. `origin/feature`): checking it out makes a local tracking branch */
+  remote: boolean
+}
+
 export interface GitCommitFile {
   rel: string
   status: GitFileStatus

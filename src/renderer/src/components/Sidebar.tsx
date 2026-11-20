@@ -2,7 +2,10 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from 'react-dom'
 import { Collapse, SlidePill } from './motion'
 import {
+  Check,
+  ChevronDown,
   ChevronRight,
+  Loader2,
   FolderGit2,
   FolderPlus,
   History,
@@ -22,7 +25,7 @@ import {
 import { basename, useStore, type Chat } from '../store'
 import { closeChat, loadSessions, openFolder, newChat, newChatIn, openCommitDiff, openDiff, openFile, openSession, refreshGit, renameChat, selectChat } from '../actions'
 import { FileIcon, FolderIcon, StatusDot, statusLabel } from './icons'
-import type { DirEntry, GitCommit, GitCommitFile, GitFile, ProjectGroup, SessionInfo } from '../../../shared/types'
+import type { DirEntry, GitBranch as GitBranchInfo, GitCommit, GitCommitFile, GitFile, ProjectGroup, SessionInfo } from '../../../shared/types'
 import { agentDef } from '../../../shared/agents'
 import { NewChatMenu } from './AgentMenu'
 import { ZaloSideGroup } from './zalo/ZaloSide'
@@ -600,9 +603,7 @@ export function ChangesView(): React.JSX.Element {
         </button>
       </SectionHeader>
       <div className="changes-summary">
-        <div className="changes-branch">
-          <GitBranch size={13} /> {git.branch}
-        </div>
+        <BranchPicker root={git.root ?? root} branch={git.branch ?? ''} />
         <div className="changes-counts">
           <span>{git.files.length} files</span>
           <span className="add">+{totals.add}</span>
@@ -652,6 +653,105 @@ export function ChangesView(): React.JSX.Element {
   )
 }
 
+/** The current branch; click to switch to another one (remote-only branches get a local copy). */
+function BranchPicker({ root, branch }: { root: string; branch: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [list, setList] = useState<GitBranchInfo[] | null>(null)
+  const [q, setQ] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    setQ('')
+    setError('')
+    setList(null)
+    let live = true
+    window.api.git
+      .branches(root)
+      .then((b) => live && setList(b))
+      .catch((e) => live && setError(String(e)))
+    const close = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const esc = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', esc)
+    return () => {
+      live = false
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', esc)
+    }
+  }, [open, root])
+
+  const needle = q.trim().toLowerCase()
+  const shown = (list ?? []).filter((b) => b.name.toLowerCase().includes(needle))
+  const pick = async (b: GitBranchInfo): Promise<void> => {
+    if (busy) return
+    if (b.current) return setOpen(false)
+    setBusy(b.name)
+    setError('')
+    try {
+      await window.api.git.checkout(root, b.name, b.remote)
+      setOpen(false)
+      refreshGit()
+    } catch (e) {
+      // e.g. uncommitted changes that the other branch would overwrite: git's own words
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="branch-picker" ref={ref}>
+      <button className={`changes-branch${open ? ' open' : ''}`} title="Switch branch" onClick={() => setOpen(!open)}>
+        <GitBranch size={13} />
+        <span className="branch-name">{branch}</span>
+        <ChevronDown size={12} className="branch-caret" />
+      </button>
+      {open && (
+        <div className="branch-menu" role="menu">
+          <input
+            className="branch-filter"
+            autoFocus
+            placeholder="Find a branch…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && shown[0] && void pick(shown[0])}
+          />
+          <div className="branch-list">
+            {!list && !error && (
+              <div className="branch-note">
+                <Loader2 size={12} className="spin" /> Loading…
+              </div>
+            )}
+            {list && !shown.length && <div className="branch-note">No branch matches.</div>}
+            {shown.map((b) => (
+              <button
+                key={(b.remote ? 'r:' : 'l:') + b.name}
+                role="menuitemradio"
+                aria-checked={b.current}
+                className={`branch-item${b.current ? ' on' : ''}`}
+                disabled={!!busy}
+                title={b.remote ? `Check out ${b.name} as a local branch` : `Switch to ${b.name}`}
+                onClick={() => void pick(b)}
+              >
+                {busy === b.name ? <Loader2 size={13} className="spin" /> : <Check size={13} className="branch-check" />}
+                <span className="branch-item-name">{b.name}</span>
+                {b.remote && <span className="branch-hint">remote</span>}
+              </button>
+            ))}
+          </div>
+          {error && <div className="branch-error">{error}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ================================ History ================================ */
 
 /** Commits on the current branch, newest first; click one to see the files it touched. */
@@ -664,15 +764,14 @@ function HistoryList(): React.JSX.Element | null {
   const [refs, setRefs] = useState(0)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
-    const onChange = (e: Event): void => {
-      if (!(e as CustomEvent<string[]>).detail.some((p) => /[\\/]\.git[\\/](HEAD|refs|packed-refs)/.test(p))) return
+    const onChange = (): void => {
       clearTimeout(timer)
       timer = setTimeout(() => setRefs((n) => n + 1), 300)
     }
-    window.addEventListener('fs-changed', onChange)
+    window.addEventListener('git-changed', onChange)
     return () => {
       clearTimeout(timer)
-      window.removeEventListener('fs-changed', onChange)
+      window.removeEventListener('git-changed', onChange)
     }
   }, [])
 

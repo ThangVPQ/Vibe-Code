@@ -21,6 +21,7 @@ import type {
   DbQueryResult,
   DirEntry,
   GitCommit,
+  GitBranch,
   GitCommitFile,
   GitState,
   ProjectGroup,
@@ -193,7 +194,9 @@ export const api = {
     watch: (root: string | null): Promise<void> => invoke('fs_watch', { root }),
     reveal: (path: string): Promise<void> => invoke('fs_reveal', { path }),
     openPath: (path: string): Promise<string> => invoke('fs_open_path', { path }),
-    onChanged: (cb: (paths: string[]) => void): Off => on('fs:changed', cb)
+    onChanged: (cb: (paths: string[]) => void): Off => on('fs:changed', cb),
+    /** the repository moved: a commit, checkout, pull, staging (or events were lost) */
+    onGitChanged: (cb: () => void): Off => on('git:changed', cb)
   },
   git: {
     state: (folder: string): Promise<GitState> => invoke('git_state', { folder }),
@@ -201,7 +204,9 @@ export const api = {
     init: (folder: string): Promise<void> => invoke('git_init', { folder }),
     show: (root: string, rev: string, rel: string): Promise<string> => invoke('git_show', { root, rev, rel }),
     log: (root: string): Promise<GitCommit[]> => invoke('git_log', { root }),
-    commitFiles: (root: string, hash: string): Promise<GitCommitFile[]> => invoke('git_commit_files', { root, hash })
+    commitFiles: (root: string, hash: string): Promise<GitCommitFile[]> => invoke('git_commit_files', { root, hash }),
+    branches: (root: string): Promise<GitBranch[]> => invoke('git_branches', { root }),
+    checkout: (root: string, name: string, remote: boolean): Promise<void> => invoke('git_checkout', { root, name, remote })
   },
   app: {
     settings: (): Promise<AppSettings> => invoke('app_settings'),

@@ -263,15 +263,16 @@ type CellPos = { x: number; y: number }
 
 /** The whole logical line around buffer row `y` (1-based), joining rows soft-wrapped by the
  *  terminal, with the 1-based cell of every character so a match maps back to the screen. */
-function logicalLine(term: Terminal, y: number): { text: string; pos: CellPos[] } {
+function logicalLine(term: Terminal, y: number): { text: string; pos: CellPos[]; first: number; last: number } {
   const buf = term.buffer.active
   let row = y - 1
   while (row > 0 && buf.getLine(row)?.isWrapped) row--
+  const first = row + 1
   let text = ''
   const pos: CellPos[] = []
   const cell = buf.getNullCell()
   for (let line = buf.getLine(row); line; line = buf.getLine(++row)) {
-    if (pos.length && !line.isWrapped) break
+    if (row + 1 > first && !line.isWrapped) break
     for (let col = 0; col < line.length; col++) {
       if (!line.getCell(col, cell) || cell.getWidth() === 0) continue
       const chars = cell.getChars() || ' '
@@ -282,7 +283,48 @@ function logicalLine(term: Terminal, y: number): { text: string; pos: CellPos[] 
     }
   }
   const trimmed = text.replace(/\s+$/, '')
-  return { text: trimmed, pos: pos.slice(0, trimmed.length) }
+  // `row` stopped on the first row after the line (0-based), i.e. the line's last row 1-based
+  return { text: trimmed, pos: pos.slice(0, trimmed.length), first, last: row }
+}
+
+type Line = ReturnType<typeof logicalLine>
+
+/**
+ * Claude Code wraps long lines itself (a newline plus indentation, not a terminal soft wrap), which
+ * cut paths in two. `b` goes on from `a` when `a` runs to the right edge and `b` is indented text.
+ */
+function continues(term: Terminal, a: Line, b: Line): boolean {
+  const end = a.pos[a.pos.length - 1]
+  return !!end && end.x >= term.cols - 2 && /^\s+\S/.test(b.text)
+}
+
+/**
+ * The logical line through row `y` joined with the lines Claude Code hard-wrapped it into (a few
+ * each way); `joins` are the text offsets where a wrapped row's text was appended.
+ */
+function wrappedBlock(term: Terminal, y: number): { text: string; pos: CellPos[]; joins: number[] } {
+  const rows = term.buffer.active.length
+  const lines = [logicalLine(term, y)]
+  for (let i = 0; i < 4 && lines[0].first > 1; i++) {
+    const prev = logicalLine(term, lines[0].first - 1)
+    if (!continues(term, prev, lines[0])) break
+    lines.unshift(prev)
+  }
+  for (let i = 0; i < 4 && lines[lines.length - 1].last < rows; i++) {
+    const next = logicalLine(term, lines[lines.length - 1].last + 1)
+    if (!continues(term, lines[lines.length - 1], next)) break
+    lines.push(next)
+  }
+  let text = lines[0].text
+  const pos = lines[0].pos.slice()
+  const joins: number[] = []
+  for (const l of lines.slice(1)) {
+    const indent = l.text.length - l.text.trimStart().length
+    joins.push(text.length)
+    text += l.text.slice(indent)
+    pos.push(...l.pos.slice(indent))
+  }
+  return { text, pos, joins }
 }
 
 const trimPathEnd = (s: string): string => s.replace(/[.,;)\]]+$/, '')
@@ -290,17 +332,27 @@ const trimPathEnd = (s: string): string => s.replace(/[.,;)\]]+$/, '')
 const PATH_TAIL_RE = /^(?: [^\s"'<>|*?:`]+){1,6}/
 
 /** Windows paths on the logical line through row `y`. A path with spaces is taken as long as
- *  the longest version of it that exists on disk; the plain regex match otherwise. */
+ *  the longest version of it that exists on disk; the plain regex match otherwise. A path running
+ *  over a line Claude Code wrapped stays whole when it exists (or its folder does). */
 async function findPathLinks(term: Terminal, y: number): Promise<{ path: string; start: CellPos; end: CellPos }[]> {
-  const { text, pos } = logicalLine(term, y)
+  const { text, pos, joins } = wrappedBlock(term, y)
   const out: { path: string; start: CellPos; end: CellPos }[] = []
   for (const m of text.matchAll(PATH_RE)) {
     const at = m.index
-    let path = trimPathEnd(m[0])
-    const tail = PATH_TAIL_RE.exec(text.slice(at + m[0].length))?.[0]
+    let match = m[0]
+    const cut = joins.find((j) => j > at && j < at + match.length)
+    if (cut !== undefined) {
+      // two lines that only look like one: keep the part before the wrap
+      const whole = trimPathEnd(match)
+      const parent = whole.replace(/[\\/][^\\/]*$/, '')
+      const [w, p] = await window.api.app.fileInfo([whole, parent]).catch(() => [])
+      if (!(w && (w.dir || w.size >= 0)) && !(p?.dir && parent.length > 3)) match = match.slice(0, cut - at)
+    }
+    let path = trimPathEnd(match)
+    const tail = PATH_TAIL_RE.exec(text.slice(at + match.length))?.[0]
     if (tail) {
       const candidates: string[] = []
-      let acc = m[0]
+      let acc = match
       for (const word of tail.split(' ').slice(1)) candidates.push(trimPathEnd((acc += ' ' + word)))
       const infos = await window.api.app.fileInfo(candidates).catch(() => [])
       for (let i = infos.length - 1; i >= 0; i--) {

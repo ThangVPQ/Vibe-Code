@@ -118,6 +118,8 @@ pub fn run() {
             git::git_show,
             git::git_log,
             git::git_commit_files,
+            git::git_branches,
+            git::git_checkout,
             // app
             appcmds::app_settings,
             appcmds::app_remember_folder,

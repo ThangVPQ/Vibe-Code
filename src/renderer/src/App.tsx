@@ -39,6 +39,10 @@ function useBoot(): void {
         for (const p of paths) reloadIfClean(p)
         window.dispatchEvent(new CustomEvent('fs-changed', { detail: paths }))
       }),
+      window.api.fs.onGitChanged(() => {
+        refreshGit()
+        window.dispatchEvent(new Event('git-changed'))
+      }),
       window.api.sessions.onChanged(loadSessions),
       window.api.browser.onOpen(showChatBrowser),
       window.api.win.onState((win) => useStore.setState({ win })),

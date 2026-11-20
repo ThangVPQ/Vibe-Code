@@ -30,6 +30,9 @@ function readStatus(id: string): void {
   if (!busy && chat.status !== 'idle') {
     // finished work while you were looking elsewhere → needs a look
     st().patchChat(id, { status: 'idle', attention: chat.status === 'working' && id !== st().activeChatId })
+    // a turn just ended (maybe with a commit or checkout): the Changes panel catches up even if a
+    // file event went missing
+    if (chat.status === 'working') refreshGit()
   }
 }
 
