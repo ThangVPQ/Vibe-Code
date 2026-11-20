@@ -25,6 +25,7 @@ function readStatus(id: string): void {
   const chat = st().chats.find((c) => c.id === id)
   if (!chat || chat.status === 'exited') return
   const busy = /esc to (interrupt|cancel)/i.test(readScreenTail(id, 8))
+  if (busy) blankChats.delete(id)
   if (busy && chat.status !== 'working') st().patchChat(id, { status: 'working' })
   if (!busy && chat.status !== 'idle') {
     // finished work while you were looking elsewhere → needs a look
@@ -60,6 +61,8 @@ onTerminalEvents({
     const title = raw.replace(/^[\s✳✶✻✽✢·*⠀-⣿]+/u, '').trim()
     if (!title || /^(claude|claude code|codex|grok|gemini|qwen|copilot|opencode|powershell|pwsh|windows powershell)$/i.test(title) || /\.exe$/i.test(title)) return
     const chat = st().chats.find((c) => c.id === id)
+    // the agent names its task once you've sent something: the chat is no longer blank
+    blankChats.delete(id)
     // once the session store has a title for this chat, that one wins (see loadSessions)
     const known = chat?.sessionId && st().projects.some((g) => g.sessions.some((s) => s.id === chat.sessionId))
     if (chat && !chat.pinnedTitle && !known) st().patchChat(id, { title })
@@ -443,13 +446,37 @@ interface NewChatOpts {
   draft?: string
 }
 
+/**
+ * Plain new chats nothing has been sent in yet. Another plain "New chat" in the same folder with the
+ * same agent goes back to one of these instead of piling up empty "Chat 1, Chat 2…".
+ */
+const blankChats = new Set<string>()
+
+function findBlankChat(cwd: string, agentId: AgentId): Chat | undefined {
+  const known = new Set(st().projects.flatMap((g) => g.sessions.map((s) => s.id)))
+  return st().chats.find(
+    (c) =>
+      blankChats.has(c.id) &&
+      c.status !== 'exited' &&
+      c.status !== 'working' &&
+      (c.agent ?? 'claude') === agentId &&
+      samePath(c.cwd, cwd) &&
+      !(c.sessionId && known.has(c.sessionId))
+  )
+}
+
 export function newChat(opts: NewChatOpts = {}): void {
   const cwd = opts.cwd ?? st().root
   if (!cwd) return
   // a plain new chat (not a resume / continue) runs the default installed agent
   const fresh = !opts.args?.length && !opts.sessionId
   const agent = agentDef(opts.agent ?? (fresh ? defaultAgent() : undefined))
-  if (agent.id !== 'claude') return newAgentChat(cwd, agent.id, opts)
+  const blank = fresh && !opts.prompt && !opts.draft && !opts.title
+  if (blank) {
+    const reuse = findBlankChat(cwd, agent.id)
+    if (reuse) return selectChat(reuse.id)
+  }
+  if (agent.id !== 'claude') return newAgentChat(cwd, agent.id, opts, blank)
   let args = opts.args ?? []
   let sessionId = opts.sessionId
   // "Continue" = the newest session of this folder: resume it by id, so the sidebar can match the chat
@@ -491,6 +518,7 @@ export function newChat(opts: NewChatOpts = {}): void {
     permissionMode
   }
   if (opts.draft) pendingDraft.set(chat.id, opts.draft)
+  if (blank) blankChats.add(chat.id)
   createTerm({ id: chat.id, cwd: chat.cwd, kind: 'claude', claudeArgs: args })
   useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id, ...browserForNewChat(s, chat.id) }))
 }
@@ -499,7 +527,7 @@ export function newChat(opts: NewChatOpts = {}): void {
  * A chat running another coding agent (Codex, Grok, Gemini…). It has no Claude session id, model
  * or effort; it only starts in bypass mode like Claude chats do, when the agent has such a flag.
  */
-function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts): void {
+function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts, blank: boolean): void {
   const agent = agentDef(agentId)
   const permissionMode = agent.yolo.length ? NEW_CHAT_DEFAULTS.permissionMode : undefined
   const args = [...(opts.args ?? []), ...agentFlags(agentId, permissionMode)]
@@ -516,6 +544,7 @@ function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts): void {
     claudeArgs: args,
     permissionMode
   }
+  if (blank) blankChats.add(chat.id)
   createTerm({ id: chat.id, cwd, kind: 'claude', agent: agentId, claudeArgs: args })
   useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id, ...browserForNewChat(s, chat.id) }))
 }

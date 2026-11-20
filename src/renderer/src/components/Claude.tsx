@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Image as ImageIcon, ListChecks, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
+import { Check, ChevronDown, Image as ImageIcon, ListChecks, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -173,6 +173,20 @@ export function ClaudePanel(): React.JSX.Element {
           </div>
           <AttachmentTray chatId={active.id} />
           <div className={`quick-bar${busy ? ' busy' : done ? ' done' : ''}`}>
+            {active.status === 'working' && (
+              <button
+                className="chip chip-stop"
+                title="Stop what the AI is doing (Esc)"
+                onClick={() => {
+                  setTab('chat')
+                  writeToTerm(active.id, '\x1b')
+                  focusTerm(active.id)
+                }}
+              >
+                <Square size={10} fill="currentColor" />
+                Stop
+              </button>
+            )}
             <button
               className="chip"
               title="Attach files — they go with your next message (you can also paste pictures or drag files onto the chat)"

@@ -2529,6 +2529,15 @@ button.sb-item:hover {
   font-family: inherit;
   font-size: 11.5px;
 }
+.quick-bar .chip-stop,
+.quick-bar .chip-stop:hover {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.quick-bar .chip-stop:hover {
+  background: color-mix(in srgb, var(--red) 22%, transparent);
+}
 
 /* window opacity popover */
 .opacity-ctl {
