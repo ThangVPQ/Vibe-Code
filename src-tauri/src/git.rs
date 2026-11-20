@@ -231,3 +231,14 @@ pub async fn git_checkout(root: String, name: String, remote: bool) -> Res<()> {
         git(&root, &["switch", &name]).await.map(drop)
     }
 }
+
+/// Throw away a file's uncommitted changes (staged and not): back to HEAD, or gone when HEAD
+/// doesn't have it (new / untracked files).
+#[tauri::command]
+pub async fn git_discard(root: String, rel: String, status: String) -> Res<()> {
+    match status.as_str() {
+        "?" => Ok(tokio::fs::remove_file(Path::new(&root).join(&rel)).await?),
+        "A" => git(&root, &["rm", "-f", "--", &rel]).await.map(drop),
+        _ => git(&root, &["restore", "--source=HEAD", "--staged", "--worktree", "--", &rel]).await.map(drop),
+    }
+}

@@ -1097,3 +1097,27 @@ mod tests {
         assert_eq!(natural_cmp("a10", "A9"), Ordering::Greater);
     }
 }
+
+/// Delete a conversation from Claude Code's store: its transcript (and its subagent folder) go to the Recycle Bin.
+#[tauri::command]
+pub async fn sessions_delete(session_id: String) -> Res<()> {
+    if session_id.is_empty() || !session_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err(crate::core::err("bad session id"));
+    }
+    let mut found = false;
+    for e in fs::read_dir(projects_dir())?.flatten() {
+        let file = e.path().join(format!("{session_id}.jsonl"));
+        if file.is_file() {
+            crate::fsx::trash(&file).await?;
+            found = true;
+        }
+        let dir = e.path().join(&session_id);
+        if dir.is_dir() {
+            crate::fsx::trash(&dir).await?;
+        }
+    }
+    if !found {
+        return Err(crate::core::err("this chat has no saved history"));
+    }
+    Ok(())
+}

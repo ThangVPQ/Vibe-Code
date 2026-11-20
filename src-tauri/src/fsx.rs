@@ -224,3 +224,92 @@ pub async fn fs_open_path(path: String) -> Res<String> {
         Err(e) => e.to_string(),
     })
 }
+
+/// Rename or move; refuses to overwrite.
+#[tauri::command]
+pub async fn fs_rename(from: String, to: String) -> Res<()> {
+    if tokio::fs::try_exists(&to).await? {
+        return Err(crate::core::err(format!("{to} already exists")));
+    }
+    tokio::fs::rename(from, to).await?;
+    Ok(())
+}
+
+/// Copy a file or folder into `dir`, as "name copy.ext" (2, 3…) when the name is taken. Returns the new path.
+#[tauri::command]
+pub async fn fs_copy(from: String, dir: String) -> Res<String> {
+    tokio::task::spawn_blocking(move || {
+        let src = Path::new(&from);
+        let name = src.file_name().ok_or_else(|| crate::core::err("nothing to copy"))?.to_string_lossy().into_owned();
+        let (stem, ext) = match name.rfind('.') {
+            Some(i) if i > 0 && src.is_file() => (name[..i].to_owned(), name[i..].to_owned()),
+            _ => (name.clone(), String::new()),
+        };
+        let mut dst = Path::new(&dir).join(&name);
+        let mut n = 1;
+        while dst.exists() {
+            let suffix = if n == 1 { " copy".to_owned() } else { format!(" copy {n}") };
+            dst = Path::new(&dir).join(format!("{stem}{suffix}{ext}"));
+            n += 1;
+        }
+        if dst.starts_with(src) {
+            return Err(crate::core::err("can't copy a folder into itself"));
+        }
+        copy_tree(src, &dst)?;
+        Ok(dst.to_string_lossy().into_owned())
+    })
+    .await?
+}
+
+fn copy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if src.is_dir() {
+        std::fs::create_dir(dst)?;
+        for e in std::fs::read_dir(src)? {
+            let e = e?;
+            copy_tree(&e.path(), &dst.join(e.file_name()))?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(src, dst).map(drop)
+    }
+}
+
+/// Send a file or folder to the Recycle Bin (it can be restored from there).
+pub async fn trash(path: &Path) -> Res<()> {
+    // the path goes through the environment, never into the script text
+    let out = crate::core::command("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Add-Type -AssemblyName Microsoft.VisualBasic; $p = $env:VIBE_TRASH; \
+             if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } \
+             else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }",
+        ])
+        .env("VIBE_TRASH", path)
+        .output()
+        .await?;
+    if !out.status.success() {
+        return Err(crate::core::err(String::from_utf8_lossy(&out.stderr).trim().to_owned()));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn fs_trash(path: String) -> Res<()> {
+    trash(Path::new(&path)).await
+}
+
+/// New empty file (or folder); refuses to overwrite.
+#[tauri::command]
+pub async fn fs_create(path: String, dir: bool) -> Res<()> {
+    if tokio::fs::try_exists(&path).await? {
+        return Err(crate::core::err(format!("{path} already exists")));
+    }
+    if dir {
+        tokio::fs::create_dir(&path).await?;
+    } else {
+        tokio::fs::write(&path, "").await?;
+    }
+    Ok(())
+}

@@ -67,6 +67,7 @@ pub fn run() {
             sessions::sessions_context,
             sessions::sessions_tasks,
             sessions::sessions_files,
+            sessions::sessions_delete,
             // SQL Server
             mssql::db_list,
             mssql::db_get,
@@ -114,6 +115,10 @@ pub fn run() {
             fsx::fs_watch,
             fsx::fs_reveal,
             fsx::fs_open_path,
+            fsx::fs_rename,
+            fsx::fs_copy,
+            fsx::fs_trash,
+            fsx::fs_create,
             git::git_state,
             git::git_original,
             git::git_init,
@@ -122,6 +127,7 @@ pub fn run() {
             git::git_commit_files,
             git::git_branches,
             git::git_checkout,
+            git::git_discard,
             // app
             appcmds::app_settings,
             appcmds::app_remember_folder,

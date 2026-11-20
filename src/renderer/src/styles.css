@@ -3503,6 +3503,19 @@ button.sb-item.sb-update:hover {
   max-width: 320px;
   z-index: 1000;
 }
+.ctx-menu .menu-item:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.ctx-menu .menu-item-sub {
+  text-align: right;
+  padding-left: 12px;
+}
+.ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
 
 /* History (commits under Changes) */
 .commit-row {

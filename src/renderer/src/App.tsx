@@ -9,6 +9,7 @@ import { QuickOpen, StatusBar, TitleBar, Welcome } from './components/Chrome'
 import { Sidebar } from './components/Sidebar'
 import { EditorArea } from './components/Editor'
 import { BottomPanel, ClaudePanel } from './components/Claude'
+import { ContextMenuHost } from './components/ContextMenu'
 
 function useGlobalKeys(): void {
   useEffect(() => {
@@ -112,6 +113,7 @@ export default function App(): React.JSX.Element {
       )}
       <StatusBar />
       {quickOpen && <QuickOpen />}
+      <ContextMenuHost />
     </div>
   )
 }

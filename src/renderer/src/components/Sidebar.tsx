@@ -1,5 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Collapse, SlidePill } from './motion'
 import {
   Check,
@@ -20,10 +19,39 @@ import {
   GitCommitHorizontal,
   GitBranch,
   Link2,
-  Search
+  Search,
+  MessageSquare,
+  Pencil,
+  Plus,
+  FilePlus,
+  FileText,
+  Scissors,
+  ClipboardPaste,
+  CopyPlus,
+  Trash2,
+  Undo2,
+  FileDiff
 } from 'lucide-react'
-import { basename, useStore, type Chat } from '../store'
-import { closeChat, loadSessions, openFolder, newChat, newChatIn, openCommitDiff, openDiff, openFile, openSession, refreshGit, renameChat, selectChat } from '../actions'
+import { basename, useStore, type Chat, type EditorTab } from '../store'
+import {
+  closeChat,
+  closeTab,
+  defaultAgent,
+  loadSessions,
+  openFolder,
+  newChat,
+  newChatIn,
+  openCommitDiff,
+  openDiff,
+  openFile,
+  openSession,
+  refreshGit,
+  renameChat,
+  restartChat,
+  selectChat
+} from '../actions'
+import { hasUnsaved } from '../fileModelsLite'
+import { openMenu } from './ContextMenu'
 import { FileIcon, FolderIcon, StatusDot, statusLabel } from './icons'
 import type { DirEntry, GitBranch as GitBranchInfo, GitCommit, GitCommitFile, GitFile, ProjectGroup, SessionInfo } from '../../../shared/types'
 import { agentDef } from '../../../shared/agents'
@@ -123,6 +151,7 @@ const RecentRow = memo(function RecentRow(props: {
     <div
       className={`sess-row${active ? ' active' : ''}`}
       onClick={() => (chatId ? selectChat(chatId) : session && void openSession(session))}
+      onContextMenu={(e) => chatMenu(e, { chatId, session })}
       title={`${title}\n${project} · ${new Date(updated).toLocaleString()}`}
     >
       {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
@@ -188,7 +217,21 @@ function ProjectsTree(): React.JSX.Element {
     allProjects.unshift({ key: normKey(c.cwd), cwd: c.cwd, name: basename(c.cwd), updated: c.createdAt, sessions: [] })
   }
   const needle = q.trim().toLowerCase()
-  const recent = useMemo(() => recentItems(projects, chats), [projects, chats])
+  // Opening a chat touches its transcript (resume, focus…), which would jump it to the top under
+  // the cursor. Rows already listed keep their place; only chats newly entering the top 5 go first.
+  // A row is known by its session id and, once open, its chat id too: resuming a session or a new
+  // chat getting its session id must not count as a new entry.
+  const recentOrder = useRef(new Map<string, number>())
+  const recent = useMemo(() => {
+    const prev = recentOrder.current
+    const ids = (it: RecentItem): string[] => [it.key, it.session?.id, it.chat?.id, it.chat?.sessionId].filter((x): x is string => !!x)
+    const pos = (it: RecentItem): number | undefined => ids(it).map((k) => prev.get(k)).find((p) => p !== undefined)
+    const top = recentItems(projects, chats)
+    const kept = top.filter((it) => pos(it) !== undefined).sort((a, b) => pos(a)! - pos(b)!)
+    const rows = [...top.filter((it) => pos(it) === undefined), ...kept]
+    recentOrder.current = new Map(rows.flatMap((it, i) => ids(it).map((k) => [k, i] as const)))
+    return rows
+  }, [projects, chats])
   const agentRows = (g: ProjectGroup): typeof agentChats =>
     agentChats.filter(
       (c) => slashKey(c.cwd) === slashKey(g.key) && (!needle || g.name.toLowerCase().includes(needle) || c.title.toLowerCase().includes(needle))
@@ -261,7 +304,7 @@ function ProjectsTree(): React.JSX.Element {
         const shown = needle || more.has(g.key) ? g.sessions : g.sessions.slice(0, PAGE)
         return (
           <div key={g.key} className="proj">
-            <div className={`proj-row${isRoot ? ' current' : ''}`} onClick={() => flip(setExpanded, g.key)} title={g.cwd}>
+            <div className={`proj-row${isRoot ? ' current' : ''}`} onClick={() => flip(setExpanded, g.key)} onContextMenu={(e) => projectMenu(e, g)} title={g.cwd}>
               <span className="proj-name">{g.name}</span>
               <ChevronRight size={13} className={`proj-chev${open ? ' open' : ''}`} />
               {liveCount > 0 && <span className="proj-live" title={`${liveCount} open`} />}
@@ -279,6 +322,7 @@ function ProjectsTree(): React.JSX.Element {
                 key={c.id}
                 className={`sess-row${c.id === activeChatId ? ' active' : ''}`}
                 onClick={() => selectChat(c.id)}
+                onContextMenu={(e) => chatMenu(e, { chatId: c.id })}
                 title={`${c.title}\n${agentDef(c.agent).label} · ${c.cwd}`}
               >
                 <StatusDot status={c.status} attention={c.attention} />
@@ -313,6 +357,7 @@ const SessRow = memo(function SessRow(props: { s: SessionInfo; active: boolean; 
     <div
       className={`sess-row${active ? ' active' : ''}${s.cwdExists ? '' : ' gone'}`}
       onClick={() => openSession(s)}
+      onContextMenu={(e) => chatMenu(e, { session: s })}
       title={`${s.title}\n${s.cwd}\nUpdated ${new Date(s.updated).toLocaleString()}`}
     >
       {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
@@ -321,6 +366,64 @@ const SessRow = memo(function SessRow(props: { s: SessionInfo; active: boolean; 
     </div>
   )
 })
+
+/** Right-click on a chat in the sidebar: an open chat (`chatId`) and/or a session from the history. */
+export function chatMenu(e: React.MouseEvent, ref: { chatId?: string; session?: SessionInfo }): void {
+  const chats = useStore.getState().chats
+  const chat = chats.find((c) => c.id === ref.chatId) ?? (ref.session ? chats.find((c) => c.sessionId === ref.session!.id) : undefined)
+  const s = ref.session
+  const title = chat?.title ?? s?.title ?? 'Chat'
+  const cwd = chat?.cwd ?? s?.cwd
+  const sessionId = chat?.sessionId ?? s?.id
+  openMenu(e, [
+    { label: 'Open', icon: <MessageSquare size={14} />, action: () => (chat ? selectChat(chat.id) : s && openSession(s)) },
+    chat && {
+      label: 'Rename…',
+      icon: <Pencil size={14} />,
+      action: () => {
+        const t = window.prompt('Rename chat', chat.title)
+        if (t !== null) renameChat(chat.id, t)
+      }
+    },
+    chat?.status === 'exited' && { label: 'Restart', icon: <RotateCcw size={14} />, action: () => restartChat(chat.id) },
+    chat && { label: 'Close chat', icon: <X size={14} />, action: () => closeChat(chat.id) },
+    'sep',
+    { label: 'Copy title', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(title) },
+    !!sessionId && { label: 'Copy session ID', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(sessionId) },
+    !!cwd && { label: 'Open folder in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.openPath(cwd) },
+    'sep',
+    {
+      label: 'Delete chat…',
+      icon: <Trash2 size={14} />,
+      hint: 'to Recycle Bin',
+      action: async () => {
+        const working = chat?.status === 'working' ? `\n\n${agentDef(chat.agent).label} is still working — it will be stopped.` : ''
+        if (!window.confirm(`Delete chat "${title}"?\nIts history goes to the Recycle Bin.${working}`)) return
+        if (chat) {
+          closeChat(chat.id)
+          // let the process exit first, or its last write would bring the transcript back
+          await new Promise((r) => setTimeout(r, 800))
+        }
+        // a chat that never sent a message has no saved history
+        const saved = !!sessionId && useStore.getState().projects.some((g) => g.sessions.some((x) => x.id === sessionId))
+        if (saved) await window.api.sessions.remove(sessionId).catch((err) => window.alert(String(err)))
+        loadSessions()
+      }
+    }
+  ])
+}
+
+/** Right-click on a project in the sidebar. */
+function projectMenu(e: React.MouseEvent, g: ProjectGroup): void {
+  const agent = defaultAgent()
+  openMenu(e, [
+    !!agent && { label: 'New chat', icon: <Plus size={14} />, action: () => newChatIn(g.cwd, agent) },
+    { label: 'Open as workspace', icon: <FolderGit2 size={14} />, action: () => openFolder(g.cwd, { autoChat: false }) },
+    'sep',
+    { label: 'Open folder in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.openPath(g.cwd) },
+    { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(g.cwd) }
+  ])
+}
 
 /** "now", "5m", "3h", "2d", then the date. */
 export function shortAgo(t: number): string {
@@ -366,26 +469,21 @@ export function ExplorerView(): React.JSX.Element | null {
   return <ExplorerTree root={root} collapseKey={collapseKey} setCollapseKey={setCollapseKey} deco={deco} />
 }
 
-interface CtxTarget {
-  x: number
-  y: number
-  path: string
-  isDir: boolean
-}
 type OpenCtx = (e: React.MouseEvent, path: string, isDir: boolean) => void
 
 function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey: (f: (k: number) => number) => void; deco: Map<string, string> }): React.JSX.Element {
   const { root, collapseKey, setCollapseKey, deco } = props
-  const [ctx, setCtx] = useState<CtxTarget | null>(null)
   // stable, so the memoized tree nodes don't all re-render with this one
-  const openCtx = useCallback<OpenCtx>((e, path, isDir) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setCtx({ x: e.clientX, y: e.clientY, path, isDir })
-  }, [])
+  const openCtx = useCallback<OpenCtx>((e, path, isDir) => explorerMenu(e, path, isDir, root), [root])
   return (
     <>
       <SectionHeader title="Explorer">
+        <button className="icon-btn" title="New file" onClick={fsOp(() => createIn(root, false))}>
+          <FilePlus size={14} />
+        </button>
+        <button className="icon-btn" title="New folder" onClick={fsOp(() => createIn(root, true))}>
+          <FolderPlus size={14} />
+        </button>
         <button className="icon-btn" title="Refresh" onClick={() => useStore.setState((s) => ({ fsTick: s.fsTick + 1 }))}>
           <RefreshCw size={14} />
         </button>
@@ -396,77 +494,107 @@ function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey
       <div className="tree-root-label" onContextMenu={(e) => openCtx(e, root, true)}>
         {basename(root)}
       </div>
-      <div className="scroll tree" key={collapseKey}>
+      {/* empty space below the files: the project folder's menu */}
+      <div className="scroll tree" key={collapseKey} onContextMenu={(e) => openCtx(e, root, true)}>
         <DirChildren dir={root} depth={0} deco={deco} openCtx={openCtx} />
       </div>
-      {ctx && <ExplorerMenu target={ctx} root={root} onClose={() => setCtx(null)} />}
     </>
   )
 }
 
-/** Right-click menu on a file or folder in the explorer. */
-function ExplorerMenu({ target, root, onClose }: { target: CtxTarget; root: string; onClose: () => void }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<React.CSSProperties>({ left: target.x, top: target.y, visibility: 'hidden' })
+/** A file or folder copied / cut in the explorer, waiting for Paste. */
+let fileClip: { path: string; cut: boolean } | null = null
 
-  // keep the menu on screen — measured before paint so it never jumps
-  useLayoutEffect(() => {
-    const r = ref.current?.getBoundingClientRect()
-    if (!r) return
-    setPos({
-      left: Math.max(4, Math.min(target.x, window.innerWidth - r.width - 4)),
-      top: Math.max(4, Math.min(target.y, window.innerHeight - r.height - 4))
-    })
-  }, [target])
-
-  useEffect(() => {
-    const down = (e: MouseEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) onClose()
-    }
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('mousedown', down, true)
-    window.addEventListener('keydown', key, true)
-    window.addEventListener('blur', onClose)
-    window.addEventListener('resize', onClose)
-    document.addEventListener('scroll', onClose, true)
-    return () => {
-      window.removeEventListener('mousedown', down, true)
-      window.removeEventListener('keydown', key, true)
-      window.removeEventListener('blur', onClose)
-      window.removeEventListener('resize', onClose)
-      document.removeEventListener('scroll', onClose, true)
-    }
-  }, [onClose])
-
-  const rel = target.path.slice(root.length).replace(/^[\\/]+/, '').replace(/\\/g, '/') || '.'
-  const run = (f: () => unknown) => (): void => {
-    onClose()
-    void f()
+const sepOf = (p: string): string => (p.includes('\\') ? '\\' : '/')
+const dirOf = (p: string): string => p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')))
+const refreshTree = (): void => {
+  useStore.setState((s) => ({ fsTick: s.fsTick + 1 }))
+  refreshGit()
+}
+/** Run a file operation; a failure shows its message instead of vanishing. */
+const fsOp = (f: () => Promise<unknown>) => async (): Promise<void> => {
+  try {
+    await f()
+  } catch (err) {
+    window.alert(String(err))
   }
-  const items: [React.JSX.Element, string, () => void][] = [
-    target.isDir
-      ? [<FolderOpen size={14} key="o" />, 'Open folder in File Explorer', run(() => window.api.fs.openPath(target.path))]
-      : [<FolderOpen size={14} key="o" />, 'Reveal in File Explorer', run(() => window.api.fs.reveal(target.path))],
-    [<Copy size={14} key="p" />, 'Copy path', run(() => navigator.clipboard.writeText(target.path))],
-    [<Copy size={14} key="r" />, 'Copy relative path', run(() => navigator.clipboard.writeText(rel))]
-  ]
-  if (target.isDir && target.path !== root)
-    items.splice(1, 0, [<FolderOpen size={14} key="s" />, 'Reveal in parent folder', run(() => window.api.fs.reveal(target.path))])
+  refreshTree()
+}
 
-  // portal to <body>: inside the sidebar a transformed/blurred ancestor breaks position:fixed
-  return createPortal(
-    <div ref={ref} className="menu ctx-menu" style={pos} onContextMenu={(e) => e.preventDefault()}>
-      {items.map(([icon, label, act]) => (
-        <button key={label} className="menu-item" onClick={act}>
-          {icon}
-          <span className="menu-item-main">{label}</span>
-        </button>
-      ))}
-    </div>,
-    document.body
-  )
+/** Ask for a name, then create a file / folder in `dir` (files open in the editor). */
+async function createIn(dir: string, isDir: boolean): Promise<void> {
+  const name = window.prompt(isDir ? 'New folder name' : 'New file name')?.trim()
+  if (!name) return
+  const path = dir + sepOf(dir) + name
+  await window.api.fs.create(path, isDir)
+  if (!isDir) openFile(path)
+}
+
+/** Right-click on a file or folder in the explorer. */
+function explorerMenu(e: React.MouseEvent, path: string, isDir: boolean, root: string): void {
+  const isRoot = path === root
+  const rel = path.slice(root.length).replace(/^[\\/]+/, '').replace(/\\/g, '/') || '.'
+  const name = basename(path)
+  const into = isDir ? path : dirOf(path)
+  const tabs = (): EditorTab[] => {
+    const lower = path.toLowerCase()
+    return useStore.getState().tabs.filter((t) => t.kind === 'file' && (t.path.toLowerCase() === lower || t.path.toLowerCase().startsWith(lower + sepOf(path))))
+  }
+  openMenu(e, [
+    !isDir && { label: 'Open', icon: <FileText size={14} />, action: () => openFile(path) },
+    isDir && { label: 'New file…', icon: <FilePlus size={14} />, action: fsOp(() => createIn(path, false)) },
+    isDir && { label: 'New folder…', icon: <FolderPlus size={14} />, action: fsOp(() => createIn(path, true)) },
+    'sep',
+    !isRoot && { label: 'Cut', icon: <Scissors size={14} />, action: () => void (fileClip = { path, cut: true }) },
+    !isRoot && { label: 'Copy', icon: <Copy size={14} />, action: () => void (fileClip = { path, cut: false }) },
+    {
+      label: 'Paste',
+      icon: <ClipboardPaste size={14} />,
+      hint: fileClip ? basename(fileClip.path) : undefined,
+      // what was copied here first, else files copied in Windows Explorer
+      action: fsOp(async () => {
+        if (fileClip?.cut) {
+          const to = into + sepOf(into) + basename(fileClip.path)
+          if (to.toLowerCase() !== fileClip.path.toLowerCase()) await window.api.fs.rename(fileClip.path, to)
+          fileClip = null
+        } else if (fileClip) await window.api.fs.copy(fileClip.path, into)
+        else for (const p of await window.api.app.clipboardFiles()) await window.api.fs.copy(p, into)
+      })
+    },
+    !isRoot && { label: 'Duplicate', icon: <CopyPlus size={14} />, action: fsOp(() => window.api.fs.copy(path, dirOf(path))) },
+    'sep',
+    !isRoot && {
+      label: 'Rename…',
+      icon: <Pencil size={14} />,
+      action: fsOp(async () => {
+        const next = window.prompt('Rename', name)?.trim()
+        if (!next || next === name) return
+        const open = tabs()
+        if (open.some((t) => t.kind === 'file' && hasUnsaved(t.path)) && !window.confirm('Unsaved changes in the open file will be lost. Rename anyway?')) return
+        const to = dirOf(path) + sepOf(path) + next
+        await window.api.fs.rename(path, to)
+        // its editor tabs follow it
+        for (const t of open) closeTab(t.id)
+        for (const t of open) openFile(to + t.path.slice(path.length))
+      })
+    },
+    !isRoot && {
+      label: 'Delete',
+      icon: <Trash2 size={14} />,
+      hint: 'to Recycle Bin',
+      action: fsOp(async () => {
+        if (!window.confirm(`Move ${isDir ? 'folder' : 'file'} "${name}" to the Recycle Bin?`)) return
+        await window.api.fs.trash(path)
+        for (const t of tabs()) closeTab(t.id)
+      })
+    },
+    'sep',
+    isDir
+      ? { label: 'Open folder in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.openPath(path) }
+      : { label: 'Reveal in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(path) },
+    { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(path) },
+    { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(rel) }
+  ])
 }
 
 const normDir = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
@@ -557,6 +685,35 @@ const TreeNode = memo(function TreeNode({ item, depth, deco, openCtx }: { item: 
 
 /* ================================ Changes ================================ */
 
+/** Discard (undo) the uncommitted changes of `files`, after asking. */
+async function discard(files: GitFile[], root: string): Promise<void> {
+  const what = files.length === 1 ? `"${files[0].rel}"` : `all ${files.length} changed files`
+  const gone = files.some((f) => f.status === '?' || f.status === 'A')
+  if (!window.confirm(`Discard changes to ${what}?${gone ? '\nNew files will be deleted.' : ''}\nThis can't be undone.`)) return
+  if (files.some((f) => hasUnsaved(f.abs)) && !window.confirm('A file with unsaved edits in the editor is included. Discard anyway?')) return
+  const failed: string[] = []
+  for (const f of files) await window.api.git.discard(root, f.rel, f.status).catch((err) => failed.push(`${f.rel}: ${err}`))
+  refreshGit()
+  useStore.setState((s) => ({ fsTick: s.fsTick + 1 }))
+  if (failed.length) window.alert(`Couldn't discard:\n${failed.join('\n')}`)
+}
+
+/** Right-click on a changed file under Changes. */
+function changeMenu(e: React.MouseEvent, f: GitFile, root: string): void {
+  const all = useStore.getState().git.files
+  openMenu(e, [
+    { label: 'Open changes', icon: <FileDiff size={14} />, action: () => openDiff(f.abs, f.rel) },
+    f.status !== 'D' && { label: 'Open file', icon: <FileText size={14} />, action: () => openFile(f.abs) },
+    'sep',
+    { label: 'Discard changes', icon: <Undo2 size={14} />, action: () => discard([f], root) },
+    all.length > 1 && { label: 'Discard all changes…', icon: <Undo2 size={14} />, action: () => discard(all, root) },
+    'sep',
+    { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(f.abs) },
+    { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(f.rel) },
+    f.status !== 'D' && { label: 'Reveal in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(f.abs) }
+  ])
+}
+
 const statusName: Record<string, string> = {
   M: 'Modified',
   A: 'Added',
@@ -623,7 +780,13 @@ export function ChangesView(): React.JSX.Element {
           const st = f.status === '?' ? 'U' : f.status
           const active = activeTabId === 'd:' + f.abs.toLowerCase()
           return (
-            <div key={f.rel} className={`change-row${active ? ' active' : ''}`} onClick={() => openDiff(f.abs, f.rel)} title={`${statusName[f.status]} — ${f.rel}`}>
+            <div
+              key={f.rel}
+              className={`change-row${active ? ' active' : ''}`}
+              onClick={() => openDiff(f.abs, f.rel)}
+              onContextMenu={(e) => changeMenu(e, f, git.root ?? root)}
+              title={`${statusName[f.status]} — ${f.rel}`}
+            >
               <FileIcon name={name} />
               <span className={`change-name${f.status === 'D' ? ' deleted' : ''}`}>{name}</span>
               <span className="change-dir">{dir}</span>

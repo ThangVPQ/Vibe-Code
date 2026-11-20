@@ -1,9 +1,10 @@
 import { Suspense, lazy, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Code2, Columns2, Database, FileDiff, FileText, Rows2, X, Command, GitCompare, Globe, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileText, FolderOpen, Rows2, X, Command, GitCompare, Globe, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
 import { SlidePill } from './motion'
+import { openMenu } from './ContextMenu'
 import { ChangesView, ExplorerView } from './Sidebar'
 import { FileIcon, Logo } from './icons'
 import { EditorFontButton } from './EditorFont'
@@ -176,6 +177,15 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
             key={t.id}
             className={`tab${t.id === b.active ? ' active' : ''}${closing.has(t.id) ? ' closing' : ''}`}
             onClick={() => selectBrowserTab(chatKey, t.id)}
+            onContextMenu={(e) =>
+              openMenu(e, [
+                { label: 'Close tab', icon: <X size={14} />, action: () => close(t.id) },
+                b.tabs.length > 1 && { label: 'Close other tabs', action: () => b.tabs.forEach((o) => o.id !== t.id && close(o.id)) },
+                t.url !== HOME_URL && 'sep',
+                t.url !== HOME_URL && { label: 'Copy address', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(t.url) },
+                t.url !== HOME_URL && { label: 'Open in default browser', icon: <ExternalLink size={14} />, action: () => window.api.app.openExternal(t.url) }
+              ])
+            }
             onMouseDown={(e) => {
               if (e.button === 1) {
                 e.preventDefault()
@@ -240,6 +250,24 @@ const CodeSide = memo(function CodeSide(): React.JSX.Element {
   )
 })
 
+/** Right-click on an editor tab. */
+function tabMenu(e: React.MouseEvent, t: EditorTab): void {
+  const { tabs, root } = useStore.getState()
+  const others = tabs.filter((x) => x.id !== t.id)
+  const right = tabs.slice(tabs.findIndex((x) => x.id === t.id) + 1)
+  const rel = t.kind === 'diff' ? t.rel : root && t.path.toLowerCase().startsWith(root.toLowerCase()) ? t.path.slice(root.length).replace(/^[\\/]+/, '').replace(/\\/g, '/') : null
+  openMenu(e, [
+    { label: 'Close', icon: <X size={14} />, hint: 'Ctrl+W', action: () => closeTab(t.id) },
+    others.length > 0 && { label: 'Close others', action: () => others.forEach((x) => closeTab(x.id)) },
+    right.length > 0 && { label: 'Close to the right', action: () => right.forEach((x) => closeTab(x.id)) },
+    others.length > 0 && { label: 'Close all', action: () => tabs.forEach((x) => closeTab(x.id)) },
+    'sep',
+    { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(t.path) },
+    !!rel && { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(rel) },
+    { label: 'Reveal in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(t.path) }
+  ])
+}
+
 const CodeArea = memo(function CodeArea(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const activeId = useStore((s) => s.activeTabId)
@@ -269,6 +297,7 @@ const CodeArea = memo(function CodeArea(): React.JSX.Element {
               key={t.id}
               className={`tab${t.id === activeId ? ' active' : ''}${t.kind === 'diff' ? ' diff' : ''}`}
               onClick={() => useStore.setState({ activeTabId: t.id })}
+              onContextMenu={(e) => tabMenu(e, t)}
               onMouseDown={(e) => {
                 if (e.button === 1) {
                   e.preventDefault()
