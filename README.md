@@ -25,7 +25,7 @@ Run the installer (no admin rights needed, it installs for the current user). VI
 - **Editor + Git**: Monaco editor, go to file / symbol, a live *Changes* panel with diffs, commit history and a branch switcher.
 - **Terminal**: integrated terminals (ConPTY, WebGL rendering).
 - **Web / Database / Zalo tabs**: a built-in browser, SQL Server explorer and Zalo inbox that Claude can also use through its tools.
-- **Screen capture** (**Ctrl+Alt+A** or the dashed-square button in the title bar): drag to pick a region (click for the whole screen), with a magnifier, size label and colour picker. Then mark it up with rectangle, ellipse, arrow, pen, highlighter, text, mosaic (hide sensitive info) and numbered steps. **Send** copies it to the clipboard and attaches it to the active chat. You can also just copy it or save it as a PNG.
+- **Screen capture** (**Ctrl+Alt+Z** or the dashed-square button in the title bar): drag to pick a region (click for the whole screen), with a magnifier, size label and colour picker. Then mark it up with rectangle, ellipse, arrow, pen, highlighter, text, mosaic (hide sensitive info) and numbered steps. **Send** copies it to the clipboard and attaches it to the active chat. You can also just copy it or save it as a PNG.
 - **Drop-down (Guake) mode**: a global hotkey slides VIBE CODE over any app.
 - **Attachments**: paste or drop images and files into a chat. They wait in a tray until you send.
 
@@ -39,7 +39,7 @@ the cursor.
 | Keys | Action |
 |---|---|
 | Alt+` (global) | Show / hide VIBE CODE (drop-down slides over any app) |
-| Ctrl+Alt+A (global) | Capture the screen |
+| Ctrl+Alt+Z (global) | Capture the screen |
 | Ctrl+Shift+P / F1 | Command palette |
 | Ctrl+P | Go to file (`@` symbol, `:` line, `>` commands) |
 | Ctrl+Shift+O / Ctrl+G | Go to symbol / line in the open file |

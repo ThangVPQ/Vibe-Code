@@ -21,7 +21,7 @@ use crate::core::{Res, app, emit, err, main_window, now_ms};
 
 const LABEL: &str = "capture";
 /// Global shortcut that starts a capture.
-pub const HOTKEY: &str = "Ctrl+Alt+A";
+pub const HOTKEY: &str = "Ctrl+Alt+Z";
 const PAGE: &str = include_str!("capture.html");
 
 /// The grabbed screen: width, height, RGBA pixels.
