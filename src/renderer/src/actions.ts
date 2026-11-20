@@ -509,7 +509,7 @@ export function newChat(opts: NewChatOpts = {}): void {
   const n = st().chats.length + 1
   const chat: Chat = {
     id: 'chat-' + uid(),
-    title: opts.title ?? `Chat ${n}`,
+    title: opts.title ?? `${basename(cwd)} : Chat ${n}`,
     pinnedTitle: opts.pinnedTitle ?? false,
     cwd,
     status: 'starting',
@@ -540,7 +540,7 @@ function newAgentChat(cwd: string, agentId: AgentId, opts: NewChatOpts, blank: b
   const n = st().chats.filter((c) => c.agent === agentId).length + 1
   const chat: Chat = {
     id: 'chat-' + uid(),
-    title: opts.title ?? `${agent.label} ${n}`,
+    title: opts.title ?? `${basename(cwd)} : ${agent.label} ${n}`,
     pinnedTitle: opts.pinnedTitle ?? false,
     cwd,
     status: 'starting',
