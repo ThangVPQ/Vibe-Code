@@ -11,6 +11,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type {
   AgentInfo,
   AppSettings,
+  ChatFile,
   ChatTask,
   ClaudeInfo,
   DbColumn,
@@ -135,6 +136,7 @@ export const api = {
     images: (sessionId: string, since?: number): Promise<{ version: number; images: string[] | null }> => invoke('sessions_images', { sessionId, since }),
     context: (sessionId: string): Promise<{ used: number; model: string } | null> => invoke('sessions_context', { sessionId }),
     tasks: (sessionId: string): Promise<ChatTask[]> => invoke('sessions_tasks', { sessionId }),
+    files: (sessionId: string): Promise<ChatFile[]> => invoke('sessions_files', { sessionId }),
     /** ids of the sessions whose transcript changed (empty: only project folders came or went) */
     onChanged: (cb: (ids: string[]) => void): Off => on('sessions:changed', cb)
   },

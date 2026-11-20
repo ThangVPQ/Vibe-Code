@@ -80,6 +80,19 @@ pub struct ChatTask {
     pub output: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatFile {
+    pub path: String,
+    /// created, edited or read (a file Claude read and then changed counts as changed)
+    pub action: String,
+    /// successful Write / Edit calls on it
+    pub edits: u32,
+    /// the last time Claude touched it
+    pub at: i64,
+    pub exists: bool,
+}
+
 /* ---------------- commands ---------------- */
 
 #[tauri::command]
@@ -101,6 +114,11 @@ pub async fn sessions_context(session_id: String) -> Res<Option<Context>> {
 #[tauri::command]
 pub async fn sessions_tasks(session_id: String) -> Res<Vec<ChatTask>> {
     Ok(tokio::task::spawn_blocking(move || session_tasks(&session_id)).await?)
+}
+
+#[tauri::command]
+pub async fn sessions_files(session_id: String) -> Res<Vec<ChatFile>> {
+    Ok(tokio::task::spawn_blocking(move || session_files(&session_id)).await?)
 }
 
 /* ---------------- session list ---------------- */
@@ -889,6 +907,103 @@ fn session_tasks(session_id: &str) -> Vec<ChatTask> {
         }
     }
     tasks
+}
+
+/* ---------------- files Claude touched ---------------- */
+
+#[derive(Clone, Copy)]
+enum Touch {
+    Write,
+    Edit,
+    Read,
+}
+
+#[derive(Default)]
+struct FileScan {
+    /// tool calls waiting for their result (a failed Edit changed nothing)
+    pending: HashMap<String, (String, Touch)>,
+    /// in order of first touch; `index` is keyed by the lowercased path
+    files: Vec<ChatFile>,
+    index: HashMap<String, usize>,
+}
+
+impl FileScan {
+    fn feed(&mut self, text: &str) {
+        for line in text.split('\n') {
+            let call = line.contains("\"file_path\"") || line.contains("\"notebook_path\"");
+            let result = !self.pending.is_empty() && line.contains("tool_result") && self.pending.keys().any(|id| line.contains(id.as_str()));
+            if !call && !result {
+                continue;
+            }
+            let Ok(row) = serde_json::from_str::<Obj>(line) else { continue };
+            // only the conversation's own rows: others (api-request-blob…) repeat its tool calls
+            let (assistant, user) = (is_type(&row, "assistant"), is_type(&row, "user"));
+            if !assistant && !user {
+                continue;
+            }
+            let Some(content) = row.get("message").and_then(|m| m.get("content")).and_then(Value::as_array) else { continue };
+            let at = row.get("timestamp").and_then(|v| parse_date(&js_string(v))).unwrap_or(0);
+            // a Write over an existing file is an edit; over nothing, a new file
+            let created = row.get("toolUseResult").and_then(|r| r.get("type")).and_then(Value::as_str) == Some("create");
+            for b in content.iter().filter_map(Value::as_object) {
+                if assistant && is_type(b, "tool_use") {
+                    let touch = match str_of(b, "name") {
+                        Some("Write") => Touch::Write,
+                        Some("Edit" | "MultiEdit" | "NotebookEdit") => Touch::Edit,
+                        Some("Read") => Touch::Read,
+                        _ => continue,
+                    };
+                    let input = b.get("input").and_then(Value::as_object);
+                    let path = input.and_then(|i| str_of(i, "file_path").or_else(|| str_of(i, "notebook_path"))).unwrap_or("");
+                    if let Some(id) = str_of(b, "id")
+                        && !path.is_empty()
+                    {
+                        self.pending.insert(id.to_owned(), (path.to_owned(), touch));
+                    }
+                } else if user
+                    && is_type(b, "tool_result")
+                    && let Some((path, touch)) = str_of(b, "tool_use_id").and_then(|id| self.pending.remove(id))
+                    && !truthy(b.get("is_error"))
+                {
+                    self.touch(path, touch, created, at);
+                }
+            }
+        }
+    }
+
+    fn touch(&mut self, path: String, touch: Touch, created: bool, at: i64) {
+        let key = path.replace('/', "\\").to_lowercase();
+        let files = &mut self.files;
+        let i = *self.index.entry(key).or_insert_with(|| {
+            files.push(ChatFile { path, action: "read".into(), edits: 0, at, exists: true });
+            files.len() - 1
+        });
+        let f = &mut self.files[i];
+        f.at = f.at.max(at);
+        if matches!(touch, Touch::Read) {
+            return;
+        }
+        f.edits += 1;
+        if matches!(touch, Touch::Write) && created {
+            f.action = "created".into();
+        } else if f.action == "read" {
+            f.action = "edited".into();
+        }
+    }
+}
+
+static FILE_SCANS: ScanCache<FileScan> = LazyLock::new(Default::default);
+
+/// Files Claude created, edited or read in a chat (its Write / Edit / Read tools), most recent first.
+fn session_files(session_id: &str) -> Vec<ChatFile> {
+    let Some(mut files) = scan(&FILE_SCANS, session_id, FileScan::feed, |s| s.files.clone()) else {
+        return Vec::new();
+    };
+    files.sort_by(|a, b| b.at.cmp(&a.at));
+    for f in &mut files {
+        f.exists = Path::new(&f.path).is_file();
+    }
+    files
 }
 
 /* ---------------- dates ---------------- */

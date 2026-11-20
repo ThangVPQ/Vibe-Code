@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Image as ImageIcon, ListChecks, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
+import { Check, ChevronDown, FileText, Image as ImageIcon, ListChecks, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -23,6 +23,7 @@ import { attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../term
 import { Logo, StatusDot, statusLabel } from './icons'
 import { ChatImages, useChatImages } from './ChatImages'
 import { ChatTasks, useChatTasks } from './ChatTasks'
+import { ChatFiles, useChatFiles } from './ChatFiles'
 import { AttachmentTray } from './AttachmentTray'
 import { pickAttachments } from '../attachments'
 import { NewChatMenu } from './AgentMenu'
@@ -81,11 +82,13 @@ export function ClaudePanel(): React.JSX.Element {
   const images = useChatImages(active?.sessionId)
   const tasks = useChatTasks(active?.sessionId)
   const runningTasks = tasks.filter((t) => t.status === 'running').length
-  const [tab, setTab] = useState<'chat' | 'images' | 'tasks'>('chat')
+  const files = useChatFiles(active?.sessionId)
+  const changedFiles = files.filter((f) => f.action !== 'read').length
+  const [tab, setTab] = useState<'chat' | 'images' | 'files' | 'tasks'>('chat')
   // another chat opens on its Chat tab
   useEffect(() => setTab('chat'), [activeId])
-  // the terminal stays under Images / Tasks, so it must not keep the keyboard
-  const leaveChat = (t: 'images' | 'tasks'): void => {
+  // the terminal stays under Images / Files / Tasks, so it must not keep the keyboard
+  const leaveChat = (t: 'images' | 'files' | 'tasks'): void => {
     const el = document.activeElement
     if (el instanceof HTMLElement && termFrame.current?.contains(el)) el.blur()
     setTab(t)
@@ -151,6 +154,10 @@ export function ClaudePanel(): React.JSX.Element {
               <ImageIcon size={13} /> Images
               {images.length > 0 && <span className="center-count">{images.length}</span>}
             </button>
+            <button className={tab === 'files' ? 'on' : ''} title="Files Claude created, edited or read in this chat" onClick={() => leaveChat('files')}>
+              <FileText size={13} /> Files
+              {changedFiles > 0 && <span className="center-count">{changedFiles}</span>}
+            </button>
             <button className={tab === 'tasks' ? 'on' : ''} title="Background tasks Claude started in this chat" onClick={() => leaveChat('tasks')}>
               <ListChecks size={13} /> Tasks
               {runningTasks > 0 ? <span className="center-count running">{runningTasks}</span> : tasks.length > 0 && <span className="center-count">{tasks.length}</span>}
@@ -165,9 +172,10 @@ export function ClaudePanel(): React.JSX.Element {
             <div className="term-layer" style={tab === 'chat' ? undefined : { visibility: 'hidden' }}>
               <TerminalView id={active.id} />
             </div>
+            <StartSkeleton show={active.status === 'starting'} />
             {tab !== 'chat' && (
               <div className="chat-overlay">
-                {tab === 'images' ? <ChatImages images={images} /> : <ChatTasks tasks={tasks} />}
+                {tab === 'images' ? <ChatImages images={images} /> : tab === 'files' ? <ChatFiles files={files} cwd={active.cwd} /> : <ChatTasks tasks={tasks} />}
               </div>
             )}
           </div>
@@ -229,6 +237,35 @@ export function ClaudePanel(): React.JSX.Element {
           {agentDef(active.agent).id === 'claude' && <ContextBar chat={active} />}
         </>
       )}
+    </div>
+  )
+}
+
+/** Until the agent draws its first screen: a shimmering outline of its banner and prompt, faded out once it has. */
+function StartSkeleton({ show }: { show: boolean }): React.JSX.Element | null {
+  const [mounted, setMounted] = useState(show)
+  useEffect(() => {
+    if (show) return setMounted(true)
+    const t = setTimeout(() => setMounted(false), 260)
+    return () => clearTimeout(t)
+  }, [show])
+  if (!mounted) return null
+  return (
+    <div className={`chat-skel${show ? '' : ' out'}`} aria-hidden>
+      <div className="chat-skel-head">
+        <span className="sk sk-logo" />
+        <div className="chat-skel-lines">
+          <span className="sk" style={{ width: '38%' }} />
+          <span className="sk" style={{ width: '62%' }} />
+          <span className="sk" style={{ width: '28%' }} />
+        </div>
+      </div>
+      <div className="chat-skel-prompt">
+        <span className="sk sk-rule" />
+        <span className="sk" style={{ width: '46%' }} />
+        <span className="sk sk-rule" />
+        <span className="sk" style={{ width: '34%' }} />
+      </div>
     </div>
   )
 }

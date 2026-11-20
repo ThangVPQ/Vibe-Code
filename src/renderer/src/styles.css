@@ -1398,6 +1398,70 @@ kbd {
 .term-frame.bottom {
   padding: 6px 4px 2px 14px;
 }
+/* a new chat before its agent has drawn anything: an outline of the banner + prompt, shimmering */
+.chat-skel {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 22px 18px 14px 18px;
+  background: var(--bg-term);
+  pointer-events: none;
+  animation: fade 0.2s ease-out;
+  transition: opacity 0.25s ease-out;
+}
+.chat-skel.out {
+  opacity: 0;
+}
+.chat-skel-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.chat-skel-lines,
+.chat-skel-prompt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.chat-skel-head .chat-skel-lines {
+  padding-top: 3px;
+}
+.chat-skel-prompt {
+  flex: none;
+}
+.chat-skel .sk {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--w-08) 30%, var(--w-1c) 50%, var(--w-08) 70%);
+  background-size: 300% 100%;
+  animation: skel-shimmer 1.5s ease-in-out infinite;
+}
+.chat-skel .sk-logo {
+  width: 58px;
+  height: 42px;
+  border-radius: 8px;
+  flex: none;
+}
+.chat-skel .sk-rule {
+  width: 100%;
+  height: 1px;
+  border-radius: 0;
+}
+@keyframes skel-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-skel,
+  .chat-skel .sk {
+    animation: none;
+  }
+}
 .term-view {
   width: 100%;
   height: 100%;
@@ -1551,6 +1615,32 @@ kbd {
 .task-meta {
   margin-top: 5px;
   font-size: 10.5px;
+  color: var(--text-faint);
+}
+/* Files tab: what Claude changed / read in the chat (rows reuse .change-row) */
+.chat-files {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 8px;
+  background: var(--bg-1);
+}
+.chat-files-head {
+  padding: 10px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.chat-files .change-row:not(:has(.change-open)):hover .change-stats {
+  display: flex;
+}
+.chat-files .change-row.gone {
+  cursor: default;
+}
+.chat-files .file-edits,
+.chat-files .file-ago {
   color: var(--text-faint);
 }
 .chat-tabs .center-count.running {

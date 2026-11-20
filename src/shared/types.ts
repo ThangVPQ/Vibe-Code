@@ -251,6 +251,18 @@ export interface ChatTask {
   output?: string
 }
 
+/** A file Claude created, edited or read in a chat (its Write / Edit / Read tools) */
+export interface ChatFile {
+  path: string
+  /** a file read and then changed counts as changed */
+  action: 'created' | 'edited' | 'read'
+  /** successful Write / Edit calls on it */
+  edits: number
+  /** the last time Claude touched it */
+  at: number
+  exists: boolean
+}
+
 /** One item of the Zalo "Việc của tôi" checklist, summarised by Claude from messages sent to me. */
 export interface ZaloTask {
   id: string

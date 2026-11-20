@@ -487,6 +487,13 @@ mod win {
             // SAFETY: runs on the UI thread that owns the controller.
             unsafe {
                 let Ok(core) = pw.controller().CoreWebView2() else { return };
+                // Google refuses to sign in inside an "embedded" browser and tells it by `window.chrome.webview`.
+                // Tabs show outside sites and talk to us only through the DevTools protocol, so they don't need it:
+                // without it (from the next page on) Google sign-in works like in Chrome.
+                if let Ok(s) = core.Settings() {
+                    let _ = s.SetIsWebMessageEnabled(false);
+                    let _ = s.SetAreHostObjectsAllowed(false);
+                }
                 let mut token = 0i64;
                 let l = label.clone();
                 let _ = core.add_NavigationStarting(

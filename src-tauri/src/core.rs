@@ -10,7 +10,7 @@ use std::{
 };
 
 use serde::{Serialize, Serializer};
-use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, Window};
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 
@@ -25,8 +25,8 @@ pub fn app() -> &'static AppHandle {
 
 pub const MAIN: &str = "main";
 
-pub fn main_window() -> Option<WebviewWindow> {
-    app().get_webview_window(MAIN)
+pub fn main_window() -> Option<Window> {
+    app().get_window(MAIN)
 }
 
 /// Event to the main window. `args` is the listener's argument list: pass a tuple, e.g.

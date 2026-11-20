@@ -17,7 +17,7 @@ use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use parking_lot::Mutex;
 use serde::Serialize;
 use tauri::{
-    App, PhysicalPosition, PhysicalRect, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window, WindowEvent,
+    App, PhysicalPosition, PhysicalRect, PhysicalSize, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent,
     image::Image,
     menu::{CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
@@ -86,7 +86,7 @@ fn push_state() {
 /* ---------------- geometry ---------------- */
 
 /// Work area of the screen under the mouse.
-fn target_work_area(w: &WebviewWindow) -> Option<PhysicalRect<i32, u32>> {
+fn target_work_area(w: &Window) -> Option<PhysicalRect<i32, u32>> {
     let m = w
         .cursor_position()
         .ok()
@@ -96,25 +96,25 @@ fn target_work_area(w: &WebviewWindow) -> Option<PhysicalRect<i32, u32>> {
     Some(*m.work_area())
 }
 
-fn drop_bounds(w: &WebviewWindow) -> Option<PhysicalRect<i32, u32>> {
+fn drop_bounds(w: &Window) -> Option<PhysicalRect<i32, u32>> {
     let wa = target_work_area(w)?;
     let h = (wa.size.height as f64 * settings::get().drop_height.clamp(0.25, 1.0)).round() as u32;
     Some(PhysicalRect { position: wa.position, size: PhysicalSize::new(wa.size.width, h) })
 }
 
-fn set_bounds(w: &WebviewWindow, r: PhysicalRect<i32, u32>) {
+fn set_bounds(w: &Window, r: PhysicalRect<i32, u32>) {
     let _ = w.set_size(r.size);
     let _ = w.set_position(r.position);
 }
 
-fn bounds(w: &WebviewWindow) -> Option<PhysicalRect<i32, u32>> {
+fn bounds(w: &Window) -> Option<PhysicalRect<i32, u32>> {
     Some(PhysicalRect { position: w.outer_position().ok()?, size: w.outer_size().ok()? })
 }
 
 /* ---------------- opacity (Win32 layered window) ---------------- */
 
 #[cfg(windows)]
-fn set_opacity(w: &WebviewWindow, op: f64) {
+fn set_opacity(w: &Window, op: f64) {
     use windows::Win32::{
         Foundation::{COLORREF, HWND},
         UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, LWA_ALPHA, SetLayeredWindowAttributes, SetWindowLongPtrW, WS_EX_LAYERED},
@@ -138,11 +138,11 @@ fn set_opacity(w: &WebviewWindow, op: f64) {
 }
 
 #[cfg(not(windows))]
-fn set_opacity(_w: &WebviewWindow, _op: f64) {}
+fn set_opacity(_w: &Window, _op: f64) {}
 
 /* ---------------- slide animation ---------------- */
 
-fn animate(w: WebviewWindow, from_y: i32, to: PhysicalRect<i32, u32>, from_op: f64, to_op: f64, ms: u64, done: impl FnOnce(&WebviewWindow) + Send + 'static) {
+fn animate(w: Window, from_y: i32, to: PhysicalRect<i32, u32>, from_op: f64, to_op: f64, ms: u64, done: impl FnOnce(&Window) + Send + 'static) {
     ANIMATING.store(true, Ordering::SeqCst);
     std::thread::spawn(move || {
         let start = Instant::now();
@@ -162,7 +162,7 @@ fn animate(w: WebviewWindow, from_y: i32, to: PhysicalRect<i32, u32>, from_op: f
     });
 }
 
-fn slide_down(w: &WebviewWindow) {
+fn slide_down(w: &Window) {
     let Some(b) = drop_bounds(w) else { return };
     let from = b.position.y - b.size.height as i32;
     set_opacity(w, 0.0);
@@ -175,7 +175,7 @@ fn slide_down(w: &WebviewWindow) {
     });
 }
 
-fn slide_up(w: &WebviewWindow) {
+fn slide_up(w: &Window) {
     let Some(b) = bounds(w) else { return };
     let to = PhysicalRect { position: PhysicalPosition::new(b.position.x, b.position.y - b.size.height as i32), size: b.size };
     animate(w.clone(), b.position.y, to, win_opacity(), 0.0, 130, move |w| {
@@ -233,7 +233,7 @@ fn hide_dropdown() {
     }
 }
 
-fn apply_dropdown(w: &WebviewWindow, show: bool) {
+fn apply_dropdown(w: &Window, show: bool) {
     let _ = w.set_skip_taskbar(true);
     let _ = w.set_maximizable(false);
     let _ = w.set_minimizable(false);
@@ -248,7 +248,7 @@ fn apply_dropdown(w: &WebviewWindow, show: bool) {
     }
 }
 
-fn apply_window(w: &WebviewWindow) {
+fn apply_window(w: &Window) {
     let _ = w.set_always_on_top(false);
     let _ = w.set_skip_taskbar(false);
     let _ = w.set_maximizable(true);
@@ -502,9 +502,9 @@ pub fn init(app: &mut App) -> anyhow::Result<()> {
     build_tray_menu();
 
     if dropdown() {
-        apply_dropdown(&w, !start_hidden);
+        apply_dropdown(&w.as_ref().window(), !start_hidden);
     } else {
-        set_opacity(&w, win_opacity());
+        set_opacity(&w.as_ref().window(), win_opacity());
         if !start_hidden {
             let _ = w.show();
         }
