@@ -24,7 +24,7 @@ import { Logo, StatusDot, statusLabel } from './icons'
 import { ChatImages, useChatImages } from './ChatImages'
 import { ChatTasks, useChatTasks } from './ChatTasks'
 import { ChatFiles, useChatFiles } from './ChatFiles'
-import { chatMenu } from './Sidebar'
+import { ChatTitle, chatMenu } from './Sidebar'
 import { AttachmentTray } from './AttachmentTray'
 import { pickAttachments } from '../attachments'
 import { NewChatMenu } from './AgentMenu'
@@ -121,9 +121,9 @@ export function ClaudePanel(): React.JSX.Element {
       {active && (
         <>
           <div className="chat-titlebar">
-            <div className="chat-titlebar-main" onContextMenu={(e) => chatMenu(e, { chatId: active.id })}>
+            <div className="chat-titlebar-main" onContextMenu={(e) => chatMenu(e, { chatId: active.id }, 'title')}>
               <StatusDot status={active.status} attention={active.attention} />
-              <span className="chat-titlebar-title">{active.title}</span>
+              <ChatTitle place="title" chatId={active.id} title={active.title} className="chat-titlebar-title" />
               {agentDef(active.agent).id !== 'claude' && <span className="chat-agent">{agentDef(active.agent).label}</span>}
               <span className={`chat-state s-${active.status}`}>{statusLabel[active.status]}</span>
             </div>

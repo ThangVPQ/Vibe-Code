@@ -13,7 +13,9 @@ interface Open {
 let show: ((m: Open | null) => void) | null = null
 
 /** Open a right-click menu at the mouse. Falsy entries are skipped, so items can be added conditionally. */
-export function openMenu(e: { clientX: number; clientY: number; preventDefault(): void; stopPropagation(): void }, items: MenuEntry[]): void {
+export function openMenu(e: { clientX: number; clientY: number; target?: EventTarget; preventDefault(): void; stopPropagation(): void }, items: MenuEntry[]): void {
+  // inside a text box (a name being renamed…) the box's own Cut / Copy / Paste menu wins
+  if ((e.target as HTMLElement | undefined)?.closest?.('input, textarea')) return
   e.preventDefault()
   e.stopPropagation()
   show?.({ x: e.clientX, y: e.clientY, items })

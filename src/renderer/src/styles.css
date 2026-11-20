@@ -4716,3 +4716,18 @@ button.sb-item.sb-update:hover {
     display: none;
   }
 }
+
+/* a name being renamed in place (chats, explorer files) */
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  margin: -2px 0;
+  padding: 0 5px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+}

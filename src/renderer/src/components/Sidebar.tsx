@@ -51,6 +51,7 @@ import {
   selectChat
 } from '../actions'
 import { hasUnsaved } from '../fileModelsLite'
+import { RenameInput, startRename, useRenaming } from './InlineRename'
 import { openMenu } from './ContextMenu'
 import { FileIcon, FolderIcon, StatusDot, statusLabel } from './icons'
 import type { DirEntry, GitBranch as GitBranchInfo, GitCommit, GitCommitFile, GitFile, ProjectGroup, SessionInfo } from '../../../shared/types'
@@ -151,11 +152,11 @@ const RecentRow = memo(function RecentRow(props: {
     <div
       className={`sess-row${active ? ' active' : ''}`}
       onClick={() => (chatId ? selectChat(chatId) : session && void openSession(session))}
-      onContextMenu={(e) => chatMenu(e, { chatId, session })}
+      onContextMenu={(e) => chatMenu(e, { chatId, session }, 'recent')}
       title={`${title}\n${project} · ${new Date(updated).toLocaleString()}`}
     >
       {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
-      <span className="sess-title">{title}</span>
+      <ChatTitle place="recent" chatId={chatId} title={title} />
       <span className="sess-time">{shortAgo(updated)}</span>
     </div>
   )
@@ -322,11 +323,11 @@ function ProjectsTree(): React.JSX.Element {
                 key={c.id}
                 className={`sess-row${c.id === activeChatId ? ' active' : ''}`}
                 onClick={() => selectChat(c.id)}
-                onContextMenu={(e) => chatMenu(e, { chatId: c.id })}
+                onContextMenu={(e) => chatMenu(e, { chatId: c.id }, 'tree')}
                 title={`${c.title}\n${agentDef(c.agent).label} · ${c.cwd}`}
               >
                 <StatusDot status={c.status} attention={c.attention} />
-                <span className="sess-title">{c.title}</span>
+                <ChatTitle place="tree" chatId={c.id} title={c.title} />
                 <span className="sess-time">{agentDef(c.agent).id === 'claude' ? shortAgo(c.createdAt) : agentDef(c.agent).label}</span>
               </div>
             ))}
@@ -353,22 +354,38 @@ function ProjectsTree(): React.JSX.Element {
  */
 const SessRow = memo(function SessRow(props: { s: SessionInfo; active: boolean; status?: Chat['status']; attention?: boolean }): React.JSX.Element {
   const { s, active, status, attention } = props
+  // primitives only: this row re-renders when they change, not on every chat update
+  const liveId = useStore((st) => st.chats.find((c) => c.sessionId === s.id)?.id)
+  const pinned = useStore((st) => {
+    const c = st.chats.find((x) => x.sessionId === s.id)
+    return c?.pinnedTitle ? c.title : undefined
+  })
   return (
     <div
       className={`sess-row${active ? ' active' : ''}${s.cwdExists ? '' : ' gone'}`}
       onClick={() => openSession(s)}
-      onContextMenu={(e) => chatMenu(e, { session: s })}
+      onContextMenu={(e) => chatMenu(e, { session: s }, 'tree')}
       title={`${s.title}\n${s.cwd}\nUpdated ${new Date(s.updated).toLocaleString()}`}
     >
       {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
-      <span className="sess-title">{s.title}</span>
+      <ChatTitle place="tree" chatId={liveId} title={pinned ?? s.title} />
       <span className="sess-time">{shortAgo(s.updated)}</span>
     </div>
   )
 })
 
-/** Right-click on a chat in the sidebar: an open chat (`chatId`) and/or a session from the history. */
-export function chatMenu(e: React.MouseEvent, ref: { chatId?: string; session?: SessionInfo }): void {
+/** A chat's name in a row; a text box while it's renamed from that row's menu. */
+export function ChatTitle({ place, chatId, title, className = 'sess-title' }: { place: string; chatId?: string; title: string; className?: string }): React.JSX.Element {
+  const editing = useRenaming((r) => !!chatId && r.key === `chat:${place}:${chatId}`)
+  if (editing) return <RenameInput value={title} onCommit={(t) => renameChat(chatId!, t)} />
+  return <span className={className}>{title}</span>
+}
+
+/**
+ * Right-click on a chat: an open chat (`chatId`) and/or a session from the history. `place` names
+ * the row it was opened on (the same chat is listed in several), so Rename edits that one.
+ */
+export function chatMenu(e: React.MouseEvent, ref: { chatId?: string; session?: SessionInfo }, place: string): void {
   const chats = useStore.getState().chats
   const chat = chats.find((c) => c.id === ref.chatId) ?? (ref.session ? chats.find((c) => c.sessionId === ref.session!.id) : undefined)
   const s = ref.session
@@ -380,10 +397,7 @@ export function chatMenu(e: React.MouseEvent, ref: { chatId?: string; session?: 
     chat && {
       label: 'Rename…',
       icon: <Pencil size={14} />,
-      action: () => {
-        const t = window.prompt('Rename chat', chat.title)
-        if (t !== null) renameChat(chat.id, t)
-      }
+      action: () => startRename(`chat:${place}:${chat.id}`)
     },
     chat?.status === 'exited' && { label: 'Restart', icon: <RotateCcw size={14} />, action: () => restartChat(chat.id) },
     chat && { label: 'Close chat', icon: <X size={14} />, action: () => closeChat(chat.id) },
@@ -478,10 +492,10 @@ function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey
   return (
     <>
       <SectionHeader title="Explorer">
-        <button className="icon-btn" title="New file" onClick={fsOp(() => createIn(root, false))}>
+        <button className="icon-btn" title="New file" onClick={() => createIn(root, false)}>
           <FilePlus size={14} />
         </button>
-        <button className="icon-btn" title="New folder" onClick={fsOp(() => createIn(root, true))}>
+        <button className="icon-btn" title="New folder" onClick={() => createIn(root, true)}>
           <FolderPlus size={14} />
         </button>
         <button className="icon-btn" title="Refresh" onClick={() => useStore.setState((s) => ({ fsTick: s.fsTick + 1 }))}>
@@ -521,13 +535,41 @@ const fsOp = (f: () => Promise<unknown>) => async (): Promise<void> => {
   refreshTree()
 }
 
-/** Ask for a name, then create a file / folder in `dir` (files open in the editor). */
-async function createIn(dir: string, isDir: boolean): Promise<void> {
-  const name = window.prompt(isDir ? 'New folder name' : 'New file name')?.trim()
-  if (!name) return
+/** New file / folder in `dir`: an empty row opens there for its name (see NewEntryRow). */
+const createIn = (dir: string, isDir: boolean): void => startRename(`new:${isDir ? 'dir' : 'file'}:${dir}`)
+
+/** Create the file / folder named in a new row (files open in the editor). */
+async function createNamed(dir: string, isDir: boolean, name: string): Promise<void> {
   const path = dir + sepOf(dir) + name
   await window.api.fs.create(path, isDir)
   if (!isDir) openFile(path)
+}
+
+/** The row a new file / folder's name is typed into, at the top of its folder. */
+function NewEntryRow({ dir, isDir, depth }: { dir: string; isDir: boolean; depth: number }): React.JSX.Element {
+  return (
+    <div className="tree-row" style={{ paddingLeft: 10 + depth * 12 }}>
+      <span className="chev-spacer" />
+      {isDir ? <FolderIcon open={false} /> : <FilePlus size={14} />}
+      <RenameInput value="" onCommit={(name) => fsOp(() => createNamed(dir, isDir, name))()} />
+    </div>
+  )
+}
+
+/** Editor tabs of `path`, or of files inside it when it's a folder. */
+function tabsUnder(path: string): EditorTab[] {
+  const lower = path.toLowerCase()
+  return useStore.getState().tabs.filter((t) => t.kind === 'file' && (t.path.toLowerCase() === lower || t.path.toLowerCase().startsWith(lower + sepOf(path))))
+}
+
+/** Rename a file / folder in place; its open editor tabs follow it. */
+async function renamePath(path: string, next: string): Promise<void> {
+  const open = tabsUnder(path)
+  if (open.some((t) => hasUnsaved(t.path)) && !window.confirm('Unsaved changes in the open file will be lost. Rename anyway?')) return
+  const to = dirOf(path) + sepOf(path) + next
+  await window.api.fs.rename(path, to)
+  for (const t of open) closeTab(t.id)
+  for (const t of open) openFile(to + t.path.slice(path.length))
 }
 
 /** Right-click on a file or folder in the explorer. */
@@ -536,14 +578,10 @@ function explorerMenu(e: React.MouseEvent, path: string, isDir: boolean, root: s
   const rel = path.slice(root.length).replace(/^[\\/]+/, '').replace(/\\/g, '/') || '.'
   const name = basename(path)
   const into = isDir ? path : dirOf(path)
-  const tabs = (): EditorTab[] => {
-    const lower = path.toLowerCase()
-    return useStore.getState().tabs.filter((t) => t.kind === 'file' && (t.path.toLowerCase() === lower || t.path.toLowerCase().startsWith(lower + sepOf(path))))
-  }
   openMenu(e, [
     !isDir && { label: 'Open', icon: <FileText size={14} />, action: () => openFile(path) },
-    isDir && { label: 'New file…', icon: <FilePlus size={14} />, action: fsOp(() => createIn(path, false)) },
-    isDir && { label: 'New folder…', icon: <FolderPlus size={14} />, action: fsOp(() => createIn(path, true)) },
+    { label: 'New file', icon: <FilePlus size={14} />, action: () => createIn(into, false) },
+    { label: 'New folder', icon: <FolderPlus size={14} />, action: () => createIn(into, true) },
     'sep',
     !isRoot && { label: 'Cut', icon: <Scissors size={14} />, action: () => void (fileClip = { path, cut: true }) },
     !isRoot && { label: 'Copy', icon: <Copy size={14} />, action: () => void (fileClip = { path, cut: false }) },
@@ -566,17 +604,7 @@ function explorerMenu(e: React.MouseEvent, path: string, isDir: boolean, root: s
     !isRoot && {
       label: 'Rename…',
       icon: <Pencil size={14} />,
-      action: fsOp(async () => {
-        const next = window.prompt('Rename', name)?.trim()
-        if (!next || next === name) return
-        const open = tabs()
-        if (open.some((t) => t.kind === 'file' && hasUnsaved(t.path)) && !window.confirm('Unsaved changes in the open file will be lost. Rename anyway?')) return
-        const to = dirOf(path) + sepOf(path) + next
-        await window.api.fs.rename(path, to)
-        // its editor tabs follow it
-        for (const t of open) closeTab(t.id)
-        for (const t of open) openFile(to + t.path.slice(path.length))
-      })
+      action: () => startRename('file:' + path)
     },
     !isRoot && {
       label: 'Delete',
@@ -585,7 +613,7 @@ function explorerMenu(e: React.MouseEvent, path: string, isDir: boolean, root: s
       action: fsOp(async () => {
         if (!window.confirm(`Move ${isDir ? 'folder' : 'file'} "${name}" to the Recycle Bin?`)) return
         await window.api.fs.trash(path)
-        for (const t of tabs()) closeTab(t.id)
+        for (const t of tabsUnder(path)) closeTab(t.id)
       })
     },
     'sep',
@@ -634,6 +662,7 @@ function DirChildren({ dir, depth, deco, openCtx }: { dir: string; depth: number
   // the Refresh button bumps fsTick; file events only reach the folders they touch
   const tick = useStore((s) => s.fsTick)
   const changed = useDirChanges(dir)
+  const creating = useRenaming((r) => (r.key === `new:file:${dir}` ? 'file' : r.key === `new:dir:${dir}` ? 'dir' : null))
   useEffect(() => {
     let live = true
     window.api.fs
@@ -647,6 +676,7 @@ function DirChildren({ dir, depth, deco, openCtx }: { dir: string; depth: number
   if (!items) return <div className="tree-loading" style={{ paddingLeft: 12 + depth * 12 }} />
   return (
     <>
+      {creating && <NewEntryRow dir={dir} isDir={creating === 'dir'} depth={depth} />}
       {items.map((it) => (
         <TreeNode key={it.path} item={it} depth={depth} deco={deco} openCtx={openCtx} />
       ))}
@@ -659,6 +689,12 @@ const TreeNode = memo(function TreeNode({ item, depth, deco, openCtx }: { item: 
   // a boolean: re-renders only when this row starts / stops being the open file
   const isActive = useStore((s) => s.activeTabId === 'f:' + item.path.toLowerCase())
   const status = deco.get(item.path.replace(/\\/g, '/').toLowerCase())
+  const renaming = useRenaming((r) => r.key === 'file:' + item.path)
+  // New file / folder inside it: open it so the name row shows
+  const creatingIn = useRenaming((r) => r.key === 'new:file:' + item.path || r.key === 'new:dir:' + item.path)
+  useEffect(() => {
+    if (creatingIn) setOpen(true)
+  }, [creatingIn])
   return (
     <>
       <div
@@ -674,7 +710,11 @@ const TreeNode = memo(function TreeNode({ item, depth, deco, openCtx }: { item: 
           <span className="chev-spacer" />
         )}
         {item.isDir ? <FolderIcon open={open} /> : <FileIcon name={item.name} />}
-        <span className="tree-name">{item.name}</span>
+        {renaming ? (
+          <RenameInput value={item.name} stem={!item.isDir} onCommit={(next) => fsOp(() => renamePath(item.path, next))()} />
+        ) : (
+          <span className="tree-name">{item.name}</span>
+        )}
         {status && !item.isDir && <span className="tree-status">{status === '?' ? 'U' : status}</span>}
         {status && item.isDir && <span className="tree-dot" />}
       </div>
