@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "VIBE CODE",
   "mainBinaryName": "vibe-code",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "identifier": "vn.tinjs.vibecode",
   "build": {
     "frontendDist": "../out/renderer",
