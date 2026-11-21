@@ -4,6 +4,8 @@
 //!   vibe-browser  http://127.0.0.1:<port>/mcp/<chatId>   — that chat's own Web tab
 //!   vibe-mssql    http://127.0.0.1:<port>/db/<chatId>    — SQL Server connections
 //!   vibe-zalo     http://127.0.0.1:<port>/zalo/<chatId>  — the personal Zalo account
+//! and a fourth once the user turns Desktop control on for the chat:
+//!   vibe-desktop  http://127.0.0.1:<port>/desktop/<chatId> — the other apps on the Windows desktop
 //! Streamable HTTP transport with plain JSON replies (no SSE), guarded by a per-launch token.
 
 use std::{
@@ -32,6 +34,7 @@ use crate::{browser, core::user_data};
 const BROWSER: &str = "vibe-browser";
 const DB: &str = "vibe-mssql";
 const ZALO: &str = "vibe-zalo";
+const DESKTOP: &str = "vibe-desktop";
 
 static PORT: AtomicU16 = AtomicU16::new(0);
 
@@ -65,7 +68,10 @@ pub fn config_for(chat: &str) -> Option<String> {
     let file = dir.join(format!("{}.json", chat.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect::<String>()));
     let chat_enc = urlencode(chat);
     let server = |kind: &str| json!({ "type": "http", "url": format!("http://127.0.0.1:{port}/{kind}/{chat_enc}"), "headers": { "Authorization": format!("Bearer {}", token()) } });
-    let config = json!({ "mcpServers": { BROWSER: server("mcp"), DB: server("db"), ZALO: server("zalo") } });
+    let mut config = json!({ "mcpServers": { BROWSER: server("mcp"), DB: server("db"), ZALO: server("zalo") } });
+    if crate::desktop::enabled(chat) {
+        config["mcpServers"][DESKTOP] = server("desktop");
+    }
     std::fs::write(&file, serde_json::to_vec_pretty(&config).ok()?).ok()?;
     Some(file.to_string_lossy().into_owned())
 }
@@ -82,7 +88,7 @@ async fn not_post() -> Response {
 }
 
 async fn on_post(Path((kind, chat)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Response {
-    if !matches!(kind.as_str(), "mcp" | "db" | "zalo") {
+    if !matches!(kind.as_str(), "mcp" | "db" | "zalo" | "desktop") {
         return StatusCode::NOT_FOUND.into_response();
     }
     let auth = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
@@ -113,6 +119,7 @@ async fn handle(kind: &str, chat: &str, method: &str, params: &Value) -> Result<
     let (name, instructions, tools) = match kind {
         "db" => (DB, crate::mssql::INSTRUCTIONS, crate::mssql::tools()),
         "zalo" => (ZALO, crate::zalo::INSTRUCTIONS, crate::zalo::tools()),
+        "desktop" => (DESKTOP, crate::desktop::INSTRUCTIONS, crate::desktop::tools()),
         _ => (BROWSER, BROWSER_INSTRUCTIONS, browser_tools()),
     };
     match method {
@@ -130,6 +137,7 @@ async fn handle(kind: &str, chat: &str, method: &str, params: &Value) -> Result<
             let result = match kind {
                 "db" => text_result(crate::mssql::call_tool(&tool, args)).await,
                 "zalo" => text_result(crate::zalo::call_tool(&tool, args)).await,
+                "desktop" => crate::desktop::call_tool(chat, &tool, args).await,
                 _ => call_browser(chat, &tool, &args).await,
             };
             Ok(match result {

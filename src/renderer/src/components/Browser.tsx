@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ExternalLink, Laptop, Maximize, Monitor, RotateCw, Eraser, Search, Shuffle, Smartphone, Star, Tablet, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, Laptop, Maximize, Monitor, RotateCw, Eraser, Search, ShieldCheck, ShieldOff, Shuffle, Smartphone, Star, Tablet, X } from 'lucide-react'
 import type { WebSuggestion } from '../../../shared/types'
 import { BookmarkBar } from './BrowserBookmarks'
 import { useStore } from '../store'
@@ -255,6 +255,16 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
     setDeviceKey(key)
   }
 
+  const adBlock = useStore((s) => s.settings?.adBlock ?? true)
+  const [blocked, setBlocked] = useState(0)
+  useEffect(() => window.api.browser.onBlocked((l, n) => l === label && setBlocked(n)), [label])
+  const toggleAdBlock = async (): Promise<void> => {
+    const settings = await window.api.app.setSettings({ adBlock: !adBlock }).catch(() => null)
+    if (settings) useStore.setState({ settings })
+    // the page now loaded was fetched under the old rule
+    window.api.browser.reload(label)
+  }
+
   const [clearing, setClearing] = useState(false)
   const clearCache = async (): Promise<void> => {
     setClearing(true)
@@ -352,6 +362,16 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
           ))}
         </div>
         {box && <span className="device-zoom" title="Zoomed out to fit">{Math.round(box.zoom * 100)}%</span>}
+        {window.api.platform === 'win32' && (
+          <button
+            className={`icon-btn adblock-btn${adBlock ? ' on' : ''}`}
+            title={adBlock ? `Ad blocking on — ${blocked} blocked on this page. Click to turn off (reloads)` : 'Ad blocking off. Click to turn on (reloads)'}
+            onClick={() => void toggleAdBlock()}
+          >
+            {adBlock ? <ShieldCheck size={14} /> : <ShieldOff size={14} />}
+            {adBlock && blocked > 0 && <span className="adblock-count">{blocked > 99 ? '99+' : blocked}</span>}
+          </button>
+        )}
         <button className="icon-btn" title="Clear cache & reload (keeps logins)" disabled={clearing} onClick={clearCache}>
           <Eraser size={14} />
         </button>

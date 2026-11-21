@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, FileText, Gauge, Image as ImageIcon, ListChecks, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
+import { Check, ChevronDown, FileText, Gauge, Image as ImageIcon, ListChecks, MessageSquare, Monitor, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -19,7 +19,8 @@ import {
   setDisabledTools,
   folderKey,
   loadProjectBypass,
-  toggleProjectBypass
+  toggleProjectBypass,
+  toggleDesktop
 } from '../actions'
 import { attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../terminals'
 import { Logo, StatusDot, statusLabel } from './icons'
@@ -236,6 +237,20 @@ export function ClaudePanel(): React.JSX.Element {
               Pull
             </button>
             {agentDef(active.agent).id === 'claude' && <TokenButton chat={active} />}
+            {agentDef(active.agent).id === 'claude' && window.api.platform === 'win32' && (
+              <button
+                className={`chip${active.desktop ? ' on' : ''}`}
+                title={
+                  active.desktop
+                    ? 'Claude can see and control the other apps on this computer in this chat. Click to turn it off.'
+                    : 'Let Claude see and control the other apps on this computer (mouse and keyboard) in this chat'
+                }
+                onClick={() => void toggleDesktop(active.id)}
+              >
+                <Monitor size={12} />
+                Desktop control
+              </button>
+            )}
           </div>
           <ChatStatusBar chat={active} />
           {agentDef(active.agent).id === 'claude' && <ContextBar chat={active} />}

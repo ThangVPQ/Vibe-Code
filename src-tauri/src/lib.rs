@@ -4,9 +4,11 @@
 pub mod core;
 pub mod secure;
 
+mod adblock;
 mod appcmds;
 mod browser;
 mod capture;
+mod desktop;
 mod fsx;
 mod git;
 mod gmail;
@@ -86,6 +88,8 @@ pub fn run() {
             mssql::db_columns,
             mssql::db_scan_project,
             mssql::db_scan_ssms,
+            // other apps on the desktop (Claude's vibe-desktop tools)
+            desktop::desktop_set,
             // Gmail (read-only)
             gmail::gmail_state,
             gmail::gmail_login,
@@ -136,6 +140,10 @@ pub fn run() {
             git::git_branches,
             git::git_checkout,
             git::git_discard,
+            git::git_stage,
+            git::git_commit,
+            git::git_push,
+            git::git_pull,
             // app
             appcmds::app_settings,
             appcmds::app_remember_folder,

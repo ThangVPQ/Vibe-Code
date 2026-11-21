@@ -24,6 +24,12 @@ export interface GitState {
   root: string | null
   branch: string | null
   files: GitFile[]
+  /** e.g. `origin/master`; null when the branch isn't published */
+  upstream?: string | null
+  /** commits to push / to pull, as of the last fetch */
+  ahead?: number
+  behind?: number
+  hasRemote?: boolean
 }
 
 export interface GitCommit {
@@ -108,6 +114,8 @@ export interface AppSettings {
   editorLigatures: boolean
   /** start (hidden in the tray) when Windows signs in — undefined = on */
   openAtLogin?: boolean
+  /** Web tabs block requests to known ad / tracking servers */
+  adBlock: boolean
 }
 
 export interface WindowState {

@@ -29,6 +29,8 @@ pub struct AppSettings {
     pub editor_ligatures: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub open_at_login: Option<bool>,
+    /// Web tabs drop requests to known ad / tracking servers
+    pub ad_block: bool,
 }
 
 impl Default for AppSettings {
@@ -50,8 +52,15 @@ impl Default for AppSettings {
             editor_font_size: 12.0,
             editor_ligatures: true,
             open_at_login: None,
+            ad_block: true,
         }
     }
+}
+
+/// Cheap read for every request a Web tab makes.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn ad_block() -> bool {
+    CACHE.read().ad_block
 }
 
 static CACHE: LazyLock<RwLock<AppSettings>> = LazyLock::new(|| {

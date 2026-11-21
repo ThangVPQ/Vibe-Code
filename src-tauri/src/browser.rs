@@ -44,6 +44,20 @@ type LogLine = (Instant, String);
 /// chatId → label of the tab that chat's browser tools drive
 static ACTIVE: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
 static WAITERS: LazyLock<Mutex<HashMap<String, Vec<oneshot::Sender<String>>>>> = LazyLock::new(Default::default);
+/// label → ad requests blocked on the page now loaded
+static BLOCKED: LazyLock<Mutex<HashMap<String, u32>>> = LazyLock::new(Default::default);
+
+/// One more blocked request (or back to 0 for a new page); the tab's shield button shows it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn count_blocked(label: &str, new_page: bool) {
+    let n = {
+        let mut b = BLOCKED.lock();
+        let n = b.entry(label.to_owned()).or_default();
+        *n = if new_page { 0 } else { *n + 1 };
+        *n
+    };
+    emit("web:blocked", (label, n));
+}
 
 fn webview(label: &str) -> Option<Webview> {
     TABS.lock().get(label).map(|t| t.webview.clone())
@@ -224,6 +238,7 @@ pub fn web_close(label: String) {
     if let Some(t) = tab {
         ACTIVE.lock().retain(|_, l| *l != label);
         LOGS.lock().remove(&label);
+        BLOCKED.lock().remove(&label);
         let _ = t.webview.close();
     }
 }
@@ -453,7 +468,7 @@ mod win {
     use super::*;
     use webview2_com::{
         CallDevToolsProtocolMethodCompletedHandler, ClearBrowsingDataCompletedHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, HistoryChangedEventHandler,
-        Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler, NavigationStartingEventHandler, TrySuspendCompletedHandler,
+        Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler, NavigationStartingEventHandler, TrySuspendCompletedHandler, WebResourceRequestedEventHandler,
     };
     use windows::core::{BOOL, HSTRING, Interface, PWSTR};
 
@@ -500,6 +515,36 @@ mod win {
                     &NavigationStartingEventHandler::create(Box::new(move |s, _| {
                         if let Some(s) = s {
                             emit_nav(&l, nav_state(&s, true));
+                        }
+                        count_blocked(&l, true);
+                        Ok(())
+                    })),
+                    &mut token,
+                );
+                // ad blocking: every request (iframes and workers too, where the runtime allows it) is
+                // checked against the list; a blocked one gets an empty 403 without touching the network
+                let any = HSTRING::from("*");
+                match core.cast::<ICoreWebView2_22>() {
+                    Ok(c22) => {
+                        let _ = c22.AddWebResourceRequestedFilterWithRequestSourceKinds(&any, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL, COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
+                    }
+                    Err(_) => {
+                        let _ = core.AddWebResourceRequestedFilter(&any, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+                    }
+                }
+                let env = pw.environment();
+                let l = label.clone();
+                let _ = core.add_WebResourceRequested(
+                    &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+                        let Some(args) = args else { return Ok(()) };
+                        if !crate::settings::ad_block() {
+                            return Ok(());
+                        }
+                        let mut uri = PWSTR::null();
+                        args.Request()?.Uri(&mut uri)?;
+                        if crate::adblock::is_ad(&take_pwstr(uri)) {
+                            args.SetResponse(&env.CreateWebResourceResponse(None, 403, &HSTRING::from("Blocked"), &HSTRING::new())?)?;
+                            count_blocked(&l, false);
                         }
                         Ok(())
                     })),

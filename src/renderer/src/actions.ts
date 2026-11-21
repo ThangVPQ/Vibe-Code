@@ -614,6 +614,20 @@ export function setDisabledTools(id: string, tools: string[]): void {
   if (c) restartChat(id)
 }
 
+/** Give this chat's Claude the vibe-desktop tools (or take them away), then restart it (same conversation). */
+export async function toggleDesktop(id: string): Promise<void> {
+  const c = st().chats.find((x) => x.id === id)
+  if (!c) return
+  const on = !c.desktop
+  const msg = on
+    ? 'Let Claude control the other apps on this computer in this chat?\n\nIt can read their windows and use your real mouse and keyboard: click, type and press keys in them. It asks first before sending, deleting, paying or changing settings.\n\nThe chat restarts (same conversation). Off again when VIBE CODE restarts.'
+    : 'Turn off desktop control for this chat? The chat restarts (same conversation).'
+  if (!window.confirm(msg)) return
+  await window.api.desktop.set(id, on)
+  st().patchChat(id, { desktop: on || undefined })
+  restartChat(id)
+}
+
 /** Switch model live (`/model`) for this chat. */
 export function setChatModel(id: string, model: string): void {
   writeToTerm(id, `/model ${model || 'default'}\r`)

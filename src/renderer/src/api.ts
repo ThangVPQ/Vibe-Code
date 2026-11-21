@@ -124,6 +124,8 @@ export const api = {
     setUserAgent: (label: string, userAgent: string | null): Promise<void> => invoke('web_set_user_agent', { label, userAgent }),
     close: (label: string): void => void invoke('web_close', { label }),
     onNav: (cb: (label: string, nav: WebNav) => void): Off => on('web:nav', cb),
+    /** ad requests blocked on the page now loaded in a tab */
+    onBlocked: (cb: (label: string, count: number) => void): Off => on('web:blocked', cb),
     /** a chat's browser tools were used: make sure its Web tab exists (and show it) */
     onOpen: (cb: (chatId: string) => void): Off => on('browser:open', cb),
     data: (): Promise<WebData> => invoke('web_data'),
@@ -164,6 +166,10 @@ export const api = {
     columns: (id: string, database: string, schema: string, table: string): Promise<DbColumn[]> => invoke('db_columns', { id, database, schema, table }),
     scanProject: (folder: string): Promise<DbFound[]> => invoke('db_scan_project', { folder }),
     scanSsms: (): Promise<DbFound[]> => invoke('db_scan_ssms')
+  },
+  desktop: {
+    /** lets this chat's Claude drive other Windows apps from its next (re)start */
+    set: (chat: string, on: boolean): Promise<void> => invoke('desktop_set', { chat, on })
   },
   gmail: {
     /** the signed-in address, or null */
@@ -231,7 +237,12 @@ export const api = {
     branches: (root: string): Promise<GitBranch[]> => invoke('git_branches', { root }),
     checkout: (root: string, name: string, remote: boolean): Promise<void> => invoke('git_checkout', { root, name, remote }),
     /** back to HEAD; new / untracked files are removed */
-    discard: (root: string, rel: string, status: string): Promise<void> => invoke('git_discard', { root, rel, status })
+    discard: (root: string, rel: string, status: string): Promise<void> => invoke('git_discard', { root, rel, status }),
+    stage: (root: string, rels: string[], stage: boolean): Promise<void> => invoke('git_stage', { root, rels, stage }),
+    /** commits what is staged, or every change when nothing is */
+    commit: (root: string, message: string): Promise<void> => invoke('git_commit', { root, message }),
+    push: (root: string): Promise<void> => invoke('git_push', { root }),
+    pull: (root: string): Promise<void> => invoke('git_pull', { root })
   },
   app: {
     settings: (): Promise<AppSettings> => invoke('app_settings'),

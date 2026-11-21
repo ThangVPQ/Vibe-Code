@@ -915,6 +915,51 @@ kbd {
 .branch-hint { flex: none; font-size: 10.5px; color: var(--text-faint); }
 .branch-note { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 12px; color: var(--text-faint); }
 .branch-error { margin-top: 4px; padding: 6px 8px; border-radius: 6px; font-size: 11.5px; color: var(--red); background: var(--w-07); white-space: pre-wrap; word-break: break-word; }
+.commit-box { margin: 0 10px 8px; display: flex; flex-direction: column; gap: 6px; }
+.commit-box .branch-error { margin-top: 0; max-height: 120px; overflow-y: auto; }
+.commit-msg {
+  min-height: 34px;
+  max-height: 160px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+}
+.commit-msg:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.commit-actions { display: flex; gap: 6px; }
+.commit-actions .commit-btn { flex: 1; }
+.commit-actions .btn:disabled { opacity: 0.5; cursor: default; }
+.change-stage {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-content: center;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border: 1px solid var(--text-faint);
+  border-radius: 3px;
+  background: transparent;
+  opacity: 0.55;
+  cursor: pointer;
+}
+.change-row:hover .change-stage, .change-stage:checked { opacity: 1; }
+.change-stage:checked { background: var(--accent); border-color: var(--accent); }
+.change-stage:checked::before {
+  content: '';
+  width: 7px;
+  height: 4px;
+  margin-top: -2px;
+  border: solid #fff;
+  border-width: 0 0 1.5px 1.5px;
+  transform: rotate(-45deg);
+}
 .changes-counts {
   display: flex;
   gap: 8px;
@@ -2971,6 +3016,24 @@ button.sb-item.sb-update:hover {
   padding: 5px 8px;
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
+}
+.adblock-btn { position: relative; }
+.adblock-btn.on { color: var(--green); }
+.adblock-count {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  min-width: 14px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--green);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  pointer-events: none;
 }
 .browser-address {
   flex: 1;

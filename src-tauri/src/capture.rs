@@ -210,7 +210,7 @@ fn copy_png(png: &[u8]) -> Option<()> {
 }
 
 #[cfg(windows)]
-fn grab(x: i32, y: i32, w: u32, h: u32) -> Option<Vec<u8>> {
+pub(crate) fn grab(x: i32, y: i32, w: u32, h: u32) -> Option<Vec<u8>> {
     use windows::Win32::Graphics::Gdi::{
         BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC,
         SRCCOPY, SelectObject,
@@ -304,7 +304,7 @@ fn set_clipboard_dib(w: u32, h: u32, bgra: &[u8]) -> Option<()> {
 }
 
 #[cfg(not(windows))]
-fn grab(_x: i32, _y: i32, _w: u32, _h: u32) -> Option<Vec<u8>> {
+pub(crate) fn grab(_x: i32, _y: i32, _w: u32, _h: u32) -> Option<Vec<u8>> {
     None
 }
 

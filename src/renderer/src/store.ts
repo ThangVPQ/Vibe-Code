@@ -22,6 +22,8 @@ export interface Chat {
   model?: string
   effort?: string
   permissionMode?: string
+  /** Claude may see and drive the other apps on the desktop (vibe-desktop) — until the app restarts */
+  desktop?: boolean
 }
 
 export interface ShellTab {

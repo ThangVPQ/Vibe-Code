@@ -30,7 +30,10 @@ import {
   CopyPlus,
   Trash2,
   Undo2,
-  FileDiff
+  FileDiff,
+  ArrowDown,
+  ArrowUp,
+  CloudUpload
 } from 'lucide-react'
 import { basename, useStore, type Chat, type EditorTab } from '../store'
 import {
@@ -822,6 +825,7 @@ export function ChangesView(): React.JSX.Element {
           <span className="del">−{totals.del}</span>
         </div>
       </div>
+      <CommitBox root={git.root ?? root} />
       <div className="scroll">
         {git.files.length === 0 && (
           <div className="empty-hint">
@@ -842,6 +846,14 @@ export function ChangesView(): React.JSX.Element {
               onContextMenu={(e) => changeMenu(e, f, git.root ?? root)}
               title={`${statusName[f.status]} — ${f.rel}`}
             >
+              <input
+                type="checkbox"
+                className="change-stage"
+                checked={f.staged}
+                title={f.staged ? 'Staged: will be committed. Click to unstage' : 'Stage: commit only the ticked files (none ticked = commit all)'}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => void stageFiles(git.root ?? root, [f.rel], !f.staged)}
+              />
               <FileIcon name={name} />
               <span className={`change-name${f.status === 'D' ? ' deleted' : ''}`}>{name}</span>
               <span className="change-dir">{dir}</span>
@@ -868,6 +880,101 @@ export function ChangesView(): React.JSX.Element {
         <HistoryList />
       </div>
     </>
+  )
+}
+
+async function stageFiles(root: string, rels: string[], stage: boolean): Promise<void> {
+  await window.api.git.stage(root, rels, stage).catch((e) => window.alert(`Couldn't ${stage ? 'stage' : 'unstage'}:\n${e}`))
+  refreshGit()
+}
+
+/** Commit message per repository, kept while you switch views. */
+const commitDrafts = new Map<string, string>()
+
+/** Message + Commit (staged files, or all when none are staged), then Pull / Push. */
+function CommitBox({ root }: { root: string }): React.JSX.Element {
+  const git = useStore((s) => s.git)
+  const [msg, setMsg] = useState(() => commitDrafts.get(root) ?? '')
+  const [busy, setBusy] = useState<'commit' | 'pull' | 'push' | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => setMsg(commitDrafts.get(root) ?? ''), [root])
+  const edit = (v: string): void => {
+    commitDrafts.set(root, v)
+    setMsg(v)
+  }
+  const staged = git.files.filter((f) => f.staged).length
+  const canCommit = !busy && msg.trim().length > 0 && git.files.length > 0
+  const publish = !git.upstream
+  const run = async (kind: 'commit' | 'pull' | 'push', f: () => Promise<void>): Promise<boolean> => {
+    setBusy(kind)
+    setError('')
+    try {
+      await f()
+      return true
+    } catch (e) {
+      // git's own words: hook output, "diverged", "rejected", auth failures…
+      setError(e instanceof Error ? e.message : String(e))
+      return false
+    } finally {
+      setBusy(null)
+      refreshGit()
+    }
+  }
+  const commit = async (): Promise<void> => {
+    if (!canCommit) return
+    if (await run('commit', () => window.api.git.commit(root, msg.trim()))) edit('')
+  }
+
+  return (
+    <div className="commit-box">
+      <textarea
+        className="commit-msg"
+        rows={2}
+        placeholder={`Message (Ctrl+Enter to commit on ${git.branch ?? 'HEAD'})`}
+        value={msg}
+        onChange={(e) => edit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+            void commit()
+          }
+        }}
+      />
+      <div className="commit-actions">
+        <button
+          className="btn btn-primary btn-sm commit-btn"
+          disabled={!canCommit}
+          title={git.files.length === 0 ? 'Nothing to commit' : staged ? `Commit the ${staged} ticked file(s)` : 'Commit all changes'}
+          onClick={() => void commit()}
+        >
+          {busy === 'commit' ? <Loader2 size={13} className="spin" /> : <Check size={13} />}
+          {staged ? `Commit ${staged} staged` : 'Commit all'}
+        </button>
+        {git.hasRemote && (
+          <>
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={!!busy || publish}
+              title={publish ? 'This branch is not on the remote yet' : `Pull from ${git.upstream} (fast-forward only: your local work is never merged or overwritten)`}
+              onClick={() => void run('pull', () => window.api.git.pull(root))}
+            >
+              {busy === 'pull' ? <Loader2 size={13} className="spin" /> : <ArrowDown size={13} />}
+              {git.behind ? git.behind : null}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={!!busy || (!publish && !git.ahead)}
+              title={publish ? `Publish ${git.branch} to the remote` : git.ahead ? `Push ${git.ahead} commit(s) to ${git.upstream}` : 'Nothing to push'}
+              onClick={() => void run('push', () => window.api.git.push(root))}
+            >
+              {busy === 'push' ? <Loader2 size={13} className="spin" /> : publish ? <CloudUpload size={13} /> : <ArrowUp size={13} />}
+              {publish ? 'Publish' : git.ahead ? git.ahead : null}
+            </button>
+          </>
+        )}
+      </div>
+      {error && <div className="branch-error">{error}</div>}
+    </div>
   )
 }
 
