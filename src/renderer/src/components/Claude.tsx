@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, FileText, Image as ImageIcon, ListChecks, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
+import { Check, ChevronDown, FileText, Gauge, Image as ImageIcon, ListChecks, MessageSquare, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -15,6 +15,8 @@ import {
   setChatEffort,
   setChatModel,
   setChatPermission,
+  disabledTools,
+  setDisabledTools,
   folderKey,
   loadProjectBypass,
   toggleProjectBypass
@@ -233,6 +235,7 @@ export function ClaudePanel(): React.JSX.Element {
               <Download size={12} />
               Pull
             </button>
+            {agentDef(active.agent).id === 'claude' && <TokenButton chat={active} />}
           </div>
           <ChatStatusBar chat={active} />
           {agentDef(active.agent).id === 'claude' && <ContextBar chat={active} />}
@@ -289,6 +292,102 @@ function BypassProjectButton({ chat }: { chat: Chat }): React.JSX.Element {
   )
 }
 
+/** Tools Claude can't do much without: turning them off is allowed, but flagged. */
+const CORE_TOOLS = new Set(['Bash', 'PowerShell', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'ToolSearch', 'Skill'])
+
+/** Pick tools to take out of Claude chats: their definitions stop filling the context. */
+function TokenButton({ chat }: { chat: Chat }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [tools, setTools] = useState<{ name: string; tokens: number }[]>([])
+  const [off, setOff] = useState<Set<string>>(new Set())
+  const [pos, setPos] = useState({ left: 0, bottom: 0 })
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const esc = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', esc)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', esc)
+    }
+  }, [open])
+
+  const saved = disabledTools()
+  const show = (btn: HTMLElement): void => {
+    // fixed, not inside the quick bar: that one scrolls sideways and would clip the menu
+    const r = btn.getBoundingClientRect()
+    setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 328)), bottom: window.innerHeight - r.top + 6 })
+    setOff(new Set(saved))
+    setTools([])
+    if (chat.sessionId)
+      window.api.sessions
+        .context(chat.sessionId)
+        .then((c) => setTools(c?.tools ?? []))
+        .catch(() => {})
+    setOpen(true)
+  }
+  // tools already off aren't in the chat's requests any more: listed after the rest, size unknown
+  const rows = [...tools, ...saved.filter((n) => !tools.some((t) => t.name === n)).map((name) => ({ name, tokens: 0 }))]
+  const saving = tools.filter((t) => off.has(t.name)).reduce((n, t) => n + t.tokens, 0)
+  const changed = off.size !== saved.length || saved.some((n) => !off.has(n))
+  const fmt = (n: number): string => (n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`)
+  const toggle = (name: string): void =>
+    setOff((s) => {
+      const next = new Set(s)
+      if (!next.delete(name)) next.add(name)
+      return next
+    })
+
+  return (
+    <div className="tok-wrap" ref={ref}>
+      <button
+        className={`chip${saved.length ? ' on' : ''}`}
+        title="Turn off tools you don't use, so their definitions stop taking up the context"
+        onClick={(e) => (open ? setOpen(false) : show(e.currentTarget))}
+      >
+        <Gauge size={12} />
+        Optimize tokens
+        {saved.length > 0 && <span className="tok-count">{saved.length} off</span>}
+      </button>
+      {open && (
+        <div className="tok-menu" style={{ left: pos.left, bottom: pos.bottom }} role="menu">
+          <div className="sb-menu-title">Tick the tools to turn off (all Claude chats)</div>
+          <div className="tok-list">
+            {rows.length === 0 && <div className="tok-empty">{chat.sessionId ? 'Loading…' : 'Send a message first to see the tools.'}</div>}
+            {rows.map((t) => (
+              <label key={t.name} className={`tok-row${off.has(t.name) ? ' on' : ''}`}>
+                <input type="checkbox" checked={off.has(t.name)} onChange={() => toggle(t.name)} />
+                <span className="tok-name">{t.name}</span>
+                {CORE_TOOLS.has(t.name) && <span className="tok-core" title="Claude relies on this tool for everyday work">core</span>}
+                <span className="tok-size">{t.tokens ? fmt(t.tokens) : 'off'}</span>
+              </label>
+            ))}
+          </div>
+          <div className="tok-foot">
+            <span>{saving > 0 ? `Saves ~${fmt(saving)} tokens` : ''}</span>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={!changed}
+              onClick={() => {
+                setOpen(false)
+                setDisabledTools(chat.id, [...off])
+              }}
+            >
+              Apply & restart chat
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ---------------- Model / effort / permission pickers ---------------- */
 
 interface Opt {
@@ -329,14 +428,6 @@ const ACTIONS = [
     icon: <FastForward size={12} />,
     title: 'Tell Claude to continue where it stopped',
     prompt: 'continue',
-    confirm: ''
-  },
-  {
-    key: 'resume',
-    label: 'Resume',
-    icon: <History size={12} />,
-    title: 'Tell Claude to resume the task that was interrupted',
-    prompt: 'resume',
     confirm: ''
   },
   {

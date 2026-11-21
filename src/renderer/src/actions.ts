@@ -588,13 +588,30 @@ function remember(key: string, value: string): void {
   }
 }
 
-/** CLI flags that carry a chat's model, effort and permission mode across (re)starts. */
+/** CLI flags that carry a chat's model, effort, permission mode and turned-off tools across (re)starts. */
 function launchFlags(c: { model?: string; effort?: string; permissionMode?: string }): string[] {
   const out: string[] = []
   if (c.model) out.push('--model', c.model)
   if (c.effort) out.push('--effort', c.effort)
   if (c.permissionMode) out.push('--permission-mode', c.permissionMode)
+  const off = disabledTools()
+  // one "=" argument: the spaced form would also swallow a prompt that follows it
+  if (off.length) out.push(`--disallowedTools=${off.join(',')}`)
   return out
+}
+
+const DISABLED_TOOLS_KEY = 'vibe.disabledTools'
+/** Tools taken out of every Claude chat (their definitions no longer fill the context). */
+export function disabledTools(): string[] {
+  return (remembered(DISABLED_TOOLS_KEY, '') ?? '').split(',').filter(Boolean)
+}
+
+/** Save which tools are off, then restart the chat so it starts without them (same conversation). */
+export function setDisabledTools(id: string, tools: string[]): void {
+  const c = st().chats.find((x) => x.id === id)
+  if (c?.status === 'working' && !window.confirm('Claude is still working. Restart this chat with the new tool set?')) return
+  remember(DISABLED_TOOLS_KEY, tools.join(','))
+  if (c) restartChat(id)
 }
 
 /** Switch model live (`/model`) for this chat. */

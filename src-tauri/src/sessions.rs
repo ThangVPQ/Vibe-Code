@@ -62,6 +62,14 @@ pub struct Context {
     pub model: String,
     /// `used` split by where it comes from (an estimate)
     pub parts: Vec<ContextPart>,
+    /// tools sent with full definitions, by estimated size (biggest first)
+    pub tools: Vec<ContextTool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ContextTool {
+    pub name: String,
+    pub tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -820,6 +828,8 @@ struct ContextWalk {
     conv: Parts,
     /// system prompt and tool definitions of each request shape, by hash
     shapes: HashMap<String, Parts>,
+    /// size of each tool definition of each request shape, by hash
+    shape_tools: HashMap<String, Vec<(String, u64)>>,
     /// shape of the last main-thread request (else of any request)
     shape: Option<String>,
     any_shape: Option<String>,
@@ -830,8 +840,12 @@ struct ContextWalk {
 }
 
 impl ContextWalk {
+    fn base_hash(&self) -> Option<&String> {
+        self.shape.as_ref().or(self.any_shape.as_ref())
+    }
+
     fn base(&self) -> Option<&Parts> {
-        self.shape.as_ref().or(self.any_shape.as_ref()).and_then(|h| self.shapes.get(h))
+        self.base_hash().and_then(|h| self.shapes.get(h))
     }
 
     fn add(&mut self, uuid: &str, part: usize, size: u64) {
@@ -917,15 +931,20 @@ impl ContextWalk {
     fn shape_row(&mut self, r: &Obj) {
         let (Some(hash), Some(shape)) = (str_of(r, "shapeHash"), r.get("shape")) else { return };
         let mut p = Parts::default();
+        let mut tools = Vec::new();
         p[SYSTEM] = shape.get("system").map_or(0, ctx_size);
         for t in shape.get("tools").and_then(Value::as_array).into_iter().flatten() {
             // deferred tools are only a name until ToolSearch loads them
             if truthy(t.get("defer_loading")) {
                 continue;
             }
-            p[tool_part(t.get("name").and_then(Value::as_str).unwrap_or_default())] += json_len(t);
+            let name = t.get("name").and_then(Value::as_str).unwrap_or_default();
+            let size = json_len(t);
+            p[tool_part(name)] += size;
+            tools.push((name.to_owned(), size));
         }
         self.shapes.insert(hash.to_owned(), p);
+        self.shape_tools.insert(hash.to_owned(), tools);
     }
 
     fn attachment(&mut self, uuid: &str, r: &Obj) {
@@ -1018,7 +1037,15 @@ impl ContextWalk {
         let off = self.used as i64 - parts.iter().map(|p| p.tokens as i64).sum::<i64>();
         let big = parts.iter_mut().max_by_key(|p| p.tokens)?;
         big.tokens = (big.tokens as i64 + off).max(0) as u64;
-        Some(Context { used: self.used, model: self.model.clone(), parts })
+        let mut tools: Vec<ContextTool> = self
+            .base_hash()
+            .and_then(|h| self.shape_tools.get(h))
+            .into_iter()
+            .flatten()
+            .map(|(name, size)| ContextTool { name: name.clone(), tokens: (*size as f64 * rate).round() as u64 })
+            .collect();
+        tools.sort_by(|a, b| b.tokens.cmp(&a.tokens));
+        Some(Context { used: self.used, model: self.model.clone(), parts, tools })
     }
 }
 
