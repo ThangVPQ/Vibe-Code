@@ -6,6 +6,8 @@ Desktop workspace for **Claude Code**: several parallel chats, a Monaco editor (
 
 **[⬇ Download VIBE CODE for Windows (x64)](https://github.com/nguyentrantin98/vibecode/releases/latest/download/vibe-code_x64-setup.exe)**
 
+**[⬇ Download VIBE CODE for macOS (Apple Silicon + Intel)](https://github.com/nguyentrantin98/vibecode/releases/latest/download/vibe-code_universal.dmg)**
+
 All versions and release notes: [Releases](https://github.com/nguyentrantin98/vibecode/releases).
 
 Run the installer (no admin rights needed, it installs for the current user). VIBE CODE also needs:
