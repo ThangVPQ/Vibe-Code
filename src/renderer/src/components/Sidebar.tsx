@@ -160,11 +160,12 @@ const RecentRow = memo(function RecentRow(props: {
   )
 })
 
-/** The open chats of every project that are working right now; one drops out once its turn ends. */
+/** The open chats of every project that are working right now, or finished while you looked elsewhere
+ *  (unread); one drops out once its turn ends and you've opened it. */
 function recentItems(projects: ProjectGroup[], chats: Chat[]): RecentItem[] {
   const sessions = new Map(projects.flatMap((g) => g.sessions.map((s) => [s.id, s] as const)))
   return chats
-    .filter((c) => c.status === 'working')
+    .filter((c) => c.status === 'working' || c.attention)
     .map((c) => {
       const s = c.sessionId ? sessions.get(c.sessionId) : undefined
       return { key: c.id, title: c.pinnedTitle ? c.title : s?.title || c.title, project: basename(c.cwd), updated: s?.updated ?? c.createdAt, chat: c, session: s }
@@ -265,11 +266,11 @@ function ProjectsTree(): React.JSX.Element {
         <input placeholder="Filter chats…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
       </div>
 
-      {/* chats working right now, across every project */}
+      {/* chats working right now or finished unread, across every project */}
       {!needle && recent.length > 0 && (
         <div className="proj recent-group">
           <div className="proj-row recent-head">
-            <span className="proj-name">Running</span>
+            <span className="proj-name">Running &amp; unread</span>
           </div>
           {recent.map((it) => (
             <RecentRow
