@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Collapse, SlidePill } from './motion'
 import {
   Check,
@@ -155,7 +155,7 @@ const RecentRow = memo(function RecentRow(props: {
     >
       {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
       <ChatTitle place="recent" chatId={chatId} title={title} />
-      <span className="sess-time">{shortAgo(updated)}</span>
+      <span className="sess-time"><Ago t={updated} /></span>
     </div>
   )
 })
@@ -322,7 +322,7 @@ function ProjectsTree(): React.JSX.Element {
               >
                 <StatusDot status={c.status} attention={c.attention} />
                 <ChatTitle place="tree" chatId={c.id} title={c.title} />
-                <span className="sess-time">{agentDef(c.agent).id === 'claude' ? shortAgo(c.createdAt) : agentDef(c.agent).label}</span>
+                <span className="sess-time">{agentDef(c.agent).id === 'claude' ? <Ago t={c.createdAt} /> : agentDef(c.agent).label}</span>
               </div>
             ))}
             {shown.map((s) => {
@@ -363,7 +363,7 @@ const SessRow = memo(function SessRow(props: { s: SessionInfo; active: boolean; 
     >
       {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
       <ChatTitle place="tree" chatId={liveId} title={pinned ?? s.title} />
-      <span className="sess-time">{shortAgo(s.updated)}</span>
+      <span className="sess-time"><Ago t={s.updated} /></span>
     </div>
   )
 })
@@ -443,6 +443,26 @@ export function shortAgo(t: number): string {
   const d = Math.floor(h / 24)
   if (d < 30) return `${d}d`
   return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
+/** One shared clock ticking every 30 s, so "now" / "5m" labels age while they stay on screen. */
+const minuteTick = (() => {
+  let now = Date.now()
+  const subs = new Set<() => void>()
+  setInterval(() => {
+    now = Date.now()
+    subs.forEach((f) => f())
+  }, 30_000)
+  return {
+    subscribe: (f: () => void) => (subs.add(f), () => void subs.delete(f)),
+    get: () => now
+  }
+})()
+
+/** shortAgo(t) that re-renders on its own as time passes. */
+function Ago({ t }: { t: number }): React.JSX.Element {
+  useSyncExternalStore(minuteTick.subscribe, minuteTick.get)
+  return <>{shortAgo(t)}</>
 }
 
 /* ================================ Explorer ================================ */
@@ -1018,7 +1038,7 @@ function CommitRow({ commit, gitRoot, open, toggle }: { commit: GitCommit; gitRo
         <div className="commit-text">
           <span className="commit-subject">{commit.subject}</span>
           <span className="commit-meta">
-            <span className="commit-hash">{commit.short}</span> · {commit.author} · {shortAgo(commit.date)}
+            <span className="commit-hash">{commit.short}</span> · {commit.author} · <Ago t={commit.date} />
           </span>
         </div>
       </div>
