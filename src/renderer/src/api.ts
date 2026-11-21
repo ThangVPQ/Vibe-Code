@@ -230,8 +230,8 @@ export const api = {
     openExternal: (url: string): Promise<void> => invoke('app_open_external', { url }),
     clearBrowserCache: (): Promise<void> => invoke('app_clear_browser_cache'),
     relaunch: (): Promise<boolean> => invoke('app_relaunch'),
-    /** the newer version published on GitHub, null when up to date */
-    checkUpdate: (): Promise<string | null> => invoke('app_check_update'),
+    /** the newer version published on GitHub and its release notes, null when up to date */
+    checkUpdate: (): Promise<{ version: string; notes: string } | null> => invoke('app_check_update'),
     /** downloads and runs the newest installer; the app quits and the installer restarts it */
     installUpdate: (): Promise<void> => invoke('app_install_update'),
     /** opens the screen-capture editor (Windows); `hide` takes the app off the screen first */

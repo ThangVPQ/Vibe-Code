@@ -427,28 +427,59 @@ export function StatusBar(): React.JSX.Element {
   )
 }
 
-/** Status-bar button shown when GitHub has a newer release: click to download and install it. */
+/**
+ * Shown when GitHub has a newer release: a full-window popup with its notes as soon as it is
+ * published (checked every few minutes), and a status-bar button that reopens it after "Later".
+ */
 function UpdateButton(): React.JSX.Element | null {
-  const [version, setVersion] = useState<string | null>(null)
+  const [update, setUpdate] = useState<{ version: string; notes: string } | null>(null)
+  const [dismissed, setDismissed] = useState<string | null>(null)
   const [state, setState] = useState<'idle' | 'busy' | 'failed'>('idle')
 
   useEffect(() => {
-    const check = (): void => void window.api.app.checkUpdate().then(setVersion, () => {})
+    const check = (): void => void window.api.app.checkUpdate().then(setUpdate, () => {})
     check()
-    const t = setInterval(check, 6 * 60 * 60 * 1000)
+    const t = setInterval(check, 5 * 60 * 1000)
     return () => clearInterval(t)
   }, [])
 
-  if (!version) return null
+  if (!update) return null
+  const { version, notes } = update
   const install = (): void => {
     setState('busy')
     window.api.app.installUpdate().catch(() => setState('failed'))
   }
+  const label = state === 'busy' ? 'Updating…' : state === 'failed' ? 'Update failed · retry' : `Update v${version}`
   return (
-    <button className="sb-item sb-update" disabled={state === 'busy'} onClick={install} title={state === 'failed' ? 'Update failed, click to retry' : `Download and install v${version}`}>
-      {state === 'busy' ? <Loader2 size={12} className="spin" /> : <ArrowDownToLine size={12} />}
-      {state === 'busy' ? 'Updating…' : state === 'failed' ? 'Update failed · retry' : `Update v${version}`}
-    </button>
+    <>
+      <button className="sb-item sb-update" onClick={() => setDismissed(null)} title={`See what's new in v${version}`}>
+        {state === 'busy' ? <Loader2 size={12} className="spin" /> : <ArrowDownToLine size={12} />}
+        {label}
+      </button>
+      {dismissed !== version && (
+        <div className="overlay update-overlay">
+          <div className="update-card">
+            <div className="update-head">
+              <ArrowDownToLine size={18} />
+              <div>
+                <div className="update-title">Update available · v{version}</div>
+                <div className="update-sub">What's new in this version</div>
+              </div>
+            </div>
+            <div className="update-notes">{notes || 'Bug fixes and improvements.'}</div>
+            <div className="update-actions">
+              <button className="btn" disabled={state === 'busy'} onClick={() => setDismissed(version)}>
+                Later
+              </button>
+              <button className="btn btn-primary" disabled={state === 'busy'} onClick={install}>
+                {state === 'busy' && <Loader2 size={13} className="spin" />}
+                {state === 'busy' ? 'Updating…' : state === 'failed' ? 'Retry update' : 'Update now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

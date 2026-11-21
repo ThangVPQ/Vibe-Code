@@ -255,8 +255,8 @@ pub async fn app_relaunch() -> Res<bool> {
 
 const RELEASES: &str = "https://api.github.com/repos/nguyentrantin98/vibecode/releases/latest";
 
-/// The newest release's version and installer url, when it is newer than this build.
-async fn newer_release() -> anyhow::Result<Option<(String, String)>> {
+/// The newest release's version, installer url and notes, when it is newer than this build.
+async fn newer_release() -> anyhow::Result<Option<(String, String, String)>> {
     let r = reqwest::Client::new()
         .get(RELEASES)
         .header("User-Agent", "vibe-code")
@@ -279,19 +279,20 @@ async fn newer_release() -> anyhow::Result<Option<(String, String)>> {
         .flatten()
         .find(|a| a["name"].as_str().is_some_and(|n| n.ends_with("-setup.exe")))
         .and_then(|a| a["browser_download_url"].as_str());
-    Ok(url.map(|u| (latest, u.to_owned())))
+    let notes = j["body"].as_str().unwrap_or_default().trim().to_owned();
+    Ok(url.map(|u| (latest, u.to_owned(), notes)))
 }
 
-/// The newer version on GitHub, or None when this build is the latest.
+/// The newer version on GitHub and its release notes, or None when this build is the latest.
 #[tauri::command]
-pub async fn app_check_update() -> Res<Option<String>> {
-    Ok(newer_release().await?.map(|(v, _)| v))
+pub async fn app_check_update() -> Res<Option<Value>> {
+    Ok(newer_release().await?.map(|(version, _, notes)| json!({ "version": version, "notes": notes })))
 }
 
 /// Downloads the newest installer, runs it in passive update mode (it restarts the app) and quits.
 #[tauri::command]
 pub async fn app_install_update() -> Res<()> {
-    let (version, url) = newer_release().await?.ok_or_else(|| err("already up to date"))?;
+    let (version, url, _) = newer_release().await?.ok_or_else(|| err("already up to date"))?;
     let bytes = reqwest::Client::new().get(&url).header("User-Agent", "vibe-code").send().await?.error_for_status()?.bytes().await?;
     let path = std::env::temp_dir().join(format!("vibe-code_{version}_setup.exe"));
     tokio::fs::write(&path, &bytes).await?;

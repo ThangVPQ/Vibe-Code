@@ -123,8 +123,6 @@ function loadExpanded(): Set<string> {
 
 const PAGE = 8
 
-const RECENT_MAX = 5
-
 interface RecentItem {
   key: string
   title: string
@@ -162,20 +160,16 @@ const RecentRow = memo(function RecentRow(props: {
   )
 })
 
-/** The newest chats of every project: open ones not in the history yet, then the history. */
+/** The open chats of every project that are working right now; one drops out once its turn ends. */
 function recentItems(projects: ProjectGroup[], chats: Chat[]): RecentItem[] {
-  const live = new Map(chats.filter((c) => c.sessionId).map((c) => [c.sessionId!, c]))
-  const history: RecentItem[] = projects.flatMap((g) =>
-    g.sessions.map((s) => {
-      const chat = live.get(s.id)
-      return { key: s.id, title: chat?.pinnedTitle ? chat.title : s.title || chat?.title || 'Chat', project: g.name, updated: s.updated, chat, session: s }
+  const sessions = new Map(projects.flatMap((g) => g.sessions.map((s) => [s.id, s] as const)))
+  return chats
+    .filter((c) => c.status === 'working')
+    .map((c) => {
+      const s = c.sessionId ? sessions.get(c.sessionId) : undefined
+      return { key: c.id, title: c.pinnedTitle ? c.title : s?.title || c.title, project: basename(c.cwd), updated: s?.updated ?? c.createdAt, chat: c, session: s }
     })
-  )
-  const known = new Set(history.map((r) => r.key))
-  const fresh: RecentItem[] = chats
-    .filter((c) => !c.sessionId || !known.has(c.sessionId))
-    .map((c) => ({ key: c.id, title: c.title, project: basename(c.cwd), updated: c.createdAt, chat: c }))
-  return [...fresh, ...history].sort((a, b) => b.updated - a.updated).slice(0, RECENT_MAX)
+    .sort((a, b) => b.updated - a.updated)
 }
 
 /** Every project + conversation from Claude Code's store — the same list the Claude app shows. */
@@ -219,7 +213,7 @@ function ProjectsTree(): React.JSX.Element {
   }
   const needle = q.trim().toLowerCase()
   // Opening a chat touches its transcript (resume, focus…), which would jump it to the top under
-  // the cursor. Rows already listed keep their place; only chats newly entering the top 5 go first.
+  // the cursor. Rows already listed keep their place; only chats newly entering the list go first.
   // A row is known by its session id and, once open, its chat id too: resuming a session or a new
   // chat getting its session id must not count as a new entry.
   const recentOrder = useRef(new Map<string, number>())
@@ -271,11 +265,11 @@ function ProjectsTree(): React.JSX.Element {
         <input placeholder="Filter chats…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
       </div>
 
-      {/* the 5 newest chats across every project */}
+      {/* chats working right now, across every project */}
       {!needle && recent.length > 0 && (
         <div className="proj recent-group">
           <div className="proj-row recent-head">
-            <span className="proj-name">Recent</span>
+            <span className="proj-name">Running</span>
           </div>
           {recent.map((it) => (
             <RecentRow

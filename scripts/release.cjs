@@ -46,13 +46,18 @@ async function main() {
   const exe = path.join(root, 'src-tauri/target/release/bundle/nsis', `VIBE CODE_${version}_x64-setup.exe`)
   if (!fs.existsSync(exe)) throw new Error(`installer not found: ${exe}`)
 
+  // release notes the app's update popup shows: the commits since the previous release
+  const git = (cmd) => execSync(cmd, { cwd: root, encoding: 'utf8' }).trim()
+  const prev = git('git log -1 --format=%H --grep="^Release v"')
+  const notes = git(`git log --no-merges --format="- %s" ${prev ? `${prev}..HEAD` : '-20'}`)
+
   run(`git commit -m "Release v${version}" -- package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock`)
   run('git push')
 
   const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: root, encoding: 'utf8' }).trim()
   const rel = await gh(`https://api.github.com/repos/${repo}/releases`, {
     method: 'POST',
-    body: JSON.stringify({ tag_name: `v${version}`, target_commitish: branch, name: `v${version}` })
+    body: JSON.stringify({ tag_name: `v${version}`, target_commitish: branch, name: `v${version}`, body: notes })
   })
   // same name every release, so releases/latest/download/vibe-code_x64-setup.exe always gets the newest
   const name = 'vibe-code_x64-setup.exe'
