@@ -43,7 +43,9 @@ async function main() {
 
   run('npm run build')
 
-  const exe = path.join(root, 'src-tauri/target/release/bundle/nsis', `VIBE CODE_${version}_x64-setup.exe`)
+  // the build folder can be moved (CARGO_TARGET_DIR, or target-dir in a .cargo/config.toml): ask cargo where it is
+  const targetDir = JSON.parse(execSync('cargo metadata --format-version 1 --no-deps', { cwd: path.join(root, 'src-tauri'), encoding: 'utf8', maxBuffer: 64 << 20 })).target_directory
+  const exe = path.join(targetDir, 'release/bundle/nsis', `VIBE CODE_${version}_x64-setup.exe`)
   if (!fs.existsSync(exe)) throw new Error(`installer not found: ${exe}`)
 
   // release notes the app's update popup shows: the commits since the previous release
