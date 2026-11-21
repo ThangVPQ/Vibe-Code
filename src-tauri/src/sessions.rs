@@ -60,6 +60,14 @@ pub struct ProjectGroup {
 pub struct Context {
     pub used: u64,
     pub model: String,
+    /// `used` split by where it comes from (an estimate)
+    pub parts: Vec<ContextPart>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ContextPart {
+    pub key: &'static str,
+    pub tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -752,39 +760,274 @@ fn session_images(session_id: &str, since: Option<u64>) -> SessionImages {
 
 /* ---------------- context window ---------------- */
 
+/// Where the context goes, in the order the bar draws it (mirrors CTX_PARTS in Claude.tsx).
+const CTX_KEYS: [&str; 8] = ["system", "tools", "mcp", "plugins", "skills", "agents", "memory", "messages"];
+const SYSTEM: usize = 0;
+const TOOLS: usize = 1;
+const MCP: usize = 2;
+const PLUGINS: usize = 3;
+const SKILLS: usize = 4;
+const AGENTS: usize = 5;
+const MEMORY: usize = 6;
+const MESSAGES: usize = 7;
+
+type Parts = [u64; CTX_KEYS.len()];
+
+/// Rough size of what the model reads, in bytes of text (≈ 4 per token): pictures count as the
+/// ~1.5k tokens they cost, not their base64.
+fn ctx_size(v: &Value) -> u64 {
+    match v {
+        Value::String(s) => s.len() as u64,
+        Value::Array(a) => a.iter().map(ctx_size).sum(),
+        Value::Object(o) => match str_of(o, "type") {
+            Some("image") => 6000,
+            Some("document") => o.get("source").and_then(|s| s.get("data")).and_then(Value::as_str).map_or(6000, |d| d.len() as u64 / 8),
+            Some("text") => o.get("text").map_or(0, ctx_size),
+            Some("thinking") => o.get("thinking").map_or(0, ctx_size),
+            Some("tool_result") => 20 + o.get("content").map_or(0, ctx_size),
+            Some("tool_use") => 20 + str_of(o, "name").map_or(0, str::len) as u64 + o.get("input").map_or(0, json_len),
+            _ => json_len(v),
+        },
+        _ => 0,
+    }
+}
+
+fn json_len(v: &Value) -> u64 {
+    serde_json::to_string(v).map_or(0, |s| s.len() as u64)
+}
+
+/// Tools of plugins come as `mcp__plugin_<plugin>_<server>__<tool>`, other servers' as `mcp__<server>__<tool>`.
+fn tool_part(name: &str) -> usize {
+    if name.starts_with("mcp__plugin_") {
+        PLUGINS
+    } else if name.starts_with("mcp__") {
+        MCP
+    } else {
+        TOOLS
+    }
+}
+
+/// A listing line `- name: description`: plugins' skills and agents are named `plugin:name`.
+fn plugin_line(line: &str) -> bool {
+    line.strip_prefix("- ").and_then(|l| l.split_once(": ")).is_some_and(|(name, _)| name.contains(':'))
+}
+
+#[derive(Default)]
+struct ContextWalk {
+    /// the conversation since the last compaction: (row uuid, part, size); a compaction keeps
+    /// the rows it preserved
+    rows: Vec<(String, u8, u64)>,
+    conv: Parts,
+    /// system prompt and tool definitions of each request shape, by hash
+    shapes: HashMap<String, Parts>,
+    /// shape of the last main-thread request (else of any request)
+    shape: Option<String>,
+    any_shape: Option<String>,
+    used: u64,
+    model: String,
+    /// tokens per byte of the first reply's request, which is nearly all fixed parts
+    calib: Option<f64>,
+}
+
+impl ContextWalk {
+    fn base(&self) -> Option<&Parts> {
+        self.shape.as_ref().or(self.any_shape.as_ref()).and_then(|h| self.shapes.get(h))
+    }
+
+    fn add(&mut self, uuid: &str, part: usize, size: u64) {
+        if size > 0 {
+            self.conv[part] += size;
+            self.rows.push((uuid.to_owned(), part as u8, size));
+        }
+    }
+
+    fn feed(&mut self, text: &str) {
+        for line in text.split('\n') {
+            // the same messages again, by hash (the transcript has them already)
+            if line.starts_with(r#"{"type":"api-request-blob""#) {
+                continue;
+            }
+            let Ok(r) = serde_json::from_str::<Obj>(line) else { continue };
+            match str_of(&r, "type") {
+                Some("api-request-shape") => self.shape_row(&r),
+                Some("api-request") => {
+                    if let Some(h) = str_of(&r, "shapeHash") {
+                        if str_of(&r, "querySource").is_some_and(|q| q.contains("main_thread")) {
+                            self.shape = Some(h.to_owned());
+                        }
+                        self.any_shape = Some(h.to_owned());
+                    }
+                }
+                Some("system") if str_of(&r, "subtype") == Some("compact_boundary") => self.compacted(&r),
+                Some(ty @ ("user" | "assistant" | "attachment")) => {
+                    if truthy(r.get("isSidechain")) || truthy(r.get("isVisibleInTranscriptOnly")) {
+                        continue;
+                    }
+                    let uuid = str_of(&r, "uuid").unwrap_or_default().to_owned();
+                    match ty {
+                        "attachment" => self.attachment(&uuid, &r),
+                        "assistant" => {
+                            self.usage(&r);
+                            if let Some(c) = r.get("message").and_then(|m| m.get("content")) {
+                                self.add(&uuid, MESSAGES, ctx_size(c));
+                            }
+                        }
+                        _ => {
+                            let Some(c) = r.get("message").and_then(|m| m.get("content")) else { continue };
+                            let size = ctx_size(c);
+                            // a skill's instructions, loaded when Claude invokes it
+                            let skill = truthy(r.get("isMeta"))
+                                && r.get("sourceToolUseID").is_some()
+                                && serde_json::to_string(c).is_ok_and(|s| s.contains("Base directory for this skill"));
+                            self.add(&uuid, if skill { SKILLS } else { MESSAGES }, size);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn usage(&mut self, r: &Obj) {
+        if truthy(r.get("isApiErrorMessage")) {
+            return;
+        }
+        let Some(msg) = r.get("message").and_then(Value::as_object) else { return };
+        let model = str_of(msg, "model").unwrap_or_default();
+        if model == "<synthetic>" {
+            return;
+        }
+        let Some(u) = msg.get("usage").and_then(Value::as_object) else { return };
+        let n = |k: &str| u.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+        let used = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens") + n("output_tokens");
+        if used > 0.0 {
+            self.used = used as u64;
+            self.model = model.to_owned();
+            if self.calib.is_none()
+                && let Some(b) = self.base()
+            {
+                let bytes: u64 = b.iter().chain(&self.conv).sum();
+                if bytes > 0 {
+                    self.calib = Some(((used - n("output_tokens")) / bytes as f64).clamp(0.2, 0.75));
+                }
+            }
+        }
+    }
+
+    fn shape_row(&mut self, r: &Obj) {
+        let (Some(hash), Some(shape)) = (str_of(r, "shapeHash"), r.get("shape")) else { return };
+        let mut p = Parts::default();
+        p[SYSTEM] = shape.get("system").map_or(0, ctx_size);
+        for t in shape.get("tools").and_then(Value::as_array).into_iter().flatten() {
+            // deferred tools are only a name until ToolSearch loads them
+            if truthy(t.get("defer_loading")) {
+                continue;
+            }
+            p[tool_part(t.get("name").and_then(Value::as_str).unwrap_or_default())] += json_len(t);
+        }
+        self.shapes.insert(hash.to_owned(), p);
+    }
+
+    fn attachment(&mut self, uuid: &str, r: &Obj) {
+        // only rendered attachments reach the model
+        let Some(rendered) = r.get("rendered") else { return };
+        let size: u64 = rendered.as_array().into_iter().flatten().map(|b| b.get("content").map_or(0, ctx_size)).sum();
+        let a = r.get("attachment").and_then(Value::as_object);
+        let lines = |key: &str| -> u64 {
+            a.and_then(|a| a.get(key)).map_or(0, |v| match v {
+                Value::String(s) => s.lines().filter(|l| plugin_line(l)).map(|l| l.len() as u64 + 1).sum(),
+                Value::Array(ls) => ls.iter().filter_map(Value::as_str).filter(|l| plugin_line(l)).map(|l| l.len() as u64 + 1).sum(),
+                _ => 0,
+            })
+        };
+        match a.and_then(|a| str_of(a, "type")).unwrap_or_default() {
+            "skill_listing" => {
+                let plug = lines("content").min(size);
+                self.add(uuid, PLUGINS, plug);
+                self.add(uuid, SKILLS, size - plug);
+            }
+            "agent_listing_delta" => {
+                let plug = lines("addedLines").min(size);
+                self.add(uuid, PLUGINS, plug);
+                self.add(uuid, AGENTS, size - plug);
+            }
+            "mcp_instructions_delta" => self.add(uuid, MCP, size),
+            "instructions" | "nested_memory" => self.add(uuid, MEMORY, size),
+            "deferred_tools_delta" => {
+                self.add(uuid, TOOLS, size);
+                // MCP tools surfaced with their full definition
+                for d in a.and_then(|a| a.get("surfacedDefinitions")).and_then(Value::as_array).into_iter().flatten() {
+                    let name = d.get("name").and_then(Value::as_str).unwrap_or_default();
+                    self.add(uuid, tool_part(name), d.get("definition").map_or(0, json_len));
+                }
+            }
+            "environment" | "model" | "date" | "auto_mode" | "session_context" | "remote_session_change" | "output_style" => {
+                self.add(uuid, SYSTEM, size)
+            }
+            _ => self.add(uuid, MESSAGES, size),
+        }
+    }
+
+    /// Everything before a compaction is gone but the summary and the messages it preserved.
+    fn compacted(&mut self, r: &Obj) {
+        let keep: HashSet<&str> = r
+            .get("compactMetadata")
+            .and_then(|m| m.get("preservedMessages"))
+            .and_then(|p| p.get("uuids"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        self.rows.retain(|(u, _, _)| keep.contains(u.as_str()));
+        self.conv = Parts::default();
+        for (_, p, s) in &self.rows {
+            self.conv[*p as usize] += s;
+        }
+    }
+
+    /// The last reply's token count, split by part: each fixed part from its size at the rate the
+    /// first request measured, and the conversation is the rest (it also holds what the transcript
+    /// doesn't keep, like thinking). Without a recorded request shape (older Claude Code) the
+    /// system prompt and tools are the rest instead.
+    fn result(&self) -> Option<Context> {
+        if self.used == 0 {
+            return None;
+        }
+        let mut est = self.conv;
+        let base = self.base();
+        if let Some(b) = base {
+            for (e, b) in est.iter_mut().zip(b) {
+                *e += b;
+            }
+        }
+        let rate = self.calib.unwrap_or(0.25);
+        let mut tok: Vec<f64> = est.iter().map(|e| *e as f64 * rate).collect();
+        let used = self.used as f64;
+        let rest = if base.is_some() { MESSAGES } else { SYSTEM };
+        let fixed: f64 = tok.iter().enumerate().filter(|(i, _)| *i != rest).map(|(_, t)| t).sum();
+        if fixed <= used {
+            tok[rest] = used - fixed;
+        } else {
+            let sum = fixed + tok[rest];
+            tok.iter_mut().for_each(|t| *t *= used / sum);
+        }
+        let mut parts: Vec<ContextPart> =
+            CTX_KEYS.iter().zip(&tok).map(|(k, t)| ContextPart { key: k, tokens: t.round() as u64 }).collect();
+        // rounding: the parts add up to the total
+        let off = self.used as i64 - parts.iter().map(|p| p.tokens as i64).sum::<i64>();
+        let big = parts.iter_mut().max_by_key(|p| p.tokens)?;
+        big.tokens = (big.tokens as i64 + off).max(0) as u64;
+        Some(Context { used: self.used, model: self.model.clone(), parts })
+    }
+}
+
+static CONTEXT_SCANS: ScanCache<ContextWalk> = LazyLock::new(Default::default);
+
 /// How full a chat's context window is: the token count of the last main-thread API call
-/// (input + cache read + cache write + output), from the tail of the session file.
+/// (input + cache read + cache write + output), and roughly what it's made of.
 fn session_context(session_id: &str) -> Option<Context> {
-    if !valid_id(session_id) {
-        return None;
-    }
-    let file = find_session_file(session_id)?;
-    let size = fs::metadata(&file).ok()?.len();
-    // widen the window until a usage line turns up (big tool results can push it far back)
-    for span in [256 * 1024, 4 * 1024 * 1024, size] {
-        let start = size.saturating_sub(span);
-        let rows = parse_lines(&read_slice(&file, start, size - start).ok()?, start > 0);
-        for r in rows.iter().rev() {
-            if !is_type(r, "assistant") || truthy(r.get("isSidechain")) || truthy(r.get("isApiErrorMessage")) {
-                continue;
-            }
-            let Some(msg) = r.get("message").and_then(Value::as_object) else { continue };
-            let model = str_of(msg, "model");
-            if model == Some("<synthetic>") {
-                continue;
-            }
-            let Some(u) = msg.get("usage").and_then(Value::as_object) else { continue };
-            let n = |k: &str| u.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-            let used = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens") + n("output_tokens");
-            if used > 0.0 {
-                return Some(Context { used: used as u64, model: model.unwrap_or_default().to_owned() });
-            }
-        }
-        if start == 0 {
-            break;
-        }
-    }
-    None
+    scan(&CONTEXT_SCANS, session_id, ContextWalk::feed, ContextWalk::result)?
 }
 
 /* ---------------- background tasks ---------------- */

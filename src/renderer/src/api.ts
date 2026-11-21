@@ -136,7 +136,8 @@ export const api = {
     remove: (sessionId: string): Promise<void> => invoke('sessions_delete', { sessionId }),
     /** `since`: the version already shown — then `images` is null unless a picture was added */
     images: (sessionId: string, since?: number): Promise<{ version: number; images: string[] | null }> => invoke('sessions_images', { sessionId, since }),
-    context: (sessionId: string): Promise<{ used: number; model: string } | null> => invoke('sessions_context', { sessionId }),
+    context: (sessionId: string): Promise<{ used: number; model: string; parts: { key: string; tokens: number }[] } | null> =>
+      invoke('sessions_context', { sessionId }),
     tasks: (sessionId: string): Promise<ChatTask[]> => invoke('sessions_tasks', { sessionId }),
     files: (sessionId: string): Promise<ChatFile[]> => invoke('sessions_files', { sessionId }),
     /** ids of the sessions whose transcript changed (empty: only project folders came or went) */

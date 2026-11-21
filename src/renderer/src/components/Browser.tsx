@@ -59,7 +59,7 @@ function savedDevice(): string {
  * Anything drawn over the page area (menus, dialogs, lightboxes, address suggestions). The page
  * itself is a native view stacked above the app's HTML, so it steps aside while one is open.
  */
-const OVERLAYS = '.overlay, .menu, .ctx-menu, .image-lightbox, .term-image-hover, .bm-menu, .browser-sugg, .zl-ctx'
+const OVERLAYS = '.overlay, .menu, .ctx-menu, .ctx-pop, .image-lightbox, .term-image-hover, .bm-menu, .browser-sugg, .zl-ctx'
 
 const overlaps = (a: DOMRect, b: DOMRect): boolean => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
 

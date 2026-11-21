@@ -413,10 +413,23 @@ function ChatStatusBar({ chat }: { chat: Chat }): React.JSX.Element {
  */
 const SMALL_WINDOW = /-(opus|sonnet|haiku)-4(-[0-5])?(-\d{8})?$|claude-[23]/i
 
+/** What the context is made of (keys as sessions.rs sends them), in the bar's order. */
+const CTX_PARTS: { key: string; label: string; hint: string }[] = [
+  { key: 'system', label: 'System prompt', hint: "Claude Code's instructions, environment, date" },
+  { key: 'tools', label: 'Built-in tools', hint: 'Bash, Read, Edit… and the deferred-tool list' },
+  { key: 'mcp', label: 'MCP servers', hint: 'Tools and instructions of MCP servers' },
+  { key: 'plugins', label: 'Plugins', hint: "Plugins' skills, agents and MCP tools" },
+  { key: 'skills', label: 'Skills', hint: 'Skill list, plus skills Claude loaded' },
+  { key: 'agents', label: 'Agents', hint: 'Subagent types for the Agent tool' },
+  { key: 'memory', label: 'Memory files', hint: 'CLAUDE.md, MEMORY.md' },
+  { key: 'messages', label: 'Messages', hint: 'Your messages, replies, tool calls and results' }
+]
+
 /** How full this chat's context window is, from the last reply in its session file. */
 function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
   const sessionId = chat.sessionId
-  const [ctx, setCtx] = useState<{ used: number; model: string } | null>(null)
+  const [ctx, setCtx] = useState<{ used: number; model: string; parts: { key: string; tokens: number }[] } | null>(null)
+  const [hover, setHover] = useState(false)
   useEffect(() => {
     setCtx(null)
     if (!sessionId) return
@@ -449,15 +462,52 @@ function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
   const pct = Math.min(100, (used / max) * 100)
   const level = pct >= 85 ? 'high' : pct >= 60 ? 'mid' : 'low'
   const k = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`)
+  const kk = (n: number): string => (n < 1000 ? String(n) : n < 10_000 ? `${(n / 1000).toFixed(1)}k` : k(n))
+  const pc = (n: number): string => {
+    const p = (n / max) * 100
+    return p > 0 && p < 0.1 ? '<0.1%' : `${p.toFixed(p < 10 ? 1 : 0)}%`
+  }
+  const tokens = new Map(ctx?.parts?.map((p) => [p.key, p.tokens]))
+  const parts = CTX_PARTS.map((p) => ({ ...p, tokens: tokens.get(p.key) ?? 0 }))
   return (
-    <div className="ctx-bar" title={ctx ? `${used.toLocaleString()} of ${max.toLocaleString()} tokens in context` : 'No reply yet'}>
+    <div
+      className="ctx-bar"
+      title={ctx ? undefined : 'No reply yet'}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
       <span className="ctx-label">Context</span>
       <div className="ctx-track">
-        <div className={`ctx-fill ${level}`} style={{ width: `${pct}%` }} />
+        {parts.map(
+          (p) => p.tokens > 0 && <div key={p.key} className={`ctx-seg ctx-${p.key}`} style={{ width: `${(p.tokens / max) * 100}%` }} />
+        )}
       </div>
-      <span className="ctx-num">
-        {ctx ? `${k(used)} / ${k(max)} · ${Math.round(pct)}%` : '—'}
-      </span>
+      <span className={`ctx-num ${level}`}>{ctx ? `${k(used)} / ${k(max)} · ${Math.round(pct)}%` : '—'}</span>
+      {hover && ctx && (
+        <div className="ctx-pop">
+          <div className="ctx-pop-head">
+            <span>Context window</span>
+            <span>
+              {used.toLocaleString()} / {max.toLocaleString()} · {Math.round(pct)}%
+            </span>
+          </div>
+          {parts.map((p) => (
+            <div key={p.key} className={`ctx-row${p.tokens ? '' : ' none'}`} title={p.hint}>
+              <i className={`ctx-dot ctx-${p.key}`} />
+              <span className="ctx-row-label">{p.label}</span>
+              <span className="ctx-row-num">{kk(p.tokens)}</span>
+              <span className="ctx-row-pct">{pc(p.tokens)}</span>
+            </div>
+          ))}
+          <div className="ctx-row free">
+            <i className="ctx-dot" />
+            <span className="ctx-row-label">Free space</span>
+            <span className="ctx-row-num">{kk(Math.max(0, max - used))}</span>
+            <span className="ctx-row-pct">{pc(Math.max(0, max - used))}</span>
+          </div>
+          <div className="ctx-pop-note">Estimated from the session file · total is exact</div>
+        </div>
+      )}
     </div>
   )
 }
