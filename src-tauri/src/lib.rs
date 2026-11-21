@@ -9,6 +9,7 @@ mod browser;
 mod capture;
 mod fsx;
 mod git;
+mod gmail;
 mod mcp;
 mod mssql;
 mod plugins;
@@ -85,6 +86,12 @@ pub fn run() {
             mssql::db_columns,
             mssql::db_scan_project,
             mssql::db_scan_ssms,
+            // Gmail (read-only)
+            gmail::gmail_state,
+            gmail::gmail_login,
+            gmail::gmail_logout,
+            gmail::gmail_list,
+            gmail::gmail_read,
             // Zalo
             zalo::zalo_state,
             zalo::zalo_login,

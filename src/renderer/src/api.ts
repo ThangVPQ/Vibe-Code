@@ -25,6 +25,8 @@ import type {
   GitBranch,
   GitCommitFile,
   GitState,
+  MailBody,
+  MailSummary,
   ProjectGroup,
   PtySpawnOptions,
   UsageLimit,
@@ -162,6 +164,14 @@ export const api = {
     columns: (id: string, database: string, schema: string, table: string): Promise<DbColumn[]> => invoke('db_columns', { id, database, schema, table }),
     scanProject: (folder: string): Promise<DbFound[]> => invoke('db_scan_project', { folder }),
     scanSsms: (): Promise<DbFound[]> => invoke('db_scan_ssms')
+  },
+  gmail: {
+    /** the signed-in address, or null */
+    state: (): Promise<string | null> => invoke('gmail_state'),
+    login: (email: string, password: string): Promise<string> => invoke('gmail_login', { email, password }),
+    logout: (): Promise<void> => invoke('gmail_logout'),
+    list: (): Promise<MailSummary[]> => invoke('gmail_list'),
+    read: (uid: number): Promise<MailBody> => invoke('gmail_read', { uid })
   },
   zalo: {
     state: (): Promise<ZaloState> => invoke('zalo_state'),

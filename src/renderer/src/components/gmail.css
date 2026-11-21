@@ -1,0 +1,113 @@
+/* ================= Gmail tab (read-only inbox) ================= */
+
+.center-pane.gmail-host { flex-direction: row; }
+
+.gm-root {
+  --gm-red: #ff6961;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: var(--bg-2);
+  color: var(--text);
+}
+.gm-dim { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+.gm-error { margin: 0; color: var(--gm-red); font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+.gm-pad { padding: 12px 14px; }
+.gm-spin { animation: sb-spin 0.8s linear infinite; }
+
+/* ---------------- login ---------------- */
+
+.gm-login { align-items: center; justify-content: center; padding: 24px 16px; overflow: auto; }
+.gm-login-card { width: min(400px, 100%); display: flex; flex-direction: column; align-items: stretch; text-align: center; gap: 12px; }
+.gm-login-card h2 { margin: 4px 0 0; font-size: 21px; font-weight: 650; }
+.gm-logo {
+  align-self: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--accent-grad);
+  box-shadow: 0 16px 40px -14px var(--accent);
+}
+.gm-login-card input {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.gm-login-card input:focus { border-color: var(--accent); }
+.gm-primary {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  background: var(--accent-grad) !important;
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: 0 8px 22px -10px var(--accent);
+}
+.gm-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.gm-primary:disabled { opacity: 0.7; }
+.gm-steps { margin: 4px 0 0; padding-left: 20px; text-align: left; font-size: 13px; color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
+.gm-steps a { color: var(--accent-2); }
+.gm-steps svg { vertical-align: -1px; }
+.gm-warn { margin: 0; font-size: 12px; color: var(--text-faint); }
+.gm-warn svg { vertical-align: -2px; }
+
+/* ---------------- inbox ---------------- */
+
+.gm-side { width: clamp(280px, 36%, 400px); flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg-1); position: relative; }
+.gm-head { display: flex; align-items: center; gap: 4px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--border); }
+.gm-head-info { flex: 1; min-width: 0; }
+.gm-head-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 650; color: var(--text); }
+.gm-badge { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.gm-email { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-dim); }
+.gm-icon { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-dim); }
+.gm-icon:hover:not(:disabled) { background: var(--w-0a); color: var(--text); }
+
+/* thin bar while the list refreshes over the old one */
+.gm-progress { position: absolute; left: 0; right: 0; top: 0; height: 2px; overflow: hidden; }
+.gm-progress::after { content: ''; position: absolute; inset: 0; width: 40%; background: var(--accent); animation: gm-slide 1s ease-in-out infinite; }
+@keyframes gm-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+.gm-list { flex: 1; overflow-y: auto; padding: 6px; }
+.gm-row { width: 100%; display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 10px; margin-bottom: 2px; border-radius: 10px; color: var(--text-2); transition: background 0.12s; }
+.gm-row:hover { background: var(--w-06); }
+.gm-row.on { background: var(--accent-soft); }
+.gm-row-main { flex: 1; min-width: 0; }
+.gm-row-top { display: flex; gap: 8px; align-items: baseline; }
+.gm-from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text); }
+.gm-date { flex: 0 0 auto; font-size: 11.5px; color: var(--text-faint); }
+.gm-subject { margin-top: 3px; font-size: 12.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.gm-row.unread .gm-from { font-weight: 700; }
+.gm-row.unread .gm-subject { color: var(--text); font-weight: 600; }
+.gm-row.unread .gm-date { color: var(--accent-2); font-weight: 600; }
+.gm-initial { flex: 0 0 auto; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 650; }
+.gm-skeleton { height: 58px; background: var(--w-06); animation: gm-pulse 1.2s ease-in-out infinite; }
+@keyframes gm-pulse { 50% { opacity: 0.45; } }
+
+.gm-reader { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.gm-empty { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--text-faint); }
+.gm-mail { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.gm-mail-head { padding: 18px 22px 14px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+.gm-mail-head h2 { margin: 0; font-size: 19px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+.gm-sender { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.gm-sender-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gm-sender-line { display: flex; flex-wrap: wrap; gap: 0 6px; align-items: baseline; }
+.gm-sender-info .gm-dim { overflow-wrap: anywhere; }
+.gm-mail-date { flex: 0 0 auto; align-self: flex-start; font-size: 12px; color: var(--text-dim); }
+.gm-attach { display: flex; flex-wrap: wrap; gap: 6px; }
+.gm-chip { max-width: 260px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 8px; background: var(--w-0a); font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* mail HTML is written for a white page */
+.gm-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+.gm-text { flex: 1; margin: 0; padding: 16px 22px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13.5px; line-height: 1.6; }

@@ -204,6 +204,30 @@ export interface DbQueryResult {
   ms: number
 }
 
+/* ---------------- Gmail (read-only Gmail tab) ---------------- */
+
+export interface MailSummary {
+  uid: number
+  /** display name, or the address when there is none */
+  from: string
+  fromAddr: string
+  subject: string
+  /** ms since epoch, 0 when unknown */
+  date: number
+  seen: boolean
+}
+
+export interface MailBody {
+  uid: number
+  from: string
+  to: string
+  subject: string
+  date: number
+  html: string | null
+  text: string | null
+  attachments: string[]
+}
+
 /* ---------------- Zalo (Zalo tab + Claude's zalo tools) ---------------- */
 
 export interface ZaloState {

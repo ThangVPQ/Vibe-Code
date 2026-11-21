@@ -84,6 +84,7 @@ export const COMMANDS: Command[] = [
   { id: 'viewWeb', label: 'Show Web tab', keys: 'Ctrl+2', run: () => openBrowser() },
   { id: 'viewDb', label: 'Show Database tab', keys: 'Ctrl+3', run: () => useStore.setState({ centerView: 'db' }) },
   { id: 'viewZalo', label: 'Show Zalo tab', keys: 'Ctrl+4', run: () => useStore.setState({ centerView: 'zalo' }) },
+  { id: 'viewGmail', label: 'Show Gmail tab', keys: 'Ctrl+5', run: () => useStore.setState({ centerView: 'gmail' }) },
 
   { id: 'theme', label: 'Toggle light / dark theme', run: () => void toggleTheme() }
 ]
@@ -166,7 +167,7 @@ function commandFor(e: KeyboardEvent): string | null {
   }
 
   // Ctrl+1…4: the center tabs (in a terminal too: shells don't use them)
-  if (/^Digit[1-4]$/.test(e.code)) return ['viewCode', 'viewWeb', 'viewDb', 'viewZalo'][Number(e.code.slice(5)) - 1]
+  if (/^Digit[1-5]$/.test(e.code)) return ['viewCode', 'viewWeb', 'viewDb', 'viewZalo', 'viewGmail'][Number(e.code.slice(5)) - 1]
   if (k === 'p') return 'quickOpen'
   // the rest mean something to readline / Claude Code: theirs while a terminal has the cursor
   if (term) return null
