@@ -345,7 +345,7 @@ pub fn remove_task(id: &str) -> ZaloTasksState {
 
 const MAX_DOWNLOAD: u64 = 25 * 1024 * 1024;
 
-fn safe_name(s: &str) -> String {
+pub(crate) fn safe_name(s: &str) -> String {
     static BAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"[<>:"/\\|?*\x00-\x1f]+"#).unwrap());
     static WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
     let s = BAD.replace_all(s, "_");

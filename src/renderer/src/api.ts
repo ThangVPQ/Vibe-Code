@@ -28,7 +28,9 @@ import type {
   MailBody,
   MailSummary,
   ProjectGroup,
+  OfficeRequest,
   PtySpawnOptions,
+  RecentFile,
   UsageLimit,
   WebData,
   WebSuggestion,
@@ -176,8 +178,29 @@ export const api = {
     state: (): Promise<string | null> => invoke('gmail_state'),
     login: (email: string, password: string): Promise<string> => invoke('gmail_login', { email, password }),
     logout: (): Promise<void> => invoke('gmail_logout'),
-    list: (): Promise<MailSummary[]> => invoke('gmail_list'),
-    read: (uid: number): Promise<MailBody> => invoke('gmail_read', { uid })
+    list: (before?: number): Promise<MailSummary[]> => invoke('gmail_list', { before }),
+    read: (uid: number): Promise<MailBody> => invoke('gmail_read', { uid }),
+    taskContext: (uid: number): Promise<{ file: string; files: string[] }> => invoke('gmail_task_context', { uid })
+  },
+  office: {
+    /** file dialog: pick a file to open, or (save) name a new one; `kind` narrows the file types */
+    pick: (save: boolean, kind?: 'doc' | 'sheet' | 'pdf'): Promise<string | null> => invoke('office_pick', { save, kind }),
+    /** a .xlsx / .docx / .pdf file's bytes */
+    readFile: (path: string): Promise<ArrayBuffer> => invoke('office_read_file', { path }),
+    /** `data`: the file's bytes, base64 */
+    writeFile: (path: string, data: string): Promise<void> => invoke('office_write_file', { path, data }),
+    /** files opened in the Office tab, most recent first, as they are on disk */
+    recent: (): Promise<RecentFile[]> => invoke('office_recent'),
+    /** put a file on top of the recent list (`remove`: take it off) */
+    recentAdd: (path: string, remove?: boolean): Promise<void> => invoke('office_recent_add', { path, remove }),
+    /** copy a file to the app's backup folder before it is first overwritten; the copy's path */
+    backup: (path: string): Promise<string> => invoke('office_backup', { path }),
+    readCsv: (path: string): Promise<string[][]> => invoke('office_read_csv', { path }),
+    writeCsv: (path: string, rows: string[][]): Promise<void> => invoke('office_write_csv', { path, rows }),
+    /** Claude's tool calls not picked up yet (sent before the tab was mounted) */
+    pending: (): Promise<OfficeRequest[]> => invoke('office_pending'),
+    reply: (id: number, ok: boolean, text: string): Promise<void> => invoke('office_reply', { id, ok, text }),
+    onRequest: (cb: (req: OfficeRequest) => void): Off => on('office:request', cb)
   },
   zalo: {
     state: (): Promise<ZaloState> => invoke('zalo_state'),

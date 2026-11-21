@@ -17,8 +17,8 @@ use crate::core::{Res, err, user_data};
 use crate::secure;
 
 const HOST: &str = "imap.gmail.com";
-/// how many of the newest messages the list shows
-const LIST_SIZE: u32 = 50;
+/// how many messages one page of the list loads (scrolling to the bottom loads the next page)
+const PAGE_SIZE: u32 = 30;
 
 type Session = imap::Session<native_tls::TlsStream<std::net::TcpStream>>;
 
@@ -186,42 +186,67 @@ pub async fn gmail_logout() -> Res<()> {
     }
 }
 
-/// The newest messages in the inbox, newest first.
+fn summary(m: &imap::types::Fetch) -> Option<MailSummary> {
+    let env = m.envelope()?;
+    let sender = env.from.as_ref().and_then(|v| v.first());
+    let addr = sender
+        .map(|a| format!("{}@{}", decode(a.mailbox), decode(a.host)))
+        .unwrap_or_default();
+    let name = sender.map(|a| decode(a.name)).filter(|n| !n.is_empty()).unwrap_or_else(|| addr.clone());
+    Some(MailSummary {
+        uid: m.uid?,
+        from: name,
+        from_addr: addr,
+        subject: decode(env.subject),
+        date: env.date.and_then(|d| mailparse::dateparse(&String::from_utf8_lossy(d)).ok()).map_or(0, |s| s * 1000),
+        seen: m.flags().iter().any(|f| matches!(f, imap::types::Flag::Seen)),
+    })
+}
+
+/// One page of the inbox, newest first: the newest `PAGE_SIZE` messages, or with `before` (a UID)
+/// the `PAGE_SIZE` messages just older than it.
 #[tauri::command]
-pub async fn gmail_list() -> Res<Vec<MailSummary>> {
-    Ok(tokio::task::spawn_blocking(|| -> Result<Vec<MailSummary>> {
+pub async fn gmail_list(before: Option<u32>) -> Res<Vec<MailSummary>> {
+    Ok(tokio::task::spawn_blocking(move || -> Result<Vec<MailSummary>> {
         let mut list = with_inbox(|s| {
-            // re-EXAMINE: picks up mail that arrived since the last call
-            let exists = s.examine("INBOX")?.exists;
-            if exists == 0 {
-                return Ok(Vec::new());
-            }
-            let first = exists.saturating_sub(LIST_SIZE - 1).max(1);
-            let fetched = s.fetch(format!("{first}:{exists}"), "(UID FLAGS ENVELOPE)")?;
-            Ok(fetched
-                .iter()
-                .filter_map(|m| {
-                    let env = m.envelope()?;
-                    let sender = env.from.as_ref().and_then(|v| v.first());
-                    let addr = sender
-                        .map(|a| format!("{}@{}", decode(a.mailbox), decode(a.host)))
-                        .unwrap_or_default();
-                    let name = sender.map(|a| decode(a.name)).filter(|n| !n.is_empty()).unwrap_or_else(|| addr.clone());
-                    Some(MailSummary {
-                        uid: m.uid?,
-                        from: name,
-                        from_addr: addr,
-                        subject: decode(env.subject),
-                        date: env.date.and_then(|d| mailparse::dateparse(&String::from_utf8_lossy(d)).ok()).map_or(0, |s| s * 1000),
-                        seen: m.flags().iter().any(|f| matches!(f, imap::types::Flag::Seen)),
-                    })
-                })
-                .collect::<Vec<_>>())
+            let fetched = match before {
+                None => {
+                    // re-EXAMINE: picks up mail that arrived since the last call
+                    let exists = s.examine("INBOX")?.exists;
+                    if exists == 0 {
+                        return Ok(Vec::new());
+                    }
+                    let first = exists.saturating_sub(PAGE_SIZE - 1).max(1);
+                    s.fetch(format!("{first}:{exists}"), "(UID FLAGS ENVELOPE)")?
+                }
+                Some(before) => {
+                    if before <= 1 {
+                        return Ok(Vec::new());
+                    }
+                    let mut uids: Vec<u32> = s.uid_search(format!("UID 1:{}", before - 1))?.into_iter().collect();
+                    if uids.is_empty() {
+                        return Ok(Vec::new());
+                    }
+                    uids.sort_unstable_by(|a, b| b.cmp(a));
+                    uids.truncate(PAGE_SIZE as usize);
+                    let set = uids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+                    s.uid_fetch(set, "(UID FLAGS ENVELOPE)")?
+                }
+            };
+            Ok(fetched.iter().filter_map(summary).collect::<Vec<_>>())
         })?;
         list.sort_by(|a, b| b.uid.cmp(&a.uid));
         Ok(list)
     })
     .await??)
+}
+
+/// The whole message (RFC822). Read-only: EXAMINE keeps it unread in Gmail.
+fn fetch_raw(uid: u32) -> Result<Vec<u8>> {
+    with_inbox(|s| {
+        let fetched = s.uid_fetch(uid.to_string(), "RFC822")?;
+        fetched.iter().find_map(|m| m.body()).map(<[u8]>::to_vec).ok_or_else(|| anyhow!("không tìm thấy thư"))
+    })
 }
 
 /// One message's content. Read-only: the inbox is opened with EXAMINE, so it stays unread in Gmail.
@@ -231,10 +256,7 @@ pub async fn gmail_read(uid: u32) -> Res<MailBody> {
         if let Some(cached) = lock(&BODIES).get(&uid) {
             return Ok(cached.clone());
         }
-        let raw = with_inbox(|s| {
-            let fetched = s.uid_fetch(uid.to_string(), "RFC822")?;
-            fetched.iter().find_map(|m| m.body()).map(<[u8]>::to_vec).ok_or_else(|| anyhow!("không tìm thấy thư"))
-        })?;
+        let raw = fetch_raw(uid)?;
         let mail = mailparse::parse_mail(&raw)?;
         let (mut html, mut text, mut attachments) = (None, None, Vec::new());
         walk(&mail, &mut html, &mut text, &mut attachments);
@@ -250,6 +272,69 @@ pub async fn gmail_read(uid: u32) -> Res<MailBody> {
         };
         lock(&BODIES).insert(uid, body.clone());
         Ok(body)
+    })
+    .await??)
+}
+
+#[derive(Serialize)]
+pub struct MailContext {
+    file: String,
+    files: Vec<String>,
+}
+
+/// Writes each attachment of the message into `out`, collecting the saved paths.
+fn save_attachments(part: &ParsedMail, out: &std::path::Path, files: &mut Vec<String>) {
+    let disposition = part.get_content_disposition();
+    if disposition.disposition == DispositionType::Attachment {
+        let name = disposition.params.get("filename").or(part.ctype.params.get("name")).cloned().unwrap_or_else(|| format!("file-{}", files.len() + 1));
+        let path = out.join(crate::zalo_tasks::safe_name(&name));
+        if let Ok(bytes) = part.get_body_raw()
+            && std::fs::write(&path, bytes).is_ok()
+        {
+            files.push(path.display().to_string());
+        }
+        return;
+    }
+    for p in &part.subparts {
+        save_attachments(p, out, files);
+    }
+}
+
+/// Everything a coding chat needs about one email (like a Zalo task's context): a Markdown file with
+/// its headers and text, with its attachments (and its HTML when it has no plain text) saved next to it.
+#[tauri::command]
+pub async fn gmail_task_context(uid: u32) -> Res<MailContext> {
+    Ok(tokio::task::spawn_blocking(move || -> Result<MailContext> {
+        let raw = fetch_raw(uid)?;
+        let mail = mailparse::parse_mail(&raw)?;
+        let out = user_data().join("gmail").join("context").join(uid.to_string());
+        let _ = std::fs::remove_dir_all(&out);
+        std::fs::create_dir_all(&out)?;
+        let (mut html, mut text, mut names) = (None, None, Vec::new());
+        walk(&mail, &mut html, &mut text, &mut names);
+        let mut files = Vec::new();
+        save_attachments(&mail, &out, &mut files);
+        let body = match (text, html) {
+            (Some(t), _) => t,
+            (None, Some(h)) => {
+                let path = out.join("mail.html");
+                std::fs::write(&path, h)?;
+                format!("(Thư chỉ có bản HTML, đọc file: {})", path.display())
+            }
+            (None, None) => "(thư không có nội dung)".into(),
+        };
+        let subject = header(&mail.headers, "Subject");
+        let md = format!(
+            "# Việc từ Gmail: {subject}\n\n**Hướng dẫn cho bạn (Claude):** Đây là một việc tôi nhận qua email. Hãy đọc kỹ thư bên dưới{fil}, rồi tìm hiểu code trong project hiện tại liên quan tới yêu cầu. Sau đó tóm tắt lại yêu cầu bằng tiếng Việt, nêu nguyên nhân / vị trí code liên quan và đề xuất cách xử lý. CHƯA sửa code cho tới khi tôi xác nhận.\n\n- Người gửi: {from}\n- Gửi tới: {to}\n- Thời gian: {date}\n- Tiêu đề: {subject}\n{lf}\n## Nội dung thư\n\n{body}\n",
+            fil = if files.is_empty() { "" } else { " và mở các tệp đính kèm" },
+            from = header(&mail.headers, "From"),
+            to = header(&mail.headers, "To"),
+            date = header(&mail.headers, "Date"),
+            lf = if files.is_empty() { String::new() } else { format!("- Tệp đính kèm:\n{}\n", files.iter().map(|p| format!("  - {p}")).collect::<Vec<_>>().join("\n")) },
+        );
+        let file = out.join("context.md");
+        std::fs::write(&file, md)?;
+        Ok(MailContext { file: file.display().to_string(), files })
     })
     .await??)
 }

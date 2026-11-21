@@ -693,6 +693,44 @@ export async function newChatFromZaloTask(taskId: string, title: string, project
   })
 }
 
+/** Like newChatFromZaloTask, for one email of the Gmail tab. */
+export async function newChatFromMail(uid: number, subject: string, projectCwd?: string | null): Promise<void> {
+  const cwd = projectCwd ?? (await window.api.app.pickFolder())
+  if (!cwd) return
+  if (!st().claude?.found) {
+    window.alert('Chưa cài Claude Code trên máy này.')
+    return
+  }
+  const ctx = await window.api.gmail.taskContext(uid)
+  if (!st().root || !samePath(st().root!, cwd)) await openFolder(cwd, { autoChat: false })
+  const extra = ctx.files.length ? ` (${ctx.files.length} files attached)` : ''
+  newChat({
+    cwd,
+    agent: 'claude',
+    title: (subject || 'Email').slice(0, 60),
+    pinnedTitle: true,
+    draft: `Read the email task context file ${ctx.file}${extra} and follow the instructions at its top. `
+  })
+}
+
+/** Office tab "Giao cho AI": a new chat that works on an open document / spreadsheet / PDF through the vibe-office tools. */
+export async function newChatFromOfficeFile(path: string): Promise<void> {
+  const cwd = st().root ?? (await window.api.app.pickFolder())
+  if (!cwd) return
+  if (!st().claude?.found) {
+    window.alert('Chưa cài Claude Code trên máy này.')
+    return
+  }
+  const name = path.split(/[\\/]/).pop() ?? path
+  newChat({
+    cwd,
+    agent: 'claude',
+    title: name.slice(0, 60),
+    pinnedTitle: true,
+    draft: `Use the vibe-office tools to work with the file open in the Office tab (${path}). `
+  })
+}
+
 export function closeChat(id: string): void {
   disposeTerm(id)
   clearAttachments(id)

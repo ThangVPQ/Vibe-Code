@@ -1,5 +1,5 @@
 import { Suspense, lazy, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileText, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FileText, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
@@ -14,6 +14,7 @@ const DiffView = lazy(() => import('./MonacoViews').then((m) => ({ default: m.Di
 const DatabasePane = lazy(() => import('./Database').then((m) => ({ default: m.DatabasePane })))
 const ZaloPane = lazy(() => import('./Zalo').then((m) => ({ default: m.ZaloPane })))
 const GmailPane = lazy(() => import('./Gmail').then((m) => ({ default: m.GmailPane })))
+const OfficePane = lazy(() => import('./Office').then((m) => ({ default: m.OfficePane })))
 import type { ZaloTasksState } from '../../../shared/types'
 import { revealIn } from '../scroll'
 
@@ -27,11 +28,15 @@ export function EditorArea(): React.JSX.Element {
   const [dbSeen, setDbSeen] = useState(view === 'db')
   const [zaloSeen, setZaloSeen] = useState(view === 'zalo')
   const [gmailSeen, setGmailSeen] = useState(view === 'gmail')
+  const [officeSeen, setOfficeSeen] = useState(view === 'office')
   useEffect(() => {
     if (view === 'db') setDbSeen(true)
     if (view === 'zalo') setZaloSeen(true)
     if (view === 'gmail') setGmailSeen(true)
+    if (view === 'office') setOfficeSeen(true)
   }, [view])
+  // Claude's sheet tools run in the Office tab: mount it (it picks the waiting call up) without showing it
+  useEffect(() => window.api.office.onRequest(() => setOfficeSeen(true)), [])
   const zaloBadge = useZaloBadge(view === 'zalo')
   // switching chats while on Web: give that chat its own browser (before paint: no empty frame)
   useLayoutEffect(() => {
@@ -62,6 +67,9 @@ export function EditorArea(): React.JSX.Element {
         <button role="tab" aria-selected={view === 'gmail'} className={view === 'gmail' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'gmail' })}>
           <Mail size={14} /> <span className="center-label">Gmail</span>
         </button>
+        <button role="tab" aria-selected={view === 'office'} className={view === 'office' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'office' })}>
+          <FileSpreadsheet size={14} /> <span className="center-label">Office</span>
+        </button>
       </div>
       {/*
         Panes stay mounted and laid out; only the open one (`on`) is visible. display:none would drop
@@ -90,6 +98,13 @@ export function EditorArea(): React.JSX.Element {
         <div className={`center-pane gmail-host${view === 'gmail' ? ' on' : ''}`}>
           <Suspense fallback={null}>
             <GmailPane />
+          </Suspense>
+        </div>
+      )}
+      {officeSeen && (
+        <div className={`center-pane office-host${view === 'office' ? ' on' : ''}`}>
+          <Suspense fallback={null}>
+            <OfficePane />
           </Suspense>
         </div>
       )}

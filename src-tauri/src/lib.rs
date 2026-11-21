@@ -14,6 +14,7 @@ mod git;
 mod gmail;
 mod mcp;
 mod mssql;
+mod office;
 mod plugins;
 mod pty;
 mod sessions;
@@ -96,6 +97,18 @@ pub fn run() {
             gmail::gmail_logout,
             gmail::gmail_list,
             gmail::gmail_read,
+            gmail::gmail_task_context,
+            // Office → Sheet
+            office::office_pick,
+            office::office_read_file,
+            office::office_write_file,
+            office::office_recent,
+            office::office_recent_add,
+            office::office_backup,
+            office::office_read_csv,
+            office::office_write_csv,
+            office::office_pending,
+            office::office_reply,
             // Zalo
             zalo::zalo_state,
             zalo::zalo_login,

@@ -226,11 +226,14 @@ const STATUS_ITEMS: { key: ZaloTask['status']; label: string; icon: React.JSX.El
   { key: 'done', label: 'Hoàn thành', icon: <CircleCheck size={16} /> }
 ]
 
-/** Right-click on a task: set its status by hand, or start a coding chat in a project with the conversation as context. */
-function TaskMenu({ t, x, y, onClose, onChat }: { t: ZaloTask; x: number; y: number; onClose: () => void; onChat: (cwd: string | null) => void }): React.JSX.Element {
+/**
+ * Right-click on a task: set its status by hand, or start a coding chat in a project with the conversation as context.
+ * Without `t` (the Gmail tab) it opens straight on the project picker.
+ */
+export function TaskMenu({ t, x, y, onClose, onChat }: { t?: ZaloTask; x: number; y: number; onClose: () => void; onChat: (cwd: string | null) => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
-  const [pick, setPick] = useState(false)
+  const [pick, setPick] = useState(!t)
   const root = useStore((s) => s.root)
   const projects = useStore((s) => s.projects)
   const recent = useStore((s) => s.recent)
@@ -285,7 +288,7 @@ function TaskMenu({ t, x, y, onClose, onChat }: { t: ZaloTask; x: number; y: num
       />
       <div className="zl-ctx zt-ctx" ref={ref} style={pos}>
         <div className="zl-ctx-list">
-          {!pick ? (
+          {!pick && t ? (
             <>
               {STATUS_ITEMS.map((it) => (
                 <button key={it.key} className={t.status === it.key ? 'on' : ''} onClick={run(() => void window.api.zalo.setTaskStatus(t.id, it.key))}>

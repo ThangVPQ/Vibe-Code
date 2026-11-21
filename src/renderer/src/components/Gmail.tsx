@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, Loader2, LogOut, Mail, Paperclip, RefreshCw, TriangleAlert } from 'lucide-react'
 import type { MailBody, MailSummary } from '../../../shared/types'
+import { TaskMenu } from './zalo/ZaloTasks'
+import { newChatFromMail } from '../actions'
+import './zalo/zalo.css'
 import './gmail.css'
 
 const APP_PASSWORDS = 'https://myaccount.google.com/apppasswords'
+/** must match PAGE_SIZE in gmail.rs: a shorter page means the inbox has no older mail */
+const PAGE_SIZE = 30
 
 /** Gmail tab: sign in with an app password, then a read-only inbox (list on the left, message on the right). */
 export function GmailPane(): React.JSX.Element {
@@ -78,14 +83,46 @@ function GmailInbox({ email, onLogout }: { email: string; onLogout: () => void }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [openUid, setOpenUid] = useState<number | null>(null)
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  /** right-click on a mail: pick a project, then a coding chat starts with the email as context */
+  const [menu, setMenu] = useState<{ m: MailSummary; x: number; y: number } | null>(null)
+  const [preparing, setPreparing] = useState<string | null>(null)
+  const startChat = async (m: MailSummary, cwd: string | null): Promise<void> => {
+    setPreparing(m.subject || '(không có tiêu đề)')
+    try {
+      await newChatFromMail(m.uid, m.subject, cwd)
+    } catch (e) {
+      window.alert('Không tạo được chat: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setPreparing(null)
+    }
+  }
   const refresh = (): void => {
     setLoading(true)
     setError('')
     window.api.gmail
       .list()
-      .then(setList)
+      .then((page) => {
+        setList(page)
+        setHasMore(page.length >= PAGE_SIZE)
+      })
       .catch((err: unknown) => setError(String(err)))
       .finally(() => setLoading(false))
+  }
+  /** next page of older mail, when the list is scrolled near its bottom */
+  const onScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+    const el = e.currentTarget
+    if (!list?.length || !hasMore || loading || loadingMore || el.scrollTop + el.clientHeight < el.scrollHeight - 200) return
+    setLoadingMore(true)
+    window.api.gmail
+      .list(list[list.length - 1].uid)
+      .then((page) => {
+        setList((cur) => [...(cur ?? []), ...page])
+        setHasMore(page.length >= PAGE_SIZE)
+      })
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setLoadingMore(false))
   }
   useEffect(refresh, [])
   const unread = list?.filter((m) => !m.seen).length ?? 0
@@ -101,7 +138,7 @@ function GmailInbox({ email, onLogout }: { email: string; onLogout: () => void }
               {email}
             </div>
           </div>
-          <button className="gm-icon" title="Tải lại" disabled={loading} onClick={refresh}>
+          <button className="gm-icon" title="Tải lại" disabled={loading || loadingMore} onClick={refresh}>
             <RefreshCw size={15} className={loading ? 'gm-spin' : undefined} />
           </button>
           <button
@@ -116,8 +153,13 @@ function GmailInbox({ email, onLogout }: { email: string; onLogout: () => void }
         </div>
         {loading && list !== null && <div className="gm-progress" />}
         {error && <p className="gm-error gm-pad">{error}</p>}
+        {preparing && (
+          <p className="gm-dim gm-pad">
+            <Loader2 size={13} className="gm-spin" /> Đang lấy thư và tệp đính kèm cho chat mới: {preparing}
+          </p>
+        )}
         {list?.length === 0 && <p className="gm-dim gm-pad">Hộp thư đến trống.</p>}
-        <div className="gm-list">
+        <div className="gm-list" onScroll={onScroll}>
           {list === null && !error && Array.from({ length: 8 }, (_, i) => <div key={i} className="gm-row gm-skeleton" />)}
           {list?.map((m) => (
             <button
@@ -125,6 +167,10 @@ function GmailInbox({ email, onLogout }: { email: string; onLogout: () => void }
               className={'gm-row' + (m.seen ? '' : ' unread') + (m.uid === openUid ? ' on' : '')}
               title={`${m.from} <${m.fromAddr}>\n${m.subject}`}
               onClick={() => setOpenUid(m.uid)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setMenu({ m, x: e.clientX, y: e.clientY })
+              }}
             >
               <Initial name={m.from} />
               <div className="gm-row-main">
@@ -136,6 +182,11 @@ function GmailInbox({ email, onLogout }: { email: string; onLogout: () => void }
               </div>
             </button>
           ))}
+          {loadingMore && (
+            <div className="gm-empty gm-pad">
+              <Loader2 size={18} className="gm-spin" />
+            </div>
+          )}
         </div>
       </div>
       <div className="gm-reader">
@@ -148,6 +199,7 @@ function GmailInbox({ email, onLogout }: { email: string; onLogout: () => void }
           <MailView key={openUid} uid={openUid} />
         )}
       </div>
+      {menu && <TaskMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} onChat={(cwd) => void startChat(menu.m, cwd)} />}
     </div>
   )
 }

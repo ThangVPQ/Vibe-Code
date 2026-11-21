@@ -236,6 +236,25 @@ export interface MailBody {
   attachments: string[]
 }
 
+/* ---------------- Office tab → Sheet (+ Claude's sheet tools) ---------------- */
+
+/** one of Claude's vibe-office tool calls, for the Office tab to run on what it shows */
+export interface OfficeRequest {
+  id: number
+  tool: 'office_status' | 'office_open' | 'sheet_read' | 'sheet_write' | 'sheet_save' | 'doc_read' | 'doc_write' | 'pdf_read'
+  args: Record<string, unknown>
+}
+
+/** a file on the Office tab's "recent" list, as it is on disk now */
+export interface RecentFile {
+  path: string
+  /** bytes; 0 when the file is gone */
+  size: number
+  /** ms since epoch, 0 when unknown */
+  modified: number
+  exists: boolean
+}
+
 /* ---------------- Zalo (Zalo tab + Claude's zalo tools) ---------------- */
 
 export interface ZaloState {
