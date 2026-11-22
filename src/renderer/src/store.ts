@@ -63,8 +63,6 @@ interface State {
   quickOpen: boolean
   /** what the palette starts with: '' files, '>' commands (Ctrl+Shift+P) */
   quickOpenQuery: string
-  /** left column of Source code */
-  codeSide: 'files' | 'changes'
 
   chats: Chat[]
   activeChatId: string | null
@@ -123,7 +121,6 @@ export const useStore = create<State>((set) => ({
   bottomOpen: false,
   quickOpen: false,
   quickOpenQuery: '',
-  codeSide: 'files',
 
   chats: [],
   activeChatId: null,

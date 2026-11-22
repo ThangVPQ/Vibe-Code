@@ -1287,8 +1287,13 @@ fn session_files(session_id: &str) -> Vec<ChatFile> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum ChatItem {
-    /// a prompt you sent
-    User { text: String, at: i64 },
+    /// a prompt you sent (mid: sent while Claude was working, it took it in during that turn)
+    User {
+        text: String,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        mid: bool,
+        at: i64,
+    },
     /// what Claude wrote (markdown)
     Text { text: String, at: i64 },
     /// a tool call, and its result once it is back
@@ -1335,6 +1340,9 @@ pub struct ChatLog {
     pub todos_at: usize,
     /// items before the first one sent (only the last `LOG_KEEP` are)
     pub skipped: usize,
+    /// tokens Claude wrote in the whole chat, and in its last turn
+    pub out_tokens: u64,
+    pub turn_out_tokens: u64,
 }
 
 #[derive(Default)]
@@ -1347,6 +1355,10 @@ struct LogScan {
     todos: Vec<ChatTodo>,
     todos_at: usize,
     seen: HashSet<String>,
+    /// output tokens per API message (its rows repeat the usage, growing): the chat's and the turn's sums
+    msg_out: HashMap<String, u64>,
+    out_tokens: u64,
+    turn_out_tokens: u64,
 }
 
 /// the Chat view gets the last this many items, and this much of each tool's output
@@ -1503,7 +1515,7 @@ impl LogScan {
     fn feed(&mut self, text: &str) {
         static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[A-Za-z]").unwrap());
         for line in text.split('\n') {
-            if !line.contains("\"type\":\"user\"") && !line.contains("\"type\":\"assistant\"") && !line.contains("turn_duration") {
+            if !line.contains("\"type\":\"user\"") && !line.contains("\"type\":\"assistant\"") && !line.contains("turn_duration") && !line.contains("queued_command") {
                 continue;
             }
             let Ok(row) = serde_json::from_str::<Obj>(line) else { continue };
@@ -1524,8 +1536,30 @@ impl LogScan {
                 self.items.push(ChatItem::Done { ms: ms.max(1), at });
                 continue;
             }
+            // a message sent while Claude worked ("Send now"): it took it in mid-turn
+            if is_type(&row, "attachment") {
+                let a = row.get("attachment").and_then(Value::as_object);
+                if let Some(a) = a.filter(|a| is_type(a, "queued_command"))
+                    && str_of(a, "commandMode").is_none_or(|m| m == "prompt")
+                    && let Some(t) = a.get("prompt").and_then(prompt_text)
+                {
+                    self.items.push(ChatItem::User { text: t, mid: true, at });
+                }
+                continue;
+            }
             if !assistant && !user {
                 continue;
+            }
+            if assistant
+                && let Some(m) = row.get("message")
+                && let (Some(id), Some(out)) = (m.get("id").and_then(Value::as_str), m.get("usage").and_then(|u| u.get("output_tokens")).and_then(Value::as_u64))
+            {
+                let was = self.msg_out.entry(id.to_owned()).or_insert(0);
+                if out > *was {
+                    self.out_tokens += out - *was;
+                    self.turn_out_tokens += out - *was;
+                    *was = out;
+                }
             }
             let Some(content) = row.get("message").and_then(|m| m.get("content")) else { continue };
 
@@ -1534,7 +1568,8 @@ impl LogScan {
                     if t.starts_with("[Request interrupted by user") {
                         self.items.push(ChatItem::Done { ms: 0, at });
                     } else {
-                        self.items.push(ChatItem::User { text: t, at });
+                        self.turn_out_tokens = 0;
+                        self.items.push(ChatItem::User { text: t, mid: false, at });
                     }
                     continue;
                 }
@@ -1652,6 +1687,8 @@ fn session_log(session_id: &str) -> Option<ChatLog> {
             todos: s.todos.clone(),
             todos_at: s.todos_at.saturating_sub(skipped),
             skipped,
+            out_tokens: s.out_tokens,
+            turn_out_tokens: s.turn_out_tokens,
         }
     })
 }
@@ -1754,6 +1791,24 @@ mod tests {
         assert_eq!(diff_lines(Some(&edit)), ["@@ -3,2 +3,2 @@", " a", "-b", "+c"]);
         let create = json!({"type": "create", "content": "x\ny"});
         assert_eq!(diff_lines(Some(&create)), ["@@ -0,0 +1,2 @@", "+x", "+y"]);
+    }
+
+    #[test]
+    fn log_mid_turn_and_tokens() {
+        let rows = [
+            json!({"type": "user", "uuid": "1", "message": {"role": "user", "content": "first"}}),
+            json!({"type": "assistant", "uuid": "2", "message": {"id": "m1", "content": [{"type": "text", "text": "a"}], "usage": {"output_tokens": 5}}}),
+            json!({"type": "assistant", "uuid": "3", "message": {"id": "m1", "content": [{"type": "text", "text": "b"}], "usage": {"output_tokens": 40}}}),
+            json!({"type": "attachment", "uuid": "4", "attachment": {"type": "queued_command", "prompt": "also this", "commandMode": "prompt"}}),
+            json!({"type": "attachment", "uuid": "5", "attachment": {"type": "queued_command", "prompt": "<task-notification>x</task-notification>", "commandMode": "task-notification"}}),
+            json!({"type": "user", "uuid": "6", "message": {"role": "user", "content": "second"}}),
+            json!({"type": "assistant", "uuid": "7", "message": {"id": "m2", "content": [{"type": "text", "text": "c"}], "usage": {"output_tokens": 7}}}),
+        ];
+        let mut s = LogScan::default();
+        s.feed(&rows.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n"));
+        let users: Vec<_> = s.items.iter().filter_map(|i| if let ChatItem::User { text, mid, .. } = i { Some((text.as_str(), *mid)) } else { None }).collect();
+        assert_eq!(users, [("first", false), ("also this", true), ("second", false)]);
+        assert_eq!((s.out_tokens, s.turn_out_tokens), (47, 7));
     }
 }
 

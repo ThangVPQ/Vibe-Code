@@ -5,9 +5,8 @@ import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBro
 import { BrowserTab } from './Browser'
 import { SlidePill } from './motion'
 import { openMenu } from './ContextMenu'
-import { ChangesView, ExplorerView } from './Sidebar'
 import { FileIcon, Logo } from './icons'
-import { SourceSwitch } from './SourceSwitch'
+import { SourceSide } from './SourceSide'
 import { EditorFontButton } from './EditorFont'
 // heavy parts load on first use: Monaco (~4 MB) only when a file or diff opens
 const FileEditor = lazy(() => import('./MonacoViews').then((m) => ({ default: m.FileEditor })))
@@ -83,19 +82,23 @@ export function EditorArea(): React.JSX.Element {
         Panes stay mounted and laid out; only the open one (`on`) is visible. display:none would drop
         their scroll positions, make Monaco re-measure on return and replay every animation inside.
       */}
-      {/* Source code: the whole project of the open chat — file tree on the left, files on the right.
-          Its This PC view (any folder on the computer) is the next pane. */}
-      <div className={`center-pane code-pane${view === 'code' ? ' on' : ''}`}>
-        <CodeSide />
-        <CodeArea />
-      </div>
-      {filesSeen && (
-        <div className={`center-pane fx-host${view === 'files' ? ' on' : ''}`}>
-          <Suspense fallback={null}>
-            <FileExplorerPane />
-          </Suspense>
+      {/* Source code: one left column (This PC, the project's files, its changes); on the right the open files,
+          or This PC (any folder on the computer). */}
+      <div className={`center-pane code-pane${source ? ' on' : ''}`}>
+        <SourceSide />
+        <div className="code-main">
+          <div className={`code-layer${view === 'code' ? ' on' : ''}`} inert={view !== 'code'}>
+            <CodeArea />
+          </div>
+          {filesSeen && (
+            <div className={`code-layer${view === 'files' ? ' on' : ''}`} inert={view !== 'files'}>
+              <Suspense fallback={null}>
+                <FileExplorerPane />
+              </Suspense>
+            </div>
+          )}
         </div>
-      )}
+      </div>
       {dbSeen && (
         <div className={`center-pane db-host${view === 'db' ? ' on' : ''}`}>
           <Suspense fallback={null}>
@@ -268,20 +271,6 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
     </>
   )
 }
-
-/** Left column of Source code: the project's files, or its Git changes (click one for the diff). */
-// memo (no props): EditorArea re-renders whenever any web page changes its address or title
-const CodeSide = memo(function CodeSide(): React.JSX.Element {
-  // in the store: Ctrl+Shift+E / Ctrl+Shift+G switch it
-  const side = useStore((s) => s.codeSide)
-  const hasRoot = useStore((s) => !!s.root)
-  return (
-    <div className="sidebar code-tree">
-      <SourceSwitch />
-      {hasRoot && (side === 'files' ? <ExplorerView /> : <ChangesView />)}
-    </div>
-  )
-})
 
 /** Right-click on an editor tab. */
 function tabMenu(e: React.MouseEvent, t: EditorTab): void {

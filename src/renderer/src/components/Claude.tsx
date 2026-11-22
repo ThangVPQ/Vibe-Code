@@ -397,7 +397,7 @@ async function lastReply(sessionId: string | undefined): Promise<string> {
   const texts: string[] = []
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i]
-    if (it.kind === 'user') break
+    if (it.kind === 'user' && !it.mid) break
     if (it.kind === 'text') texts.unshift(it.text)
   }
   return texts.join('\n\n')

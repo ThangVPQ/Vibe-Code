@@ -327,7 +327,8 @@ export interface ChatFile {
 
 /** One thing in a chat's conversation, as the Chat view draws it */
 export type ChatItem =
-  | { kind: 'user'; text: string; at: number }
+  /** mid: sent while Claude was working ("Send now"), it took it in during that turn */
+  | { kind: 'user'; text: string; mid?: boolean; at: number }
   | { kind: 'text'; text: string; at: number }
   | {
       kind: 'tool'
@@ -367,6 +368,9 @@ export interface ChatLog {
   todosAt: number
   /** older items left out */
   skipped: number
+  /** tokens Claude wrote in the whole chat, and in its last turn */
+  outTokens: number
+  turnOutTokens: number
 }
 
 /** One item of the Zalo "Việc của tôi" checklist, summarised by Claude from messages sent to me. */

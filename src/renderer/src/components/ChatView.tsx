@@ -50,6 +50,9 @@ function dur(ms: number): string {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
 }
 
+/** 950 → 950, 12345 → 12.3k */
+const tokens = (n: number): string => (n < 1000 ? String(n) : n < 100_000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`)
+
 const base = (p: string): string => p.slice(Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')) + 1)
 
 /** What a run of tool calls did, in one line: "Ran 5 commands, edited 2 files". */
@@ -608,7 +611,9 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
   const suggestion = !draft && !working && chat.status !== 'exited' ? suggested : ''
 
   const items = log?.items ?? []
-  const lastUser = [...items].reverse().find((it) => it.kind === 'user')
+  // the turn started with the last prompt sent while idle (not one taken in mid-turn)
+  const turnStart = [...items].reverse().find((it) => it.kind === 'user' && !it.mid)
+  const lastDone = items.findLastIndex((it) => it.kind === 'done') + (log?.skipped ?? 0)
   const list = log ? blocks(log) : []
 
   return (
@@ -642,13 +647,20 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
                   <Thumbs text={b.item.text} />
                 </>
               )}
-              {b.kind === 'item' && b.item.kind === 'done' && <div className="cv-note">{b.item.ms ? `Worked for ${dur(b.item.ms)}` : 'Interrupted'}</div>}
+              {b.kind === 'item' && b.item.kind === 'done' && (
+                <div className="cv-note">
+                  {b.item.ms ? `Worked for ${dur(b.item.ms)}` : 'Interrupted'}
+                  {!working && b.key === String(lastDone) && !!log?.outTokens && ` · ${tokens(log.outTokens)} tokens out in this chat`}
+                </div>
+              )}
             </Fragment>
           ))}
           {working && (
             <div className="cv-working">
               <Loader size={13} className="task-spin" />
-              Working{lastUser ? ` · ${dur(Date.now() - lastUser.at)}` : '…'}
+              Working{turnStart ? ` · ${dur(Date.now() - turnStart.at)}` : '…'}
+              {!!log?.turnOutTokens && <span title="Tokens Claude wrote in this turn">· ↓ {tokens(log.turnOutTokens)} tokens</span>}
+              {!!log?.outTokens && <span className="cv-working-total" title="Tokens Claude wrote in this whole chat">· {tokens(log.outTokens)} in this chat</span>}
             </div>
           )}
           {asking && (

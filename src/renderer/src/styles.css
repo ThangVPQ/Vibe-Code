@@ -1994,6 +1994,9 @@ kbd {
   font-size: 12.5px;
   color: var(--text-dim);
 }
+.cv-working-total {
+  color: var(--text-faint);
+}
 .cv-asking {
   display: flex;
   align-items: center;
@@ -3748,9 +3751,71 @@ button.sb-item.sb-update:hover {
   width: 320px;
   border-right: 1px solid var(--border);
 }
-.code-pane > .editor-area {
+/* right of the column: the open files, or This PC, stacked; only the open one shows (like .center-pane) */
+.code-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+.code-layer {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.code-layer:not(.on),
+.code-layer:not(.on) * {
+  visibility: hidden !important;
+}
+.code-layer > .editor-area {
+  flex: 1;
+  min-height: 0;
+}
+/* the column's sections (This PC, Files, Changes): a click on the header folds one, the open ones share the height */
+.src-sec {
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.src-sec + .src-sec {
+  border-top: 1px solid var(--border);
+}
+.src-sec.open {
+  flex: 1 1 0;
+}
+/* This PC is only as tall as its places */
+.src-sec.pc.open {
+  flex: 0 1 auto;
+  max-height: 45%;
+}
+.src-sec:not(.open) > :not(.section-header) {
+  display: none;
+}
+.section-header.foldable {
+  cursor: pointer;
+  padding-left: 6px;
+}
+.section-header.foldable:hover {
+  color: var(--text);
+}
+.section-header.foldable > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.section-header .center-count {
+  letter-spacing: 0;
+}
+.section-chev {
+  flex: none;
+  transition: transform 0.15s;
+}
+.section-chev.open {
+  transform: rotate(90deg);
 }
 .code-side-switch {
   flex: none;
@@ -4678,7 +4743,7 @@ button.sb-item.sb-update:hover {
 .center-pane.on,
 .term-frame,
 .chat-images,
-.code-tree > :last-child {
+.code-layer.on {
   animation: ios-enter 0.18s ease-out backwards;
 }
 
@@ -4692,7 +4757,7 @@ button.sb-item.sb-update:hover {
   .center-pane.on,
   .term-frame,
   .chat-images,
-  .code-tree > :last-child {
+  .code-layer.on {
     animation: none;
   }
 }

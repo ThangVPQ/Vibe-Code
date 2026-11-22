@@ -25,6 +25,7 @@ import {
   toggleTheme
 } from './actions'
 import { focusTerm } from './terminals'
+import { showSection } from './components/SourceSide'
 import { saveFile } from './fileModelsLite'
 
 export interface Command {
@@ -43,7 +44,6 @@ const activeFile = (): { path: string; dirty: boolean } | null => {
   return t?.kind === 'file' ? { path: t.path, dirty: t.dirty } : null
 }
 
-const showCode = (codeSide: 'files' | 'changes'): void => useStore.setState({ centerView: 'code', codeSide })
 const palette = (query: string): void => useStore.setState({ quickOpen: true, quickOpenQuery: query })
 
 export const COMMANDS: Command[] = [
@@ -72,8 +72,8 @@ export const COMMANDS: Command[] = [
   { id: 'nextTab', label: 'Next editor tab', keys: 'Ctrl+Tab', run: () => cycleTab(1) },
   { id: 'prevTab', label: 'Previous editor tab', keys: 'Ctrl+Shift+Tab', run: () => cycleTab(-1) },
 
-  { id: 'explorer', label: 'Show Explorer (files)', keys: 'Ctrl+Shift+E', run: () => showCode('files') },
-  { id: 'changes', label: 'Show Source Control (changes)', keys: 'Ctrl+Shift+G', run: () => showCode('changes') },
+  { id: 'explorer', label: 'Show Explorer (files)', keys: 'Ctrl+Shift+E', run: () => showSection('files') },
+  { id: 'changes', label: 'Show Source Control (changes)', keys: 'Ctrl+Shift+G', run: () => showSection('changes') },
   { id: 'chats', label: 'Show chats sidebar', keys: 'Ctrl+Shift+C', run: () => useStore.setState({ sidebarView: 'chats', sidebarOpen: true }) },
   { id: 'sidebar', label: 'Toggle sidebar', keys: 'Ctrl+B', run: () => useStore.setState({ sidebarOpen: !st().sidebarOpen }) },
   { id: 'terminal', label: 'Toggle terminal', keys: 'Ctrl+`', run: () => toggleBottom() },
