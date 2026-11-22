@@ -73,7 +73,7 @@ const extOf = (name: string): string => {
 
 /* ================================ file kinds ================================ */
 
-const OFFICE_RE = /\.(docx|xlsx|csv|pdf)$/i
+const OFFICE_RE = /\.(docx|xlsx|csv|pdf|pptx|doc|xls|ppt|odt|ods|odp|rtf)$/i
 const TEXT_RE =
   /\.(txt|md|markdown|log|json|jsonc|json5|js|jsx|mjs|cjs|ts|tsx|mts|cts|css|scss|sass|less|html?|xml|xaml|svg|ya?ml|toml|ini|cfg|conf|env|py|pyw|rb|go|rs|java|kt|kts|cs|vb|fs|c|cc|cpp|cxx|h|hh|hpp|php|sql|sh|bash|zsh|ps1|psm1|psd1|bat|cmd|gitignore|gitattributes|editorconfig|lock|csproj|vbproj|fsproj|sln|props|targets|config|resx|razor|cshtml|vue|svelte|astro|dart|swift|lua|r|pl|gradle|properties|tsv|srt|vtt|graphql|gql|proto|prisma|tf|hcl|nix|ex|exs|erl|clj|scala|groovy|m|mm|asm|cmake|mk|diff|patch|rst|tex|bib|csv)$/i
 const TEXT_NAMES = /^(dockerfile|makefile|license|licence|readme|changelog|authors|contributing|procfile|gemfile|rakefile|\.env.*|\.[\w-]+rc)$/i

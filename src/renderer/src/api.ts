@@ -203,7 +203,7 @@ export const api = {
   },
   office: {
     /** file dialog: pick a file to open, or (save) name a new one; `kind` narrows the file types */
-    pick: (save: boolean, kind?: 'doc' | 'sheet' | 'pdf'): Promise<string | null> => invoke('office_pick', { save, kind }),
+    pick: (save: boolean, kind?: 'doc' | 'sheet' | 'pdf' | 'oo'): Promise<string | null> => invoke('office_pick', { save, kind }),
     /** a .xlsx / .docx / .pdf file's bytes */
     readFile: (path: string): Promise<ArrayBuffer> => invoke('office_read_file', { path }),
     /** `data`: the file's bytes, base64 */
@@ -220,6 +220,15 @@ export const api = {
     pending: (): Promise<OfficeRequest[]> => invoke('office_pending'),
     reply: (id: number, ok: boolean, text: string): Promise<void> => invoke('office_reply', { id, ok, text }),
     onRequest: (cb: (req: OfficeRequest) => void): Off => on('office:request', cb)
+  },
+  onlyoffice: {
+    /** where the ONLYOFFICE editor is served (http://127.0.0.1:<port>), null until it is downloaded */
+    origin: (): Promise<string | null> => invoke('onlyoffice_origin'),
+    /** downloads it (once) and serves it; its origin */
+    install: (): Promise<string> => invoke('onlyoffice_install'),
+    /** bytes of the one-time download */
+    downloadSize: (): Promise<number> => invoke('onlyoffice_download_size'),
+    onProgress: (cb: (done: number, total: number) => void): Off => on('onlyoffice:progress', cb)
   },
   zalo: {
     state: (): Promise<ZaloState> => invoke('zalo_state'),

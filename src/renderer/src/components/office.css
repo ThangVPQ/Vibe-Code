@@ -7,6 +7,7 @@
   --of-green: #3fb27f;
   --of-doc: #3b82f6;
   --of-pdf: #ef4444;
+  --of-oo: #f97316;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -24,6 +25,7 @@
 .of-ic-doc { color: var(--of-doc); }
 .of-ic-sheet { color: var(--of-green); }
 .of-ic-pdf { color: var(--of-pdf); }
+.of-ic-oo { color: var(--of-oo); }
 
 /* ---------------- shell: rail + main ---------------- */
 
@@ -145,3 +147,13 @@
 .of-pdf-canvas { position: relative; }
 .of-pdf-canvas canvas { display: block; }
 .of-pdf .textLayer .of-hit { background: #ffd54a88; border-radius: 2px; }
+
+/* ---------------- ONLYOFFICE: one editor iframe per open file ---------------- */
+
+.of-oo { position: relative; flex: 1; min-height: 0; background: var(--bg-2); }
+.of-oo iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; visibility: hidden; }
+/* a visible child would show through the hidden workspace: only the shown one's */
+.of-ws.on .of-oo iframe.on { visibility: visible; }
+.of-oo-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; background: var(--bg-2); }
+.of-oo-state progress { width: min(360px, 80%); accent-color: var(--of-oo); }
+.of-home-opt { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); cursor: pointer; }

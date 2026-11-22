@@ -18,6 +18,7 @@ mod gmail;
 mod mcp;
 mod mssql;
 mod office;
+mod onlyoffice;
 mod plugins;
 mod pty;
 mod sessions;
@@ -118,6 +119,9 @@ pub fn run() {
             office::office_write_csv,
             office::office_pending,
             office::office_reply,
+            onlyoffice::onlyoffice_origin,
+            onlyoffice::onlyoffice_install,
+            onlyoffice::onlyoffice_download_size,
             // Zalo
             zalo::zalo_state,
             zalo::zalo_login,

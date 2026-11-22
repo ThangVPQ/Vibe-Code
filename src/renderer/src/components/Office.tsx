@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { FilePlus2, FileSpreadsheet, FileText, FileType2, FolderOpen, Home, Loader2, RefreshCw, Trash2, X } from 'lucide-react'
+import { FilePlus2, FileSpreadsheet, FileStack, FileText, FileType2, FolderOpen, Home, Loader2, RefreshCw, Trash2, X } from 'lucide-react'
 import type { OfficeRequest, RecentFile } from '../../../shared/types'
 import { openMenu } from './ContextMenu'
 import { DocsWorkspace } from './Docs'
+import { OnlyOfficeWorkspace } from './OnlyOffice'
 import { PdfWorkspace } from './Pdf'
 import { SheetsWorkspace } from './Sheets'
-import { type Kind, type Workspace, errText, fileName, folderOf, kindOf } from './officeShared'
+import { type Kind, type Workspace, errText, fileName, folderOf, kindOf, ooOpens, samePath } from './officeShared'
 import { setOfficeOpener } from '../actions'
 import './office.css'
 
@@ -14,8 +15,12 @@ type View = 'home' | Kind
 const KINDS: { kind: Kind; label: string; icon: (size: number) => React.ReactNode; what: string }[] = [
   { kind: 'doc', label: 'Docs', icon: (s) => <FileText size={s} className="of-ic-doc" />, what: 'tài liệu' },
   { kind: 'sheet', label: 'Sheets', icon: (s) => <FileSpreadsheet size={s} className="of-ic-sheet" />, what: 'bảng tính' },
-  { kind: 'pdf', label: 'PDF', icon: (s) => <FileType2 size={s} className="of-ic-pdf" />, what: 'PDF' }
+  { kind: 'pdf', label: 'PDF', icon: (s) => <FileType2 size={s} className="of-ic-pdf" />, what: 'PDF' },
+  { kind: 'oo', label: 'ONLYOFFICE', icon: (s) => <FileStack size={s} className="of-ic-oo" />, what: 'file Word, Excel, PowerPoint' }
 ]
+const label = (k: Kind): string => KINDS.find((x) => x.kind === k)!.label
+/** "open .docx / .xlsx with ONLYOFFICE" (the home page's switch), kept in the browser storage */
+const OO_DEFAULT_KEY = 'office-onlyoffice-default'
 const kindIcon = (path: string, size = 18): React.ReactNode => KINDS.find((k) => k.kind === kindOf(path))?.icon(size) ?? <FileText size={size} />
 
 function bytes(n: number): string {
@@ -25,22 +30,25 @@ function bytes(n: number): string {
 }
 
 /**
- * Office tab: a WPS-like home (open, new, recent files) and three workspaces — Docs (.docx),
- * Sheets (.xlsx/.csv) and PDF — each with its own file tabs. Workspaces stay mounted, so open
+ * Office tab: a WPS-like home (open, new, recent files) and four workspaces — Docs (.docx),
+ * Sheets (.xlsx/.csv), PDF and ONLYOFFICE (Word / Excel / PowerPoint with full formatting) — each
+ * with its own file tabs. A file is open in one workspace at a time. Workspaces stay mounted, so open
  * files keep their state while another view is shown. Claude's vibe-office tools come in here
  * (`office:request`) and go to the workspace of their kind.
  */
 export function OfficePane(): React.JSX.Element {
   const [view, setView] = useState<View>('home')
-  const [open, setOpen] = useState<Record<Kind, string[]>>({ doc: [], sheet: [], pdf: [] })
+  const [open, setOpen] = useState<Record<Kind, string[]>>({ doc: [], sheet: [], pdf: [], oo: [] })
+  const [ooDefault, setOoDefault] = useState(() => localStorage.getItem(OO_DEFAULT_KEY) === '1')
   const [recent, setRecent] = useState<RecentFile[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const docs = useRef<Workspace>(null)
   const sheets = useRef<Workspace>(null)
   const pdfs = useRef<Workspace>(null)
+  const oo = useRef<Workspace>(null)
   const ws = (k: Kind): Workspace => {
-    const w = { doc: docs, sheet: sheets, pdf: pdfs }[k].current
+    const w = { doc: docs, sheet: sheets, pdf: pdfs, oo }[k].current
     if (!w) throw new Error('Office tab is not ready')
     return w
   }
@@ -48,11 +56,13 @@ export function OfficePane(): React.JSX.Element {
   const loadRecent = (): void => void window.api.office.recent().then(setRecent, () => setRecent([]))
   useEffect(loadRecent, [])
 
-  /** opens (or `create`s) any supported file in its workspace and shows it */
-  const openFile = async (path: string, create = false): Promise<Kind> => {
-    const kind = kindOf(path)
+  /** opens (or `create`s) any supported file in a workspace (default: the one of its kind) and shows it */
+  const openFile = async (path: string, create = false, kind = kindOf(path)): Promise<Kind> => {
     if (!kind) throw new Error(`Tab Office chưa mở được loại file này: ${fileName(path)}`)
     if (create && kind === 'pdf') throw new Error('Không tạo được PDF mới: chỉ mở PDF có sẵn')
+    // two editors saving over the same file would undo each other's edits
+    const elsewhere = KINDS.find((k) => k.kind !== kind && open[k.kind].some((p) => samePath(p, path)))
+    if (elsewhere) throw new Error(`${fileName(path)} đang mở ở ${elsewhere.label}: đóng nó ở đó rồi mở lại.`)
     await ws(kind).open(path, create)
     setView(kind)
     await window.api.office.recentAdd(path).catch(() => {})
@@ -66,10 +76,15 @@ export function OfficePane(): React.JSX.Element {
       .catch((err: unknown) => setError(errText(err)))
       .finally(() => setBusy(false))
   }
+  /** where the user's own opens go: .docx / .xlsx / .csv to ONLYOFFICE when the home page's switch is on */
+  const userKind = (path: string): Kind | null => {
+    const k = kindOf(path)
+    return ooDefault && (k === 'doc' || k === 'sheet') ? 'oo' : k
+  }
   const pickOpen = (kind?: Kind): void =>
     run(async () => {
       const p = await window.api.office.pick(false, kind)
-      if (p) await openFile(p)
+      if (p) await openFile(p, false, kind === 'oo' ? 'oo' : kind ? kindOf(p) : userKind(p))
     })
   const pickNew = (kind: 'doc' | 'sheet'): void =>
     run(async () => {
@@ -81,7 +96,7 @@ export function OfficePane(): React.JSX.Element {
   const addMenu = (kind: Kind) => (e: React.MouseEvent) =>
     openMenu(e, [
       { label: `Mở ${KINDS.find((k) => k.kind === kind)!.what}…`, icon: <FolderOpen size={14} />, action: () => pickOpen(kind) },
-      kind !== 'pdf' && { label: kind === 'doc' ? 'Tài liệu mới…' : 'Bảng tính mới…', icon: <FilePlus2 size={14} />, action: () => pickNew(kind) }
+      (kind === 'doc' || kind === 'sheet') && { label: kind === 'doc' ? 'Tài liệu mới…' : 'Bảng tính mới…', icon: <FilePlus2 size={14} />, action: () => pickNew(kind) }
     ])
 
   /* ---------- Claude's tools: one at a time, in order ---------- */
@@ -118,7 +133,9 @@ export function OfficePane(): React.JSX.Element {
   // files opened from Source code › This PC
   const openRef = useRef(openFile)
   openRef.current = openFile
-  useEffect(() => setOfficeOpener((path) => run(() => openRef.current(path))), [])
+  const userKindRef = useRef(userKind)
+  userKindRef.current = userKind
+  useEffect(() => setOfficeOpener((path) => run(() => openRef.current(path, false, userKindRef.current(path)))), [])
   useEffect(() => {
     let chain = Promise.resolve()
     const seen = new Set<number>()
@@ -164,6 +181,7 @@ export function OfficePane(): React.JSX.Element {
         <DocsWorkspace ref={docs} shown={view === 'doc'} onFiles={filesChanged('doc')} onAdd={addMenu('doc')} />
         <SheetsWorkspace ref={sheets} shown={view === 'sheet'} onFiles={filesChanged('sheet')} onAdd={addMenu('sheet')} />
         <PdfWorkspace ref={pdfs} shown={view === 'pdf'} onFiles={filesChanged('pdf')} onAdd={addMenu('pdf')} />
+        <OnlyOfficeWorkspace ref={oo} shown={view === 'oo'} onFiles={filesChanged('oo')} onAdd={addMenu('oo')} />
         {showHome && (
           <OfficeHome
             kind={homeFor}
@@ -171,8 +189,14 @@ export function OfficePane(): React.JSX.Element {
             busy={busy}
             error={error}
             onClearError={() => setError('')}
-            onOpen={(p) => run(() => openFile(p))}
+            onOpen={(p, kind) => run(() => openFile(p, false, kind ?? userKind(p)))}
             onPick={() => pickOpen(homeFor ?? undefined)}
+            onPickOo={() => pickOpen('oo')}
+            ooDefault={ooDefault}
+            onOoDefault={(on) => {
+              localStorage.setItem(OO_DEFAULT_KEY, on ? '1' : '0')
+              setOoDefault(on)
+            }}
             onNew={pickNew}
             onRefresh={loadRecent}
             onForget={(p) => void window.api.office.recentAdd(p, true).then(loadRecent)}
@@ -191,13 +215,17 @@ function OfficeHome(p: {
   busy: boolean
   error: string
   onClearError: () => void
-  onOpen: (path: string) => void
+  /** `kind`: the workspace to open it in (default: where the user's opens go) */
+  onOpen: (path: string, kind?: Kind) => void
   onPick: () => void
+  onPickOo: () => void
+  ooDefault: boolean
+  onOoDefault: (on: boolean) => void
   onNew: (kind: 'doc' | 'sheet') => void
   onRefresh: () => void
   onForget: (path: string) => void
 }): React.JSX.Element {
-  const list = (p.recent ?? []).filter((f) => !p.kind || kindOf(f.path) === p.kind)
+  const list = (p.recent ?? []).filter((f) => !p.kind || (p.kind === 'oo' ? ooOpens(f.path) : kindOf(f.path) === p.kind))
   const what = p.kind ? KINDS.find((k) => k.kind === p.kind)!.what : null
   return (
     <div className="of-home">
@@ -214,6 +242,16 @@ function OfficeHome(p: {
           <button className="of-action" disabled={p.busy} onClick={() => p.onNew('sheet')}>
             <FilePlus2 size={16} className="of-ic-sheet" /> Bảng tính mới
           </button>
+        )}
+        {(!p.kind || p.kind === 'doc' || p.kind === 'sheet') && (
+          <button className="of-action" disabled={p.busy} onClick={p.onPickOo} title="Word, Excel, PowerPoint giữ đầy đủ định dạng. Lần đầu tải bộ ONLYOFFICE (khoảng 210 MB), sau đó chạy ngay trên máy, không cần mạng, không quảng cáo.">
+            <FileStack size={16} className="of-ic-oo" /> Mở bằng ONLYOFFICE
+          </button>
+        )}
+        {(!p.kind || p.kind === 'oo') && (
+          <label className="of-home-opt" title="Bật: .docx, .xlsx, .csv mở từ trang này và từ This PC sẽ vào ONLYOFFICE thay cho Docs / Sheets. Công cụ của Claude vẫn dùng Docs / Sheets.">
+            <input type="checkbox" checked={p.ooDefault} onChange={(e) => p.onOoDefault(e.target.checked)} /> Luôn mở Word / Excel bằng ONLYOFFICE
+          </label>
         )}
       </div>
       {p.error && (
@@ -237,7 +275,7 @@ function OfficeHome(p: {
         </div>
         {p.recent === null && <p className="of-dim of-pad">Đang tải…</p>}
         {p.recent !== null && list.length === 0 && (
-          <p className="of-dim of-pad">Chưa có {what ?? 'file'} nào. Bấm “Mở{what ? ` ${what}` : ''}” để mở file trên máy{p.kind === 'pdf' ? '' : ' hoặc tạo mới'}.</p>
+          <p className="of-dim of-pad">Chưa có {what ?? 'file'} nào. Bấm “Mở{what ? ` ${what}` : ''}” để mở file trên máy{p.kind === 'pdf' || p.kind === 'oo' ? '' : ' hoặc tạo mới'}.</p>
         )}
         {list.map((f) => (
           <div
@@ -248,6 +286,8 @@ function OfficeHome(p: {
             onContextMenu={(e) =>
               openMenu(e, [
                 f.exists && { label: 'Mở', action: () => p.onOpen(f.path) },
+                f.exists && ooOpens(f.path) && kindOf(f.path) !== 'oo' && { label: 'Mở bằng ONLYOFFICE', icon: <FileStack size={14} />, action: () => p.onOpen(f.path, 'oo') },
+                f.exists && (kindOf(f.path) === 'doc' || kindOf(f.path) === 'sheet') && { label: `Mở bằng ${label(kindOf(f.path)!)}`, action: () => p.onOpen(f.path, kindOf(f.path)!) },
                 f.exists && { label: 'Mở thư mục chứa', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(f.path) },
                 { label: 'Xoá khỏi danh sách', icon: <Trash2 size={14} />, action: () => p.onForget(f.path) }
               ])

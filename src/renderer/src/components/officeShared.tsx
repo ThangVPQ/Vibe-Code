@@ -6,7 +6,11 @@ import { useEffect, useRef, useState } from 'react'
 import { CloudAlert, CloudCheck, Loader2, Plus, X } from 'lucide-react'
 import type { OfficeRequest } from '../../../shared/types'
 
-export type Kind = 'doc' | 'sheet' | 'pdf'
+/** `oo`: the ONLYOFFICE editor (OnlyOffice.tsx) */
+export type Kind = 'doc' | 'sheet' | 'pdf' | 'oo'
+
+/** what only ONLYOFFICE opens */
+const OO_ONLY = ['pptx', 'doc', 'xls', 'ppt', 'odt', 'ods', 'odp', 'rtf']
 
 export const fileName = (p: string): string => p.split(/[\\/]/).pop() ?? p
 export const folderOf = (p: string): string => p.slice(0, Math.max(0, p.length - fileName(p).length - 1))
@@ -18,8 +22,12 @@ export function kindOf(path: string): Kind | null {
   if (ext === 'docx') return 'doc'
   if (ext === 'xlsx' || ext === 'csv') return 'sheet'
   if (ext === 'pdf') return 'pdf'
+  if (ext && OO_ONLY.includes(ext)) return 'oo'
   return null
 }
+
+/** ONLYOFFICE opens every kind but PDF */
+export const ooOpens = (path: string): boolean => ![null, 'pdf'].includes(kindOf(path))
 
 export function toBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf)
@@ -64,7 +72,7 @@ export type SaveInfo = { state: 'saving' | 'saved' | 'error'; msg?: string; at?:
  * again every 5 s while it fails. A change made during a save keeps the file dirty for the next
  * one. Before a file that existed is first overwritten, a copy goes to the app's backup folder.
  */
-export function useAutosave(o: { write: (path: string) => Promise<void>; isOpen: (path: string) => boolean; setDirty: (path: string, dirty: boolean) => void }) {
+export function useAutosave(o: { write: (path: string) => Promise<void>; isOpen: (path: string) => boolean; setDirty: (path: string, dirty: boolean) => void; delay?: number }) {
   const [saveState, setSaveState] = useState<Record<string, SaveInfo>>({})
   const opts = useRef(o)
   opts.current = o
@@ -74,7 +82,7 @@ export function useAutosave(o: { write: (path: string) => Promise<void>; isOpen:
   /** files already copied aside (or created here: nothing to keep) */
   const backedUp = useRef(new Set<string>())
 
-  const schedule = (path: string, ms = 1000): void => {
+  const schedule = (path: string, ms = opts.current.delay ?? 1000): void => {
     clearTimeout(timers.current.get(path))
     timers.current.set(
       path,

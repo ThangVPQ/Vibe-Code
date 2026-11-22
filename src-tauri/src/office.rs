@@ -43,8 +43,11 @@ fn write_csv(path: &str, rows: &[Vec<String>]) -> Result<()> {
     std::fs::write(path, bytes).with_context(|| format!("không lưu được {path} (file đang mở trong Excel?)"))
 }
 
+/// What the ONLYOFFICE editor opens (onlyoffice.rs).
+const OO_EXTS: [&str; 11] = ["docx", "xlsx", "pptx", "csv", "doc", "xls", "ppt", "odt", "ods", "odp", "rtf"];
+
 /// File dialog: pick a file to open, or (`save`) name a new one. `kind` narrows the file types:
-/// "doc", "sheet" or "pdf" (anything else: every kind the Office tab opens).
+/// "doc", "sheet", "pdf" or "oo" (ONLYOFFICE; anything else: every kind the Office tab opens).
 #[tauri::command]
 pub async fn office_pick(save: bool, kind: Option<String>) -> Res<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
@@ -53,7 +56,8 @@ pub async fn office_pick(save: bool, kind: Option<String>) -> Res<Option<String>
         Some("doc") => d.add_filter("Tài liệu Word", &["docx"]),
         Some("sheet") => d.add_filter("Bảng tính", &["xlsx", "csv"]),
         Some("pdf") => d.add_filter("PDF", &["pdf"]),
-        _ => d.add_filter("Tài liệu, bảng tính, PDF", &["docx", "xlsx", "csv", "pdf"]),
+        Some("oo") => d.add_filter("Word, Excel, PowerPoint", &OO_EXTS),
+        _ => d.add_filter("Tài liệu, bảng tính, trình chiếu, PDF", &[&OO_EXTS[..], &["pdf"]].concat()),
     };
     if let Some(w) = crate::core::main_window() {
         d = d.set_parent(&w);
