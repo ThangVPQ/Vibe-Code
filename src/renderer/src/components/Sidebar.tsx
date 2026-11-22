@@ -62,6 +62,7 @@ import type { DirEntry, GitBranch as GitBranchInfo, GitCommit, GitCommitFile, Gi
 import { agentDef } from '../../../shared/agents'
 import { NewChatMenu } from './AgentMenu'
 import { ZaloSideGroup } from './zalo/ZaloSide'
+import { tr, useT, type T } from '../i18n'
 
 export function Sidebar(): React.JSX.Element {
   // files and git changes live in the Source code tab; the sidebar is just the chats
@@ -95,6 +96,7 @@ const normKey = (p: string): string => p.toLowerCase().replace(/[\\/]+$/, '')
 
 function ChatsView(): React.JSX.Element {
   useTick(30000)
+  const t = useT()
   // New chat lives on the + of each project (and Ctrl+Shift+N), so the list starts right away
   const disabled = !useStore((s) => !!s.claude?.found || s.agents.some((a) => a.found))
   return (
@@ -106,10 +108,10 @@ function ChatsView(): React.JSX.Element {
         <button
           className="btn btn-primary btn-block"
           disabled={disabled}
-          title="Pick (or make) a folder and start a chat in it"
+          title={t('Pick (or make) a folder and start a chat in it', 'Chọn (hoặc tạo) một thư mục và bắt đầu chat trong đó')}
           onClick={() => openFolder(null, { autoChat: true })}
         >
-          <FolderPlus size={15} /> New project
+          <FolderPlus size={15} /> {t('New project', 'Dự án mới')}
         </button>
       </div>
     </>
@@ -150,12 +152,13 @@ const RecentRow = memo(function RecentRow(props: {
   active: boolean
 }): React.JSX.Element {
   const { title, project, updated, chatId, status, attention, session, active } = props
+  const t = useT()
   return (
     <div
       className={`sess-row${active ? ' active' : ''}`}
       onClick={() => (chatId ? selectChat(chatId) : session && void openSession(session))}
       onContextMenu={(e) => chatMenu(e, { chatId, session }, 'recent')}
-      title={`${title}\n${project} · ${new Date(updated).toLocaleString()}`}
+      title={`${title}\n${project} · ${new Date(updated).toLocaleString(t('en-US', 'vi-VN'))}`}
     >
       {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
       <ChatTitle place="recent" chatId={chatId} title={title} />
@@ -179,6 +182,7 @@ function recentItems(projects: ProjectGroup[], chats: Chat[]): RecentItem[] {
 
 /** Every project + conversation from Claude Code's store — the same list the Claude app shows. */
 function ProjectsTree(): React.JSX.Element {
+  const t = useT()
   const projects = useStore((s) => s.projects)
   const root = useStore((s) => s.root)
   const chats = useStore((s) => s.chats)
@@ -257,24 +261,24 @@ function ProjectsTree(): React.JSX.Element {
     <div className="side-group">
       <SlidePill selector=".sess-row.active" className="sess-pill" />
       <div className="side-group-label">
-        Projects
-        <span className="sync-pill" title="Read live from ~/.claude/projects — the same store the Claude app uses">
+        {t('Projects', 'Dự án')}
+        <span className="sync-pill" title={t('Read live from ~/.claude/projects — the same store the Claude app uses', 'Đọc trực tiếp từ ~/.claude/projects — cùng kho dữ liệu mà ứng dụng Claude dùng')}>
           <Link2 size={10} /> Claude
         </span>
-        <button className="icon-btn tiny" title="Refresh" onClick={() => loadSessions()}>
+        <button className="icon-btn tiny" title={t('Refresh', 'Tải lại')} onClick={() => loadSessions()}>
           <RefreshCw size={12} />
         </button>
       </div>
       <div className="tree-filter">
         <Search size={12} />
-        <input placeholder="Filter chats…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
+        <input placeholder={t('Filter chats…', 'Lọc chat…')} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
       </div>
 
       {/* chats working right now or finished unread, across every project */}
       {!needle && recent.length > 0 && (
         <div className="proj recent-group">
           <div className="proj-row recent-head">
-            <span className="proj-name">Running &amp; unread</span>
+            <span className="proj-name">{t('Running & unread', 'Đang chạy & chưa đọc')}</span>
           </div>
           {recent.map((it) => (
             <RecentRow
@@ -294,7 +298,7 @@ function ProjectsTree(): React.JSX.Element {
       <ZaloSideGroup filter={q} />
       <div className="agent-groups-sep" />
 
-      {visible.length === 0 && <div className="tree-empty">{projects.length ? 'No matching chats' : 'No Claude Code history found yet.'}</div>}
+      {visible.length === 0 && <div className="tree-empty">{projects.length ? t('No matching chats', 'Không có chat nào khớp') : t('No Claude Code history found yet.', 'Chưa tìm thấy lịch sử Claude Code nào.')}</div>}
 
       {visible.map((g) => {
         const open = needle ? true : expanded.has(g.key)
@@ -307,12 +311,12 @@ function ProjectsTree(): React.JSX.Element {
             <div className={`proj-row${isRoot ? ' current' : ''}`} onClick={() => flip(setExpanded, g.key)} onContextMenu={(e) => projectMenu(e, g)} title={g.cwd}>
               <span className="proj-name">{g.name}</span>
               <ChevronRight size={13} className={`proj-chev${open ? ' open' : ''}`} />
-              {liveCount > 0 && <span className="proj-live" title={`${liveCount} open`} />}
+              {liveCount > 0 && <span className="proj-live" title={t(`${liveCount} open`, `${liveCount} đang mở`)} />}
               <span className="proj-spacer" />
               <NewChatMenu
                 className="icon-btn tiny proj-add"
                 size={14}
-                title={`New chat in ${g.name} — right-click to pick another AI`}
+                title={t(`New chat in ${g.name} — right-click to pick another AI`, `Chat mới trong ${g.name} — chuột phải để chọn AI khác`)}
                 onPick={(agent) => newChatIn(g.cwd, agent)}
               />
             </div>
@@ -336,7 +340,7 @@ function ProjectsTree(): React.JSX.Element {
             })}
             {!needle && g.sessions.length > PAGE && (
               <button className="sess-more" onClick={() => flip(setMore, g.key)}>
-                {more.has(g.key) ? 'Show less' : `Show ${g.sessions.length - PAGE} more`}
+                {more.has(g.key) ? t('Show less', 'Ẩn bớt') : t(`Show ${g.sessions.length - PAGE} more`, `Hiện thêm ${g.sessions.length - PAGE}`)}
               </button>
             )}
             </Collapse>
@@ -353,6 +357,7 @@ function ProjectsTree(): React.JSX.Element {
  */
 const SessRow = memo(function SessRow(props: { s: SessionInfo; active: boolean; status?: Chat['status']; attention?: boolean }): React.JSX.Element {
   const { s, active, status, attention } = props
+  const t = useT()
   // primitives only: this row re-renders when they change, not on every chat update
   const liveId = useStore((st) => st.chats.find((c) => c.sessionId === s.id)?.id)
   const pinned = useStore((st) => {
@@ -364,7 +369,7 @@ const SessRow = memo(function SessRow(props: { s: SessionInfo; active: boolean; 
       className={`sess-row${active ? ' active' : ''}${s.cwdExists ? '' : ' gone'}`}
       onClick={() => openSession(s)}
       onContextMenu={(e) => chatMenu(e, { session: s }, 'tree')}
-      title={`${s.title}\n${s.cwd}\nUpdated ${new Date(s.updated).toLocaleString()}`}
+      title={`${s.title}\n${s.cwd}\n${t('Updated', 'Cập nhật')} ${new Date(s.updated).toLocaleString(t('en-US', 'vi-VN'))}`}
     >
       {status ? <StatusDot status={status} attention={attention} /> : <span className="sess-bullet" />}
       <ChatTitle place="tree" chatId={liveId} title={pinned ?? s.title} />
@@ -392,26 +397,29 @@ export function chatMenu(e: React.MouseEvent, ref: { chatId?: string; session?: 
   const cwd = chat?.cwd ?? s?.cwd
   const sessionId = chat?.sessionId ?? s?.id
   openMenu(e, [
-    { label: 'Open', icon: <MessageSquare size={14} />, action: () => (chat ? selectChat(chat.id) : s && openSession(s)) },
+    { label: tr('Open', 'Mở'), icon: <MessageSquare size={14} />, action: () => (chat ? selectChat(chat.id) : s && openSession(s)) },
     chat && {
-      label: 'Rename…',
+      label: tr('Rename…', 'Đổi tên…'),
       icon: <Pencil size={14} />,
       action: () => startRename(`chat:${place}:${chat.id}`)
     },
-    chat?.status === 'exited' && { label: 'Restart', icon: <RotateCcw size={14} />, action: () => restartChat(chat.id) },
-    chat && { label: 'Close chat', icon: <X size={14} />, action: () => closeChat(chat.id) },
+    chat?.status === 'exited' && { label: tr('Restart', 'Khởi động lại'), icon: <RotateCcw size={14} />, action: () => restartChat(chat.id) },
+    chat && { label: tr('Close chat', 'Đóng chat'), icon: <X size={14} />, action: () => closeChat(chat.id) },
     'sep',
-    { label: 'Copy title', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(title) },
-    !!sessionId && { label: 'Copy session ID', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(sessionId) },
-    !!cwd && { label: 'Open folder in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.openPath(cwd) },
+    { label: tr('Copy title', 'Sao chép tiêu đề'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(title) },
+    !!sessionId && { label: tr('Copy session ID', 'Sao chép ID phiên'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(sessionId) },
+    !!cwd && { label: tr('Open folder in File Explorer', 'Mở thư mục trong File Explorer'), icon: <FolderOpen size={14} />, action: () => window.api.fs.openPath(cwd) },
     'sep',
     {
-      label: 'Delete chat…',
+      label: tr('Delete chat…', 'Xoá chat…'),
       icon: <Trash2 size={14} />,
-      hint: 'to Recycle Bin',
+      hint: tr('to Recycle Bin', 'vào Thùng rác'),
       action: async () => {
-        const working = chat?.status === 'working' ? `\n\n${agentDef(chat.agent).label} is still working — it will be stopped.` : ''
-        if (!(await window.api.ask(`Delete chat "${title}"?\nIts history goes to the Recycle Bin.${working}`))) return
+        const working =
+          chat?.status === 'working'
+            ? tr(`\n\n${agentDef(chat.agent).label} is still working — it will be stopped.`, `\n\n${agentDef(chat.agent).label} vẫn đang làm — sẽ bị dừng lại.`)
+            : ''
+        if (!(await window.api.ask(tr(`Delete chat "${title}"?\nIts history goes to the Recycle Bin.${working}`, `Xoá chat "${title}"?\nLịch sử của nó sẽ được chuyển vào Thùng rác.${working}`)))) return
         if (chat) {
           closeChat(chat.id)
           // let the process exit first, or its last write would bring the transcript back
@@ -430,24 +438,24 @@ export function chatMenu(e: React.MouseEvent, ref: { chatId?: string; session?: 
 function projectMenu(e: React.MouseEvent, g: ProjectGroup): void {
   const agent = defaultAgent()
   openMenu(e, [
-    !!agent && { label: 'New chat', icon: <Plus size={14} />, action: () => newChatIn(g.cwd, agent) },
-    { label: 'Open as workspace', icon: <FolderGit2 size={14} />, action: () => openFolder(g.cwd, { autoChat: false }) },
+    !!agent && { label: tr('New chat', 'Chat mới'), icon: <Plus size={14} />, action: () => newChatIn(g.cwd, agent) },
+    { label: tr('Open as workspace', 'Mở làm không gian làm việc'), icon: <FolderGit2 size={14} />, action: () => openFolder(g.cwd, { autoChat: false }) },
     'sep',
-    { label: 'Open folder in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.openPath(g.cwd) },
-    { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(g.cwd) }
+    { label: tr('Open folder in File Explorer', 'Mở thư mục trong File Explorer'), icon: <FolderOpen size={14} />, action: () => window.api.fs.openPath(g.cwd) },
+    { label: tr('Copy path', 'Sao chép đường dẫn'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(g.cwd) }
   ])
 }
 
 /** "now", "5m", "3h", "2d", then the date. */
-export function shortAgo(t: number): string {
-  const m = Math.floor((Date.now() - t) / 60000)
-  if (m < 1) return 'now'
+export function shortAgo(at: number, t: T): string {
+  const m = Math.floor((Date.now() - at) / 60000)
+  if (m < 1) return t('now', 'vừa xong')
   if (m < 60) return `${m}m`
   const h = Math.floor(m / 60)
   if (h < 24) return `${h}h`
   const d = Math.floor(h / 24)
   if (d < 30) return `${d}d`
-  return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  return new Date(at).toLocaleDateString(t('en-US', 'vi-VN'), { day: 'numeric', month: 'short' })
 }
 
 /** One shared clock ticking every 30 s, so "now" / "5m" labels age while they stay on screen. */
@@ -465,9 +473,10 @@ const minuteTick = (() => {
 })()
 
 /** shortAgo(t) that re-renders on its own as time passes. */
-function Ago({ t }: { t: number }): React.JSX.Element {
+function Ago({ t: at }: { t: number }): React.JSX.Element {
+  const t = useT()
   useSyncExternalStore(minuteTick.subscribe, minuteTick.get)
-  return <>{shortAgo(t)}</>
+  return <>{shortAgo(at, t)}</>
 }
 
 /* ================================ Explorer ================================ */
@@ -506,21 +515,22 @@ type OpenCtx = (e: React.MouseEvent, path: string, isDir: boolean) => void
 
 function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey: (f: (k: number) => number) => void; deco: Map<string, string> }): React.JSX.Element {
   const { root, collapseKey, setCollapseKey, deco } = props
+  const t = useT()
   // stable, so the memoized tree nodes don't all re-render with this one
   const openCtx = useCallback<OpenCtx>((e, path, isDir) => explorerMenu(e, path, isDir, root), [root])
   return (
     <>
       <SectionHeader title="Explorer">
-        <button className="icon-btn" title="New file" onClick={() => createIn(root, false)}>
+        <button className="icon-btn" title={t('New file', 'Tệp mới')} onClick={() => createIn(root, false)}>
           <FilePlus size={14} />
         </button>
-        <button className="icon-btn" title="New folder" onClick={() => createIn(root, true)}>
+        <button className="icon-btn" title={t('New folder', 'Thư mục mới')} onClick={() => createIn(root, true)}>
           <FolderPlus size={14} />
         </button>
-        <button className="icon-btn" title="Refresh" onClick={() => useStore.setState((s) => ({ fsTick: s.fsTick + 1 }))}>
+        <button className="icon-btn" title={t('Refresh', 'Tải lại')} onClick={() => useStore.setState((s) => ({ fsTick: s.fsTick + 1 }))}>
           <RefreshCw size={14} />
         </button>
-        <button className="icon-btn" title="Collapse all" onClick={() => setCollapseKey((k) => k + 1)}>
+        <button className="icon-btn" title={t('Collapse all', 'Thu gọn tất cả')} onClick={() => setCollapseKey((k) => k + 1)}>
           <ChevronsDownUp size={14} />
         </button>
       </SectionHeader>
@@ -584,7 +594,7 @@ function tabsUnder(path: string): EditorTab[] {
 /** Rename a file / folder in place; its open editor tabs follow it. */
 async function renamePath(path: string, next: string): Promise<void> {
   const open = tabsUnder(path)
-  if (open.some((t) => hasUnsaved(t.path)) && !(await window.api.ask('Unsaved changes in the open file will be lost. Rename anyway?'))) return
+  if (open.some((t) => hasUnsaved(t.path)) && !(await window.api.ask(tr('Unsaved changes in the open file will be lost. Rename anyway?', 'Các thay đổi chưa lưu trong tệp đang mở sẽ bị mất. Vẫn đổi tên?')))) return
   const to = dirOf(path) + sepOf(path) + next
   await window.api.fs.rename(path, to)
   for (const t of open) closeTab(t.id)
@@ -598,14 +608,14 @@ function explorerMenu(e: React.MouseEvent, path: string, isDir: boolean, root: s
   const name = basename(path)
   const into = isDir ? path : dirOf(path)
   openMenu(e, [
-    !isDir && { label: 'Open', icon: <FileText size={14} />, action: () => openFile(path) },
-    { label: 'New file', icon: <FilePlus size={14} />, action: () => createIn(into, false) },
-    { label: 'New folder', icon: <FolderPlus size={14} />, action: () => createIn(into, true) },
+    !isDir && { label: tr('Open', 'Mở'), icon: <FileText size={14} />, action: () => openFile(path) },
+    { label: tr('New file', 'Tệp mới'), icon: <FilePlus size={14} />, action: () => createIn(into, false) },
+    { label: tr('New folder', 'Thư mục mới'), icon: <FolderPlus size={14} />, action: () => createIn(into, true) },
     'sep',
-    !isRoot && { label: 'Cut', icon: <Scissors size={14} />, action: () => void (fileClip = { path, cut: true }) },
-    !isRoot && { label: 'Copy', icon: <Copy size={14} />, action: () => void (fileClip = { path, cut: false }) },
+    !isRoot && { label: tr('Cut', 'Cắt'), icon: <Scissors size={14} />, action: () => void (fileClip = { path, cut: true }) },
+    !isRoot && { label: tr('Copy', 'Sao chép'), icon: <Copy size={14} />, action: () => void (fileClip = { path, cut: false }) },
     {
-      label: 'Paste',
+      label: tr('Paste', 'Dán'),
       icon: <ClipboardPaste size={14} />,
       hint: fileClip ? basename(fileClip.path) : undefined,
       // what was copied here first, else files copied in Windows Explorer
@@ -618,29 +628,30 @@ function explorerMenu(e: React.MouseEvent, path: string, isDir: boolean, root: s
         else for (const p of await window.api.app.clipboardFiles()) await window.api.fs.copy(p, into)
       })
     },
-    !isRoot && { label: 'Duplicate', icon: <CopyPlus size={14} />, action: fsOp(() => window.api.fs.copy(path, dirOf(path))) },
+    !isRoot && { label: tr('Duplicate', 'Nhân bản'), icon: <CopyPlus size={14} />, action: fsOp(() => window.api.fs.copy(path, dirOf(path))) },
     'sep',
     !isRoot && {
-      label: 'Rename…',
+      label: tr('Rename…', 'Đổi tên…'),
       icon: <Pencil size={14} />,
       action: () => startRename('file:' + path)
     },
     !isRoot && {
-      label: 'Delete',
+      label: tr('Delete', 'Xoá'),
       icon: <Trash2 size={14} />,
-      hint: 'to Recycle Bin',
+      hint: tr('to Recycle Bin', 'vào Thùng rác'),
       action: fsOp(async () => {
-        if (!(await window.api.ask(`Move ${isDir ? 'folder' : 'file'} "${name}" to the Recycle Bin?`))) return
+        const ask = tr(`Move ${isDir ? 'folder' : 'file'} "${name}" to the Recycle Bin?`, `Chuyển ${isDir ? 'thư mục' : 'tệp'} "${name}" vào Thùng rác?`)
+        if (!(await window.api.ask(ask))) return
         await window.api.fs.trash(path)
         for (const t of tabsUnder(path)) closeTab(t.id)
       })
     },
     'sep',
     isDir
-      ? { label: 'Open folder in This PC', icon: <FolderOpen size={14} />, action: () => revealInApp(path, true) }
-      : { label: 'Reveal in This PC', icon: <FolderOpen size={14} />, action: () => revealInApp(path, false) },
-    { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(path) },
-    { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(rel) }
+      ? { label: tr('Open folder in This PC', 'Mở thư mục trong This PC'), icon: <FolderOpen size={14} />, action: () => revealInApp(path, true) }
+      : { label: tr('Reveal in This PC', 'Hiện trong This PC'), icon: <FolderOpen size={14} />, action: () => revealInApp(path, false) },
+    { label: tr('Copy path', 'Sao chép đường dẫn'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(path) },
+    { label: tr('Copy relative path', 'Sao chép đường dẫn tương đối'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(rel) }
   ])
 }
 
@@ -746,44 +757,49 @@ const TreeNode = memo(function TreeNode({ item, depth, deco, openCtx }: { item: 
 
 /** Discard (undo) the uncommitted changes of `files`, after asking. */
 async function discard(files: GitFile[], root: string): Promise<void> {
-  const what = files.length === 1 ? `"${files[0].rel}"` : `all ${files.length} changed files`
+  const what = files.length === 1 ? `"${files[0].rel}"` : tr(`all ${files.length} changed files`, `tất cả ${files.length} tệp đã thay đổi`)
   const gone = files.some((f) => f.status === '?' || f.status === 'A')
-  if (!(await window.api.ask(`Discard changes to ${what}?${gone ? '\nNew files will be deleted.' : ''}\nThis can't be undone.`))) return
-  if (files.some((f) => hasUnsaved(f.abs)) && !(await window.api.ask('A file with unsaved edits in the editor is included. Discard anyway?'))) return
+  const ask = tr(
+    `Discard changes to ${what}?${gone ? '\nNew files will be deleted.' : ''}\nThis can't be undone.`,
+    `Huỷ thay đổi của ${what}?${gone ? '\nCác tệp mới sẽ bị xoá.' : ''}\nKhông thể hoàn tác.`
+  )
+  if (!(await window.api.ask(ask))) return
+  if (files.some((f) => hasUnsaved(f.abs)) && !(await window.api.ask(tr('A file with unsaved edits in the editor is included. Discard anyway?', 'Có một tệp đang có chỉnh sửa chưa lưu trong trình soạn thảo. Vẫn huỷ thay đổi?')))) return
   const failed: string[] = []
   for (const f of files) await window.api.git.discard(root, f.rel, f.status).catch((err) => failed.push(`${f.rel}: ${err}`))
   refreshGit()
   useStore.setState((s) => ({ fsTick: s.fsTick + 1 }))
-  if (failed.length) window.alert(`Couldn't discard:\n${failed.join('\n')}`)
+  if (failed.length) window.alert(tr(`Couldn't discard:\n${failed.join('\n')}`, `Không huỷ thay đổi được:\n${failed.join('\n')}`))
 }
 
 /** Right-click on a changed file under Changes. */
 function changeMenu(e: React.MouseEvent, f: GitFile, root: string): void {
   const all = useStore.getState().git.files
   openMenu(e, [
-    { label: 'Open changes', icon: <FileDiff size={14} />, action: () => openDiff(f.abs, f.rel) },
-    f.status !== 'D' && { label: 'Open file', icon: <FileText size={14} />, action: () => openFile(f.abs) },
+    { label: tr('Open changes', 'Mở thay đổi'), icon: <FileDiff size={14} />, action: () => openDiff(f.abs, f.rel) },
+    f.status !== 'D' && { label: tr('Open file', 'Mở tệp'), icon: <FileText size={14} />, action: () => openFile(f.abs) },
     'sep',
-    { label: 'Discard changes', icon: <Undo2 size={14} />, action: () => discard([f], root) },
-    all.length > 1 && { label: 'Discard all changes…', icon: <Undo2 size={14} />, action: () => discard(all, root) },
+    { label: tr('Discard changes', 'Huỷ thay đổi'), icon: <Undo2 size={14} />, action: () => discard([f], root) },
+    all.length > 1 && { label: tr('Discard all changes…', 'Huỷ tất cả thay đổi…'), icon: <Undo2 size={14} />, action: () => discard(all, root) },
     'sep',
-    { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(f.abs) },
-    { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(f.rel) },
-    f.status !== 'D' && { label: 'Reveal in This PC', icon: <FolderOpen size={14} />, action: () => revealInApp(f.abs, false) }
+    { label: tr('Copy path', 'Sao chép đường dẫn'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(f.abs) },
+    { label: tr('Copy relative path', 'Sao chép đường dẫn tương đối'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(f.rel) },
+    f.status !== 'D' && { label: tr('Reveal in This PC', 'Hiện trong This PC'), icon: <FolderOpen size={14} />, action: () => revealInApp(f.abs, false) }
   ])
 }
 
-const statusName: Record<string, string> = {
-  M: 'Modified',
-  A: 'Added',
-  D: 'Deleted',
-  R: 'Renamed',
-  U: 'Conflict',
-  '?': 'Untracked',
-  C: 'Copied'
-}
+const statusName = (t: T): Record<string, string> => ({
+  M: t('Modified', 'Đã sửa'),
+  A: t('Added', 'Đã thêm'),
+  D: t('Deleted', 'Đã xoá'),
+  R: t('Renamed', 'Đã đổi tên'),
+  U: t('Conflict', 'Xung đột'),
+  '?': t('Untracked', 'Chưa theo dõi'),
+  C: t('Copied', 'Đã sao chép')
+})
 
 export function ChangesView(): React.JSX.Element {
+  const t = useT()
   const git = useStore((s) => s.git)
   const root = useStore((s) => s.root)!
   const activeTabId = useStore((s) => s.activeTabId)
@@ -792,11 +808,11 @@ export function ChangesView(): React.JSX.Element {
   if (!git.isRepo) {
     return (
       <>
-        <SectionHeader title="Changes" />
+        <SectionHeader title={t('Changes', 'Thay đổi')} />
         <div className="empty-state-small">
           <FolderGit2 size={30} strokeWidth={1.4} />
-          <h4>Not a Git repository</h4>
-          <p>Initialize Git to see exactly what Claude changes, file by file.</p>
+          <h4>{t('Not a Git repository', 'Không phải kho Git')}</h4>
+          <p>{t('Initialize Git to see exactly what Claude changes, file by file.', 'Khởi tạo Git để xem chính xác Claude thay đổi gì, từng tệp một.')}</p>
           <button
             className="btn btn-primary"
             onClick={async () => {
@@ -804,7 +820,7 @@ export function ChangesView(): React.JSX.Element {
               refreshGit()
             }}
           >
-            Initialize repository
+            {t('Initialize repository', 'Khởi tạo kho')}
           </button>
         </div>
       </>
@@ -813,15 +829,15 @@ export function ChangesView(): React.JSX.Element {
 
   return (
     <>
-      <SectionHeader title="Changes">
-        <button className="icon-btn" title="Refresh" onClick={() => refreshGit()}>
+      <SectionHeader title={t('Changes', 'Thay đổi')}>
+        <button className="icon-btn" title={t('Refresh', 'Tải lại')} onClick={() => refreshGit()}>
           <RefreshCw size={14} />
         </button>
       </SectionHeader>
       <div className="changes-summary">
         <BranchPicker root={git.root ?? root} branch={git.branch ?? ''} />
         <div className="changes-counts">
-          <span>{git.files.length} files</span>
+          <span>{t(`${git.files.length} ${git.files.length === 1 ? 'file' : 'files'}`, `${git.files.length} tệp`)}</span>
           <span className="add">+{totals.add}</span>
           <span className="del">−{totals.del}</span>
         </div>
@@ -831,7 +847,7 @@ export function ChangesView(): React.JSX.Element {
         {git.files.length === 0 && (
           <div className="empty-hint">
             <Sparkles size={18} />
-            <p>Working tree clean. Changes Claude makes will show up here instantly.</p>
+            <p>{t('Working tree clean. Changes Claude makes will show up here instantly.', 'Không có thay đổi. Những thay đổi Claude tạo ra sẽ hiện ở đây ngay lập tức.')}</p>
           </div>
         )}
         {git.files.map((f) => {
@@ -845,13 +861,17 @@ export function ChangesView(): React.JSX.Element {
               className={`change-row${active ? ' active' : ''}`}
               onClick={() => openDiff(f.abs, f.rel)}
               onContextMenu={(e) => changeMenu(e, f, git.root ?? root)}
-              title={`${statusName[f.status]} — ${f.rel}`}
+              title={`${statusName(t)[f.status]} — ${f.rel}`}
             >
               <input
                 type="checkbox"
                 className="change-stage"
                 checked={f.staged}
-                title={f.staged ? 'Staged: will be committed. Click to unstage' : 'Stage: commit only the ticked files (none ticked = commit all)'}
+                title={
+                  f.staged
+                    ? t('Staged: will be committed. Click to unstage', 'Đã stage: sẽ được commit. Bấm để unstage')
+                    : t('Stage: commit only the ticked files (none ticked = commit all)', 'Stage: chỉ commit các tệp được đánh dấu (không đánh dấu tệp nào = commit tất cả)')
+                }
                 onClick={(e) => e.stopPropagation()}
                 onChange={() => void stageFiles(git.root ?? root, [f.rel], !f.staged)}
               />
@@ -865,7 +885,7 @@ export function ChangesView(): React.JSX.Element {
               {f.status !== 'D' && (
                 <button
                   className="icon-btn change-open"
-                  title="Open file"
+                  title={t('Open file', 'Mở tệp')}
                   onClick={(e) => {
                     e.stopPropagation()
                     openFile(f.abs)
@@ -885,7 +905,7 @@ export function ChangesView(): React.JSX.Element {
 }
 
 async function stageFiles(root: string, rels: string[], stage: boolean): Promise<void> {
-  await window.api.git.stage(root, rels, stage).catch((e) => window.alert(`Couldn't ${stage ? 'stage' : 'unstage'}:\n${e}`))
+  await window.api.git.stage(root, rels, stage).catch((e) => window.alert(tr(`Couldn't ${stage ? 'stage' : 'unstage'}:\n${e}`, `Không ${stage ? 'stage' : 'unstage'} được:\n${e}`)))
   refreshGit()
 }
 
@@ -894,6 +914,7 @@ const commitDrafts = new Map<string, string>()
 
 /** Message + Commit (staged files, or all when none are staged), then Pull / Push. */
 function CommitBox({ root }: { root: string }): React.JSX.Element {
+  const t = useT()
   const git = useStore((s) => s.git)
   const [msg, setMsg] = useState(() => commitDrafts.get(root) ?? '')
   const [busy, setBusy] = useState<'commit' | 'pull' | 'push' | null>(null)
@@ -931,7 +952,7 @@ function CommitBox({ root }: { root: string }): React.JSX.Element {
       <textarea
         className="commit-msg"
         rows={2}
-        placeholder={`Message (Ctrl+Enter to commit on ${git.branch ?? 'HEAD'})`}
+        placeholder={t(`Message (Ctrl+Enter to commit on ${git.branch ?? 'HEAD'})`, `Thông điệp (Ctrl+Enter để commit lên ${git.branch ?? 'HEAD'})`)}
         value={msg}
         onChange={(e) => edit(e.target.value)}
         onKeyDown={(e) => {
@@ -945,18 +966,31 @@ function CommitBox({ root }: { root: string }): React.JSX.Element {
         <button
           className="btn btn-primary btn-sm commit-btn"
           disabled={!canCommit}
-          title={git.files.length === 0 ? 'Nothing to commit' : staged ? `Commit the ${staged} ticked file(s)` : 'Commit all changes'}
+          title={
+            git.files.length === 0
+              ? t('Nothing to commit', 'Không có gì để commit')
+              : staged
+                ? t(`Commit the ${staged} ticked ${staged === 1 ? 'file' : 'files'}`, `Commit ${staged} tệp đã đánh dấu`)
+                : t('Commit all changes', 'Commit tất cả thay đổi')
+          }
           onClick={() => void commit()}
         >
           {busy === 'commit' ? <Loader2 size={13} className="spin" /> : <Check size={13} />}
-          {staged ? `Commit ${staged} staged` : 'Commit all'}
+          {staged ? t(`Commit ${staged} staged`, `Commit ${staged} tệp đã stage`) : t('Commit all', 'Commit tất cả')}
         </button>
         {git.hasRemote && (
           <>
             <button
               className="btn btn-ghost btn-sm"
               disabled={!!busy || publish}
-              title={publish ? 'This branch is not on the remote yet' : `Pull from ${git.upstream} (fast-forward only: your local work is never merged or overwritten)`}
+              title={
+                publish
+                  ? t('This branch is not on the remote yet', 'Nhánh này chưa có trên remote')
+                  : t(
+                      `Pull from ${git.upstream} (fast-forward only: your local work is never merged or overwritten)`,
+                      `Pull từ ${git.upstream} (chỉ fast-forward: công việc cục bộ của bạn không bao giờ bị merge hay ghi đè)`
+                    )
+              }
               onClick={() => void run('pull', () => window.api.git.pull(root))}
             >
               {busy === 'pull' ? <Loader2 size={13} className="spin" /> : <ArrowDown size={13} />}
@@ -965,7 +999,13 @@ function CommitBox({ root }: { root: string }): React.JSX.Element {
             <button
               className="btn btn-ghost btn-sm"
               disabled={!!busy || (!publish && !git.ahead)}
-              title={publish ? `Publish ${git.branch} to the remote` : git.ahead ? `Push ${git.ahead} commit(s) to ${git.upstream}` : 'Nothing to push'}
+              title={
+                publish
+                  ? t(`Publish ${git.branch} to the remote`, `Publish ${git.branch} lên remote`)
+                  : git.ahead
+                    ? t(`Push ${git.ahead} ${git.ahead === 1 ? 'commit' : 'commits'} to ${git.upstream}`, `Push ${git.ahead} commit lên ${git.upstream}`)
+                    : t('Nothing to push', 'Không có gì để push')
+              }
               onClick={() => void run('push', () => window.api.git.push(root))}
             >
               {busy === 'push' ? <Loader2 size={13} className="spin" /> : publish ? <CloudUpload size={13} /> : <ArrowUp size={13} />}
@@ -981,6 +1021,7 @@ function CommitBox({ root }: { root: string }): React.JSX.Element {
 
 /** The current branch; click to switch to another one (remote-only branches get a local copy). */
 function BranchPicker({ root, branch }: { root: string; branch: string }): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [list, setList] = useState<GitBranchInfo[] | null>(null)
   const [q, setQ] = useState('')
@@ -1033,7 +1074,7 @@ function BranchPicker({ root, branch }: { root: string; branch: string }): React
 
   return (
     <div className="branch-picker" ref={ref}>
-      <button className={`changes-branch${open ? ' open' : ''}`} title="Switch branch" onClick={() => setOpen(!open)}>
+      <button className={`changes-branch${open ? ' open' : ''}`} title={t('Switch branch', 'Chuyển nhánh')} onClick={() => setOpen(!open)}>
         <GitBranch size={13} />
         <span className="branch-name">{branch}</span>
         <ChevronDown size={12} className="branch-caret" />
@@ -1043,7 +1084,7 @@ function BranchPicker({ root, branch }: { root: string; branch: string }): React
           <input
             className="branch-filter"
             autoFocus
-            placeholder="Find a branch…"
+            placeholder={t('Find a branch…', 'Tìm nhánh…')}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && shown[0] && void pick(shown[0])}
@@ -1051,10 +1092,10 @@ function BranchPicker({ root, branch }: { root: string; branch: string }): React
           <div className="branch-list">
             {!list && !error && (
               <div className="branch-note">
-                <Loader2 size={12} className="spin" /> Loading…
+                <Loader2 size={12} className="spin" /> {t('Loading…', 'Đang tải…')}
               </div>
             )}
-            {list && !shown.length && <div className="branch-note">No branch matches.</div>}
+            {list && !shown.length && <div className="branch-note">{t('No branch matches.', 'Không có nhánh nào khớp.')}</div>}
             {shown.map((b) => (
               <button
                 key={(b.remote ? 'r:' : 'l:') + b.name}
@@ -1062,7 +1103,7 @@ function BranchPicker({ root, branch }: { root: string; branch: string }): React
                 aria-checked={b.current}
                 className={`branch-item${b.current ? ' on' : ''}`}
                 disabled={!!busy}
-                title={b.remote ? `Check out ${b.name} as a local branch` : `Switch to ${b.name}`}
+                title={b.remote ? t(`Check out ${b.name} as a local branch`, `Check out ${b.name} thành nhánh cục bộ`) : t(`Switch to ${b.name}`, `Chuyển sang ${b.name}`)}
                 onClick={() => void pick(b)}
               >
                 {busy === b.name ? <Loader2 size={13} className="spin" /> : <Check size={13} className="branch-check" />}
@@ -1082,6 +1123,7 @@ function BranchPicker({ root, branch }: { root: string; branch: string }): React
 
 /** Commits on the current branch, newest first; click one to see the files it touched. */
 function HistoryList(): React.JSX.Element | null {
+  const t = useT()
   const gitRoot = useStore((s) => s.git.root)
   const branch = useStore((s) => s.git.branch)
   const [commits, setCommits] = useState<GitCommit[] | null>(null)
@@ -1114,8 +1156,8 @@ function HistoryList(): React.JSX.Element | null {
   if (!gitRoot || !commits) return null
   return (
     <>
-      <SectionHeader title={`History${commits.length ? ` · ${commits.length}` : ''}`} />
-      {commits.length === 0 && <div className="history-empty">No commits yet.</div>}
+      <SectionHeader title={`${t('History', 'Lịch sử')}${commits.length ? ` · ${commits.length}` : ''}`} />
+      {commits.length === 0 && <div className="history-empty">{t('No commits yet.', 'Chưa có commit nào.')}</div>}
       {commits.map((c) => (
         <CommitRow key={c.hash} commit={c} gitRoot={gitRoot} open={open === c.hash} toggle={() => setOpen((o) => (o === c.hash ? null : c.hash))} />
       ))}
@@ -1124,6 +1166,7 @@ function HistoryList(): React.JSX.Element | null {
 }
 
 function CommitRow({ commit, gitRoot, open, toggle }: { commit: GitCommit; gitRoot: string; open: boolean; toggle: () => void }): React.JSX.Element {
+  const t = useT()
   const [files, setFiles] = useState<GitCommitFile[] | null>(null)
   const activeTabId = useStore((s) => s.activeTabId)
   useEffect(() => {
@@ -1140,7 +1183,7 @@ function CommitRow({ commit, gitRoot, open, toggle }: { commit: GitCommit; gitRo
       <div
         className={`commit-row${open ? ' open' : ''}`}
         onClick={toggle}
-        title={`${commit.subject}\n${commit.short} · ${commit.author} · ${new Date(commit.date).toLocaleString()}`}
+        title={`${commit.subject}\n${commit.short} · ${commit.author} · ${new Date(commit.date).toLocaleString(t('en-US', 'vi-VN'))}`}
       >
         <ChevronRight size={12} className={`chev${open ? ' open' : ''}`} />
         <GitCommitHorizontal size={13} className="commit-icon" />
@@ -1152,7 +1195,7 @@ function CommitRow({ commit, gitRoot, open, toggle }: { commit: GitCommit; gitRo
         </div>
       </div>
       {open && !files && <div className="tree-loading" />}
-      {open && files?.length === 0 && <div className="history-empty">No file changes.</div>}
+      {open && files?.length === 0 && <div className="history-empty">{t('No file changes.', 'Không có thay đổi tệp nào.')}</div>}
       {open &&
         files?.map((f) => {
           const name = f.rel.split('/').pop()!
@@ -1163,7 +1206,7 @@ function CommitRow({ commit, gitRoot, open, toggle }: { commit: GitCommit; gitRo
               key={f.rel}
               className={`change-row commit-file${active ? ' active' : ''}`}
               onClick={() => openCommitDiff(gitRoot, commit, f.rel)}
-              title={`${statusName[f.status]} — ${f.rel}`}
+              title={`${statusName(t)[f.status]} — ${f.rel}`}
             >
               <FileIcon name={name} />
               <span className={`change-name${f.status === 'D' ? ' deleted' : ''}`}>{name}</span>

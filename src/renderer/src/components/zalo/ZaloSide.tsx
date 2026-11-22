@@ -5,6 +5,7 @@ import { useStore } from '../../store'
 import { Collapse } from '../motion'
 import { Avatar } from './Avatar'
 import { listTime } from './util'
+import { useT } from '../../i18n'
 
 const KEY = 'side.zaloOpen'
 const ORDER: Record<ZaloTask['status'], number> = { todo: 0, doing: 1, done: 2 }
@@ -14,6 +15,7 @@ const ORDER: Record<ZaloTask['status'], number> = { todo: 0, doing: 1, done: 2 }
  * Click a task → the Zalo tab. Hidden until Zalo is logged in or there are tasks.
  */
 export function ZaloSideGroup({ filter }: { filter: string }): React.JSX.Element | null {
+  const t = useT()
   const [s, setS] = useState<ZaloTasksState>({ tasks: [], running: false, analyzedAt: 0 })
   const [online, setOnline] = useState(false)
   const [open, setOpen] = useState(() => {
@@ -64,19 +66,19 @@ export function ZaloSideGroup({ filter }: { filter: string }): React.JSX.Element
 
   return (
     <div className="proj agent-group zs-group">
-      <div className="proj-row" onClick={toggle} title="Việc của tôi trên Zalo">
+      <div className="proj-row" onClick={toggle} title={t('My tasks on Zalo', 'Việc của tôi trên Zalo')}>
         <span className="proj-name">Zalo</span>
         <ChevronRight size={13} className={`proj-chev${show ? ' open' : ''}`} />
-        {s.running && <span className="proj-live" title="Claude đang đọc tin nhắn" />}
+        {s.running && <span className="proj-live" title={t('Claude is reading messages', 'Claude đang đọc tin nhắn')} />}
         <span className="proj-spacer" />
         {pending > 0 && (
-          <span className="zs-count" title={`${pending} việc chưa xong`}>
+          <span className="zs-count" title={t(`${pending} unfinished ${pending === 1 ? 'task' : 'tasks'}`, `${pending} việc chưa xong`)}>
             {pending > 99 ? '99+' : pending}
           </span>
         )}
         <button
           className="icon-btn tiny proj-add"
-          title="Mở Việc của tôi"
+          title={t('Open My tasks', 'Mở Việc của tôi')}
           onClick={(e) => {
             e.stopPropagation()
             goto()
@@ -86,21 +88,21 @@ export function ZaloSideGroup({ filter }: { filter: string }): React.JSX.Element
         </button>
       </div>
       <Collapse open={show}>
-        {rows.length === 0 && <div className="sess-empty">Không có việc nào chưa xong</div>}
-        {rows.map((t) => (
+        {rows.length === 0 && <div className="sess-empty">{t('No unfinished tasks', 'Không có việc nào chưa xong')}</div>}
+        {rows.map((task) => (
           <div
-            key={t.id}
-            className={`sess-row zs-row ${t.status}`}
+            key={task.id}
+            className={`sess-row zs-row ${task.status}`}
             onClick={goto}
-            title={`${t.title}\n${t.group ? `${t.threadName} · ` : ''}${t.from} · ${t.status === 'todo' ? 'Cần làm' : 'Đang xử lý'}`}
+            title={`${task.title}\n${task.group ? `${task.threadName} · ` : ''}${task.from} · ${task.status === 'todo' ? t('To do', 'Cần làm') : t('In progress', 'Đang xử lý')}`}
           >
             <span className="zs-av">
-              <Avatar id={t.fromId ?? t.threadId} name={t.from} src={t.avatar} size={18} />
+              <Avatar id={task.fromId ?? task.threadId} name={task.from} src={task.avatar} size={18} />
               <i className="zs-dot" />
             </span>
-            <span className="sess-title">{t.title}</span>
-            {s.unseen?.[t.id] && <span className="zs-new" title={s.unseen[t.id] === 'new' ? 'Việc mới' : 'Vừa cập nhật'} />}
-            <span className="sess-time">{listTime(t.ts)}</span>
+            <span className="sess-title">{task.title}</span>
+            {s.unseen?.[task.id] && <span className="zs-new" title={s.unseen[task.id] === 'new' ? t('New task', 'Việc mới') : t('Just updated', 'Vừa cập nhật')} />}
+            <span className="sess-time">{listTime(task.ts, t)}</span>
           </div>
         ))}
       </Collapse>

@@ -6,11 +6,13 @@ import { listTime } from './util'
 import { Avatar } from './Avatar'
 import { basename, useStore } from '../../store'
 import { newChatFromZaloTask } from '../../actions'
+import { tr, useT } from '../../i18n'
+import type { T } from '../../i18n'
 
-const SECTIONS: { key: ZaloTask['status']; label: string }[] = [
-  { key: 'todo', label: 'Cần làm' },
-  { key: 'doing', label: 'Đang xử lý' },
-  { key: 'done', label: 'Hoàn thành' }
+const SECTIONS = (t: T): { key: ZaloTask['status']; label: string }[] => [
+  { key: 'todo', label: t('To do', 'Cần làm') },
+  { key: 'doing', label: t('In progress', 'Đang xử lý') },
+  { key: 'done', label: t('Done', 'Hoàn thành') }
 ]
 const NEXT: Record<ZaloTask['status'], ZaloTask['status']> = { todo: 'doing', doing: 'done', done: 'todo' }
 
@@ -19,6 +21,7 @@ const NEXT: Record<ZaloTask['status'], ZaloTask['status']> = { todo: 'doing', do
  * Replies are sent from the phone — my own messages sync back and move items to doing/done.
  */
 export function ZaloTasks(): React.JSX.Element {
+  const t = useT()
   const [s, setS] = useState<ZaloTasksState>({ tasks: [], running: false, analyzedAt: 0 })
   const [showDone, setShowDone] = useState(false)
   const [menu, setMenu] = useState<{ t: ZaloTask; x: number; y: number } | null>(null)
@@ -30,7 +33,7 @@ export function ZaloTasks(): React.JSX.Element {
       await newChatFromZaloTask(t.id, t.title, cwd)
       if (t.status === 'todo') void window.api.zalo.setTaskStatus(t.id, 'doing')
     } catch (e) {
-      window.alert('Không tạo được chat: ' + (e instanceof Error ? e.message : String(e)))
+      window.alert(tr('Could not create the chat: ', 'Không tạo được chat: ') +(e instanceof Error ? e.message : String(e)))
     } finally {
       setPreparing(null)
     }
@@ -80,7 +83,7 @@ export function ZaloTasks(): React.JSX.Element {
     }
   }, [])
 
-  const groups = useMemo(() => Object.fromEntries(SECTIONS.map((x) => [x.key, s.tasks.filter((t) => t.status === x.key)])) as Record<ZaloTask['status'], ZaloTask[]>, [s.tasks])
+  const groups = useMemo(() => Object.fromEntries(SECTIONS(t).map((x) => [x.key, s.tasks.filter((t) => t.status === x.key)])) as Record<ZaloTask['status'], ZaloTask[]>, [s.tasks, t])
   const pending = groups.todo.length + groups.doing.length
 
   return (
@@ -88,19 +91,26 @@ export function ZaloTasks(): React.JSX.Element {
       <div className="zt-head">
         <ClipboardList size={18} className="zt-head-icon" />
         <div>
-          <div className="zt-title">Việc của tôi</div>
+          <div className="zt-title">{t('My tasks', 'Việc của tôi')}</div>
           <div className="zt-sub">
-            {s.running ? 'Claude đang đọc tin nhắn…' : s.analyzedAt ? `${pending} việc chưa xong · cập nhật ${listTime(s.analyzedAt)}` : 'Chưa phân tích'}
+            {s.running
+              ? t('Claude is reading messages…', 'Claude đang đọc tin nhắn…')
+              : s.analyzedAt
+                ? t(
+                    `${pending} unfinished ${pending === 1 ? 'task' : 'tasks'} · updated ${listTime(s.analyzedAt, t)}`,
+                    `${pending} việc chưa xong · cập nhật ${listTime(s.analyzedAt, t)}`
+                  )
+                : t('Not analyzed yet', 'Chưa phân tích')}
           </div>
         </div>
-        <button className="zl-icon" title="Claude đọc lại tin nhắn" disabled={s.running} onClick={() => void window.api.zalo.analyzeTasks()}>
+        <button className="zl-icon" title={t('Have Claude re-read messages', 'Claude đọc lại tin nhắn')} disabled={s.running} onClick={() => void window.api.zalo.analyzeTasks()}>
           <RefreshCw size={16} className={s.running ? 'zl-spin' : undefined} />
         </button>
       </div>
       {s.error && <div className="zt-error">{s.error}</div>}
       {preparing && (
         <div className="zt-prep">
-          <Loader2 size={13} className="zl-spin" /> Đang lấy đoạn chat, ảnh và tệp cho chat mới: {preparing}
+          <Loader2 size={13} className="zl-spin" /> {t('Fetching the conversation, photos and files for the new chat:', 'Đang lấy đoạn chat, ảnh và tệp cho chat mới:')} {preparing}
         </div>
       )}
       {!!s.incoming?.length && <Incoming list={s.incoming} running={s.running} dueAt={s.dueAt} />}
@@ -108,10 +118,12 @@ export function ZaloTasks(): React.JSX.Element {
         {s.tasks.length === 0 && !s.incoming?.length && (
           <div className="zt-empty">
             {s.running ? <Loader2 size={18} className="zl-spin" /> : <Sparkles size={18} />}
-            {s.running ? 'Đang tìm việc trong tin nhắn cá nhân và nhóm có @ bạn…' : 'Không có việc nào. Tin nhắn cá nhân và nhóm @ bạn sẽ được tóm tắt vào đây.'}
+            {s.running
+              ? t('Looking for tasks in direct messages and groups that @mention you…', 'Đang tìm việc trong tin nhắn cá nhân và nhóm có @ bạn…')
+              : t('No tasks. Direct messages and group messages that @mention you will be summed up here.', 'Không có việc nào. Tin nhắn cá nhân và nhóm @ bạn sẽ được tóm tắt vào đây.')}
           </div>
         )}
-        {SECTIONS.map(({ key, label }) => {
+        {SECTIONS(t).map(({ key, label }) => {
           const list = groups[key]
           if (!list.length) return null
           const folded = key === 'done' && !showDone
@@ -128,7 +140,12 @@ export function ZaloTasks(): React.JSX.Element {
           )
         })}
       </div>
-      <div className="zt-foot">Trả lời trên Zalo điện thoại — tin của bạn đồng bộ về và việc tự chuyển trạng thái. Chuột phải vào việc để đổi trạng thái hoặc tạo chat.</div>
+      <div className="zt-foot">
+        {t(
+          'Reply in Zalo on your phone — your messages sync back and tasks change status by themselves. Right-click a task to change its status or create a chat.',
+          'Trả lời trên Zalo điện thoại — tin của bạn đồng bộ về và việc tự chuyển trạng thái. Chuột phải vào việc để đổi trạng thái hoặc tạo chat.'
+        )}
+      </div>
       {menu && <TaskMenu {...menu} onClose={() => setMenu(null)} onChat={(cwd) => void startChat(menu.t, cwd)} />}
     </div>
   )
@@ -136,6 +153,7 @@ export function ZaloTasks(): React.JSX.Element {
 
 /** New messages to me being turned into tasks: who sent what, with an indeterminate progress bar. */
 function Incoming({ list, running, dueAt }: { list: ZaloIncoming[]; running: boolean; dueAt?: number }): React.JSX.Element {
+  const t = useT()
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (!dueAt) return
@@ -148,10 +166,13 @@ function Incoming({ list, running, dueAt }: { list: ZaloIncoming[]; running: boo
       <div className="zt-inc-h">
         <Loader2 size={13} className="zl-spin" />
         {running
-          ? `Claude đang tạo công việc từ ${list.length} tin nhắn…`
+          ? t(`Claude is creating tasks from ${list.length} ${list.length === 1 ? 'message' : 'messages'}…`, `Claude đang tạo công việc từ ${list.length} tin nhắn…`)
           : left > 0
-            ? `Đang gom ${list.length} tin nhắn — gửi AI sau ${left}s nếu không có tin mới`
-            : 'Đang chờ tạo công việc…'}
+            ? t(
+                `Collecting ${list.length} ${list.length === 1 ? 'message' : 'messages'} — sending to the AI in ${left}s if no new ones arrive`,
+                `Đang gom ${list.length} tin nhắn — gửi AI sau ${left}s nếu không có tin mới`
+              )
+            : t('Waiting to create tasks…', 'Đang chờ tạo công việc…')}
       </div>
       {list.slice(-3).map((m) => (
         <div key={m.msgId} className="zt-inc-row">
@@ -165,7 +186,7 @@ function Incoming({ list, running, dueAt }: { list: ZaloIncoming[]; running: boo
           </div>
         </div>
       ))}
-      {list.length > 3 && <div className="zt-inc-more">+{list.length - 3} tin khác</div>}
+      {list.length > 3 && <div className="zt-inc-more">{t(`+${list.length - 3} more`, `+${list.length - 3} tin khác`)}</div>}
       <div className="zt-progress">
         <i />
       </div>
@@ -174,6 +195,7 @@ function Incoming({ list, running, dueAt }: { list: ZaloIncoming[]; running: boo
 }
 
 function Row({ t, tag, onMenu }: { t: ZaloTask; tag?: 'new' | 'updated'; onMenu: (x: number, y: number) => void }): React.JSX.Element {
+  const tl = useT()
   return (
     <div
       className={'zt-row ' + t.status + (tag ? ' fresh' : '')}
@@ -186,7 +208,7 @@ function Row({ t, tag, onMenu }: { t: ZaloTask; tag?: 'new' | 'updated'; onMenu:
     >
       <button
         className="zt-check"
-        title={t.status === 'todo' ? 'Đánh dấu đang xử lý' : t.status === 'doing' ? 'Đánh dấu hoàn thành' : 'Mở lại'}
+        title={t.status === 'todo' ? tl('Mark as in progress', 'Đánh dấu đang xử lý') : t.status === 'doing' ? tl('Mark as done', 'Đánh dấu hoàn thành') : tl('Reopen', 'Mở lại')}
         onClick={() => void window.api.zalo.setTaskStatus(t.id, NEXT[t.status])}
       >
         {t.status === 'done' ? <Check size={13} /> : t.status === 'doing' ? <CircleDot size={13} /> : null}
@@ -197,15 +219,15 @@ function Row({ t, tag, onMenu }: { t: ZaloTask; tag?: 'new' | 'updated'; onMenu:
         {t.detail && <span className="zt-row-detail">{t.detail}</span>}
         <span className="zt-row-meta">
           {t.group && <Users size={11} />}
-          {t.group ? `${t.threadName} · ${t.from}` : t.from} · {listTime(t.ts)}
-          {t.manual && <span className="zt-manual">· đặt tay</span>}
-          {tag === 'new' && <span className="zt-new">mới</span>}
-          {tag === 'updated' && <span className="zt-new upd">cập nhật</span>}
+          {t.group ? `${t.threadName} · ${t.from}` : t.from} · {listTime(t.ts, tl)}
+          {t.manual && <span className="zt-manual">{tl('· set by hand', '· đặt tay')}</span>}
+          {tag === 'new' && <span className="zt-new">{tl('new', 'mới')}</span>}
+          {tag === 'updated' && <span className="zt-new upd">{tl('updated', 'cập nhật')}</span>}
         </span>
       </div>
       <button
         className="zt-more"
-        title="Tuỳ chọn: trạng thái, mở chat code…"
+        title={tl('Options: status, open a code chat…', 'Tuỳ chọn: trạng thái, mở chat code…')}
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
           onMenu(r.right - 4, r.bottom + 4)
@@ -213,17 +235,17 @@ function Row({ t, tag, onMenu }: { t: ZaloTask; tag?: 'new' | 'updated'; onMenu:
       >
         <Ellipsis size={15} />
       </button>
-      <button className="zt-del" title="Xoá khỏi danh sách" onClick={() => void window.api.zalo.removeTask(t.id)}>
+      <button className="zt-del" title={tl('Remove from the list', 'Xoá khỏi danh sách')} onClick={() => void window.api.zalo.removeTask(t.id)}>
         <Trash2 size={13} />
       </button>
     </div>
   )
 }
 
-const STATUS_ITEMS: { key: ZaloTask['status']; label: string; icon: React.JSX.Element }[] = [
-  { key: 'todo', label: 'Cần làm', icon: <Circle size={16} /> },
-  { key: 'doing', label: 'Đang xử lý', icon: <CircleDot size={16} /> },
-  { key: 'done', label: 'Hoàn thành', icon: <CircleCheck size={16} /> }
+const STATUS_ITEMS = (tl: T): { key: ZaloTask['status']; label: string; icon: React.JSX.Element }[] => [
+  { key: 'todo', label: tl('To do', 'Cần làm'), icon: <Circle size={16} /> },
+  { key: 'doing', label: tl('In progress', 'Đang xử lý'), icon: <CircleDot size={16} /> },
+  { key: 'done', label: tl('Done', 'Hoàn thành'), icon: <CircleCheck size={16} /> }
 ]
 
 /**
@@ -231,6 +253,7 @@ const STATUS_ITEMS: { key: ZaloTask['status']; label: string; icon: React.JSX.El
  * Without `t` (the Gmail tab) it opens straight on the project picker.
  */
 export function TaskMenu({ t, x, y, onClose, onChat }: { t?: ZaloTask; x: number; y: number; onClose: () => void; onChat: (cwd: string | null) => void }): React.JSX.Element {
+  const tl = useT()
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
   const [pick, setPick] = useState(!t)
@@ -290,29 +313,29 @@ export function TaskMenu({ t, x, y, onClose, onChat }: { t?: ZaloTask; x: number
         <div className="zl-ctx-list">
           {!pick && t ? (
             <>
-              {STATUS_ITEMS.map((it) => (
+              {STATUS_ITEMS(tl).map((it) => (
                 <button key={it.key} className={t.status === it.key ? 'on' : ''} onClick={run(() => void window.api.zalo.setTaskStatus(t.id, it.key))}>
-                  {it.icon} {it.key === 'done' && t.status !== 'done' ? 'Đánh dấu hoàn thành' : it.label}
+                  {it.icon} {it.key === 'done' && t.status !== 'done' ? tl('Mark as done', 'Đánh dấu hoàn thành') : it.label}
                   {t.status === it.key && <Check size={14} className="zt-ctx-tick" />}
                 </button>
               ))}
               <div className="zt-ctx-sep" />
               <button onClick={() => setPick(true)}>
-                <MessageSquarePlus size={16} /> Tạo chat mới từ việc này…
+                <MessageSquarePlus size={16} /> {tl('New chat from this task…', 'Tạo chat mới từ việc này…')}
               </button>
               <div className="zt-ctx-sep" />
               <button className="danger" onClick={run(() => void window.api.zalo.removeTask(t.id))}>
-                <Trash2 size={16} /> Xoá khỏi danh sách
+                <Trash2 size={16} /> {tl('Remove from the list', 'Xoá khỏi danh sách')}
               </button>
             </>
           ) : (
             <>
-              <div className="zt-ctx-h">Chọn project cho chat mới ({folders.length})</div>
+              <div className="zt-ctx-h">{tl(`Choose a project for the new chat (${folders.length})`, `Chọn project cho chat mới (${folders.length})`)}</div>
               <div className="zt-ctx-search">
                 <Search size={14} />
                 <input
                   autoFocus
-                  placeholder="Tìm project…"
+                  placeholder={tl('Search projects…', 'Tìm project…')}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={(e) => {
@@ -337,11 +360,11 @@ export function TaskMenu({ t, x, y, onClose, onChat }: { t?: ZaloTask; x: number
                     <span className="zt-ctx-path">{f}</span>
                   </button>
                 ))}
-                {shown.length === 0 && <div className="zt-ctx-empty">Không có project nào khớp</div>}
+                {shown.length === 0 && <div className="zt-ctx-empty">{tl('No matching projects', 'Không có project nào khớp')}</div>}
               </div>
               <div className="zt-ctx-sep" />
               <button onClick={run(() => onChat(null))}>
-                <FolderOpen size={16} /> Chọn thư mục khác…
+                <FolderOpen size={16} /> {tl('Choose another folder…', 'Chọn thư mục khác…')}
               </button>
             </>
           )}

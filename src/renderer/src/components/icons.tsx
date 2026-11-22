@@ -16,6 +16,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import type { ChatStatus } from '../store'
+import type { T } from '../i18n'
 
 const byExt: Record<string, [LucideIcon, string]> = {
   ts: [FileCode2, '#4f9cf9'],
@@ -104,6 +105,7 @@ export function Logo({ size = 22 }: { size?: number }): React.JSX.Element {
   )
 }
 
+/** @deprecated English only: use statusText(status, t). Kept until every caller has moved over. */
 export const statusLabel: Record<ChatStatus, string> = {
   starting: 'Starting…',
   working: 'Working',
@@ -111,12 +113,25 @@ export const statusLabel: Record<ChatStatus, string> = {
   exited: 'Ended'
 }
 
-export function timeAgo(t: number): string {
-  const s = Math.floor((Date.now() - t) / 1000)
-  if (s < 60) return 'just now'
+export function statusText(status: ChatStatus, t: T): string {
+  switch (status) {
+    case 'starting':
+      return t('Starting…', 'Đang khởi động…')
+    case 'working':
+      return t('Working', 'Đang làm việc')
+    case 'idle':
+      return t('Waiting for you', 'Đang chờ bạn')
+    case 'exited':
+      return t('Ended', 'Đã kết thúc')
+  }
+}
+
+export function timeAgo(time: number, t: T): string {
+  const s = Math.floor((Date.now() - time) / 1000)
+  if (s < 60) return t('just now', 'vừa xong')
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ago`
+  if (m < 60) return t(`${m}m ago`, `${m} phút trước`)
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
+  if (h < 24) return t(`${h}h ago`, `${h} giờ trước`)
+  return t(`${Math.floor(h / 24)}d ago`, `${Math.floor(h / 24)} ngày trước`)
 }

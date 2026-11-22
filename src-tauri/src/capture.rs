@@ -19,6 +19,7 @@ use tauri::{
 use tauri_plugin_dialog::DialogExt;
 
 use crate::core::{Res, app, emit, err, main_window, now_ms};
+use crate::settings::tr;
 
 const LABEL: &str = "capture";
 /// Global shortcut that starts a capture.
@@ -37,7 +38,7 @@ fn register_protocol() -> bool {
             .register_uri_scheme_protocol("capture", |_ctx, _req| {
                 tauri::http::Response::builder()
                     .header("Content-Type", "text/html; charset=utf-8")
-                    .body(PAGE.as_bytes().to_vec())
+                    .body(PAGE.replacen("__LANG__", tr("en", "vi"), 1).into_bytes())
                     .expect("static response")
             })
             .build();
@@ -75,13 +76,13 @@ pub async fn capture_start(hide: bool) -> Res<()> {
         })
         .or(monitors.first())
         .cloned()
-        .ok_or_else(|| err("no monitor"))?;
+        .ok_or_else(|| err(tr("no monitor", "không tìm thấy màn hình")))?;
     let (pos, size) = (*monitor.position(), *monitor.size());
 
     let grabbed = tokio::task::spawn_blocking(move || grab(pos.x, pos.y, size.width, size.height)).await?;
     let Some(pixels) = grabbed else {
         restore(false);
-        return Err(err("could not capture the screen"));
+        return Err(err(tr("could not capture the screen", "không chụp được màn hình")));
     };
     *FRAME.lock() = Some((size.width, size.height, pixels));
 
@@ -89,7 +90,7 @@ pub async fn capture_start(hide: bool) -> Res<()> {
     let built = WebviewWindowBuilder::new(app(), LABEL, WebviewUrl::CustomProtocol(url))
         // same WebView2 environment options as the main window (see windowing.rs)
         .browser_extensions_enabled(true)
-        .title("VIBE CODE capture")
+        .title(tr("VIBE CODE capture", "VIBE CODE chụp màn hình"))
         .visible(false)
         .decorations(false)
         .resizable(false)
@@ -150,8 +151,8 @@ pub async fn capture_done(request: Request<'_>) -> Res<()> {
     let png = png.clone();
     close();
     if action == "save" {
-        let name = format!("Screenshot {}.png", chrono::Local::now().format("%Y-%m-%d %H%M%S"));
-        let picked = app().dialog().file().set_file_name(name).add_filter("PNG image", &["png"]).blocking_save_file();
+        let name = format!("{} {}.png", tr("Screenshot", "Ảnh chụp màn hình"), chrono::Local::now().format("%Y-%m-%d %H%M%S"));
+        let picked = app().dialog().file().set_file_name(name).add_filter(tr("PNG image", "Ảnh PNG"), &["png"]).blocking_save_file();
         if let Some(path) = picked.and_then(|p| p.into_path().ok()) {
             tokio::fs::write(path, &png).await?;
         }

@@ -1,6 +1,7 @@
 import { monaco, languageFor } from './monaco'
 import { fileUri, useStore } from './store'
 import { registerFileModels } from './fileModelsLite'
+import { tr } from './i18n'
 
 /** alternativeVersionId of each model at its last load/save — anything else means "dirty". */
 const saved = new Map<string, number>()
@@ -14,8 +15,8 @@ export async function ensureModel(path: string): Promise<{ model: monaco.editor.
   if (existing) return { model: existing }
   const r = await window.api.fs.readFile(path).catch((e: Error) => ({ error: e.message }) as const)
   if ('error' in r) return { model: null, error: r.error }
-  if (r.binary) return { model: null, error: 'This file is binary and cannot be displayed.' }
-  if (r.tooLarge) return { model: null, error: 'This file is larger than 8 MB.' }
+  if (r.binary) return { model: null, error: tr('This file is binary and cannot be displayed.', 'Tệp này là tệp nhị phân, không hiển thị được.') }
+  if (r.tooLarge) return { model: null, error: tr('This file is larger than 8 MB.', 'Tệp này lớn hơn 8 MB.') }
   const again = getModel(path)
   if (again) return { model: again }
   const model = monaco.editor.createModel(r.content, languageFor(path), monaco.Uri.parse(fileUri(path)))

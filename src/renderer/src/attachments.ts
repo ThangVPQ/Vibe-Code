@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { tr } from './i18n'
 
 /**
  * Files waiting to go out with a chat's next message. They sit in a tray above the chat bar (thumbnails
@@ -125,7 +126,7 @@ export async function attachBlob(chatId: string, blob: Blob): Promise<void> {
     {
       key: `a${++seq}`,
       path,
-      name: `Pasted image.${ext}`,
+      name: `${tr('Pasted image', 'Ảnh đã dán')}.${ext}`,
       size: blob.size,
       dir: false,
       image: true,

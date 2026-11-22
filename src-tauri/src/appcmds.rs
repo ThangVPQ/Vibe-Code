@@ -52,9 +52,9 @@ async fn fetch_usage() -> anyhow::Result<Vec<UsageLimit>> {
         .map(|l| {
             let kind = l["kind"].as_str().unwrap_or_default().to_owned();
             let label = match kind.as_str() {
-                "session" => "5-hour".to_owned(),
-                "weekly_all" => "Weekly".to_owned(),
-                _ => format!("Weekly · {}", l.pointer("/scope/model/display_name").and_then(Value::as_str).unwrap_or("model")),
+                "session" => settings::tr("5-hour", "5 giờ").to_owned(),
+                "weekly_all" => settings::tr("Weekly", "Tuần").to_owned(),
+                _ => format!("{} · {}", settings::tr("Weekly", "Tuần"), l.pointer("/scope/model/display_name").and_then(Value::as_str).unwrap_or("model")),
             };
             UsageLimit {
                 kind,
@@ -146,11 +146,12 @@ pub async fn app_remember_folder(folder: String) -> Res<AppSettings> {
 
 #[tauri::command]
 pub async fn app_set_settings(patch: Map<String, Value>) -> Res<AppSettings> {
-    const ALLOWED: [&str; 9] = ["theme", "dropOpacity", "dropHeight", "hideOnBlur", "model", "effort", "permissionMode", "seeThrough", "adBlock"];
+    const ALLOWED: [&str; 10] = ["theme", "dropOpacity", "dropHeight", "hideOnBlur", "model", "effort", "permissionMode", "seeThrough", "adBlock", "language"];
     let clean: Map<String, Value> = patch.into_iter().filter(|(k, _)| ALLOWED.contains(&k.as_str())).collect();
-    let drop_prefs = ["dropOpacity", "dropHeight", "hideOnBlur"].iter().any(|k| clean.contains_key(*k));
+    let drop_prefs = ["dropOpacity", "dropHeight", "hideOnBlur", "language"].iter().any(|k| clean.contains_key(*k));
     let ad_block = clean.contains_key("adBlock");
     let s = settings::update(clean).await;
+    // the tray menu is rebuilt there too, so a new language shows up in it
     if drop_prefs {
         crate::windowing::apply_drop_prefs();
     }
@@ -175,7 +176,7 @@ pub async fn app_pick_folder() -> Res<Option<String>> {
 /// Chat "Attach files": Claude Code reads files by path, so only the chosen paths come back.
 #[tauri::command]
 pub async fn app_pick_files(default_path: Option<String>) -> Res<Vec<String>> {
-    let mut d = app().dialog().file().set_title("Attach files to the chat");
+    let mut d = app().dialog().file().set_title(settings::tr("Attach files to the chat", "Đính kèm tệp vào chat"));
     if let Some(p) = default_path.filter(|p| !p.is_empty()) {
         d = d.set_directory(p);
     }
@@ -296,7 +297,7 @@ pub async fn app_check_update() -> Res<Option<Value>> {
 /// Downloads the newest installer, runs it in passive update mode (it restarts the app) and quits.
 #[tauri::command]
 pub async fn app_install_update() -> Res<()> {
-    let (version, url, _) = newer_release().await?.ok_or_else(|| err("already up to date"))?;
+    let (version, url, _) = newer_release().await?.ok_or_else(|| err(settings::tr("already up to date", "đã là bản mới nhất")))?;
     let bytes = reqwest::Client::new().get(&url).header("User-Agent", "vibe-code").send().await?.error_for_status()?.bytes().await?;
     let path = std::env::temp_dir().join(format!("vibe-code_{version}_setup.exe"));
     tokio::fs::write(&path, &bytes).await?;

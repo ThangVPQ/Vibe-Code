@@ -6,6 +6,7 @@ import './pdf-textlayer.css'
 import type { OfficeRequest } from '../../../shared/types'
 import { newChatFromOfficeFile } from '../actions'
 import { FileTabs, type Workspace, type WorkspaceProps, errText, fileName, findOpen, samePath } from './officeShared'
+import { tr, useT } from '../i18n'
 
 GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -52,7 +53,11 @@ export const PdfWorkspace = forwardRef<Workspace, WorkspaceProps>(function PdfWo
     }
     const bytes = await window.api.office.readFile(path)
     const doc = await getDocument({ data: new Uint8Array(bytes) }).promise.catch((err: unknown) => {
-      throw new Error(/password/i.test(errText(err)) ? `${fileName(path)} có mật khẩu: chưa mở được PDF có mật khẩu.` : `Không mở được ${fileName(path)}: ${errText(err)}`)
+      throw new Error(
+        /password/i.test(errText(err))
+          ? tr(`${fileName(path)} is password-protected: password-protected PDFs can't be opened yet.`, `${fileName(path)} có mật khẩu: chưa mở được PDF có mật khẩu.`)
+          : tr(`Could not open ${fileName(path)}: ${errText(err)}`, `Không mở được ${fileName(path)}: ${errText(err)}`)
+      )
     })
     const sizes: OpenPdf['sizes'] = []
     for (let i = 1; i <= doc.numPages; i++) {
@@ -88,12 +93,13 @@ export const PdfWorkspace = forwardRef<Workspace, WorkspaceProps>(function PdfWo
     status: () => filesRef.current.map((f) => `${f.path === activeRef.current ? '[on screen] ' : ''}${f.path}\n- PDF: ${f.doc.numPages} pages`)
   }))
 
+  const t = useT()
   if (!file) return null
   return (
     <div className={'of-ws' + (shown ? ' on' : '')}>
-      <FileTabs files={files.map((f) => ({ path: f.path, dirty: false }))} active={active} icon={<FileType2 size={13} className="of-ic-pdf" />} onShow={setActive} onClose={close} onAdd={onAdd} addTitle="Mở PDF khác">
-        <button className="of-tool of-ai" title="Mở chat Claude làm việc với PDF này" onClick={() => void newChatFromOfficeFile(file.path)}>
-          <Bot size={15} /> Giao cho AI
+      <FileTabs files={files.map((f) => ({ path: f.path, dirty: false }))} active={active} icon={<FileType2 size={13} className="of-ic-pdf" />} onShow={setActive} onClose={close} onAdd={onAdd} addTitle={t('Open another PDF', 'Mở PDF khác')}>
+        <button className="of-tool of-ai" title={t('Open a Claude chat that works on this PDF', 'Mở chat Claude làm việc với PDF này')} onClick={() => void newChatFromOfficeFile(file.path)}>
+          <Bot size={15} /> {t('Hand to AI', 'Giao cho AI')}
         </button>
       </FileTabs>
       <PdfView key={file.path} file={file} />
@@ -104,6 +110,7 @@ export const PdfWorkspace = forwardRef<Workspace, WorkspaceProps>(function PdfWo
 /* ================================ viewer ================================ */
 
 function PdfView({ file }: { file: OpenPdf }): React.JSX.Element {
+  const t = useT()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
   const [page, setPage] = useState(1)
@@ -174,7 +181,7 @@ function PdfView({ file }: { file: OpenPdf }): React.JSX.Element {
   return (
     <div className="of-pdf">
       <div className="of-pdf-bar">
-        <button className={'of-tb' + (thumbs ? ' on' : '')} title="Trang thu nhỏ" onClick={() => setThumbs((t) => !t)}>
+        <button className={'of-tb' + (thumbs ? ' on' : '')} title={t('Page thumbnails', 'Trang thu nhỏ')} onClick={() => setThumbs((v) => !v)}>
           <PanelLeft size={15} />
         </button>
         <span className="of-tbsep" />
@@ -189,13 +196,13 @@ function PdfView({ file }: { file: OpenPdf }): React.JSX.Element {
         />
         <span className="of-dim">/ {n}</span>
         <span className="of-tbsep" />
-        <button className="of-tb" title="Thu nhỏ (Ctrl + lăn chuột)" onClick={() => setScale((z) => [...ZOOMS].reverse().find((s) => s < z - 0.001) ?? z)}>
+        <button className="of-tb" title={t('Zoom out (Ctrl + mouse wheel)', 'Thu nhỏ (Ctrl + lăn chuột)')} onClick={() => setScale((z) => [...ZOOMS].reverse().find((s) => s < z - 0.001) ?? z)}>
           <Minus size={14} />
         </button>
-        <button className="of-tb of-zoompct" title="Vừa chiều rộng" onClick={() => setScale(Math.min(3, Math.max(0.5, ((scrollRef.current?.clientWidth ?? 800) - 48) / Math.max(...file.sizes.map((s) => s.w)))))}>
+        <button className="of-tb of-zoompct" title={t('Fit width', 'Vừa chiều rộng')} onClick={() => setScale(Math.min(3, Math.max(0.5, ((scrollRef.current?.clientWidth ?? 800) - 48) / Math.max(...file.sizes.map((s) => s.w)))))}>
           {Math.round(scale * 100)}%
         </button>
-        <button className="of-tb" title="Phóng to (Ctrl + lăn chuột)" onClick={() => setScale((z) => ZOOMS.find((s) => s > z + 0.001) ?? z)}>
+        <button className="of-tb" title={t('Zoom in (Ctrl + mouse wheel)', 'Phóng to (Ctrl + lăn chuột)')} onClick={() => setScale((z) => ZOOMS.find((s) => s > z + 0.001) ?? z)}>
           <Plus size={14} />
         </button>
         <span className="of-fill" />
@@ -208,18 +215,18 @@ function PdfView({ file }: { file: OpenPdf }): React.JSX.Element {
         >
           <Search size={14} />
           <input
-            placeholder="Tìm trong PDF"
+            placeholder={t('Search in PDF', 'Tìm trong PDF')}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value)
               setHits(null)
             }}
           />
-          {hits && <span className="of-dim">{hits.pages.length ? `trang ${hits.pages[hits.at]} · ${hits.at + 1}/${hits.pages.length}` : 'không thấy'}</span>}
-          <button type="button" className="of-tb" title="Kết quả trước" disabled={!hits?.pages.length} onClick={() => void search(query, -1)}>
+          {hits && <span className="of-dim">{hits.pages.length ? `${t('page', 'trang')} ${hits.pages[hits.at]} · ${hits.at + 1}/${hits.pages.length}` : t('not found', 'không thấy')}</span>}
+          <button type="button" className="of-tb" title={t('Previous result', 'Kết quả trước')} disabled={!hits?.pages.length} onClick={() => void search(query, -1)}>
             <ChevronUp size={14} />
           </button>
-          <button type="button" className="of-tb" title="Kết quả sau (Enter)" disabled={!hits?.pages.length} onClick={() => void search(query, 1)}>
+          <button type="button" className="of-tb" title={t('Next result (Enter)', 'Kết quả sau (Enter)')} disabled={!hits?.pages.length} onClick={() => void search(query, 1)}>
             <ChevronDown size={14} />
           </button>
         </form>

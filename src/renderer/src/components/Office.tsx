@@ -8,15 +8,16 @@ import { PdfWorkspace } from './Pdf'
 import { SheetsWorkspace } from './Sheets'
 import { type Kind, type Workspace, errText, fileName, folderOf, kindOf, ooOpens, samePath } from './officeShared'
 import { setOfficeOpener } from '../actions'
+import { type T, tr, useT } from '../i18n'
 import './office.css'
 
 type View = 'home' | Kind
 
-const KINDS: { kind: Kind; label: string; icon: (size: number) => React.ReactNode; what: string }[] = [
-  { kind: 'doc', label: 'Docs', icon: (s) => <FileText size={s} className="of-ic-doc" />, what: 'tài liệu' },
-  { kind: 'sheet', label: 'Sheets', icon: (s) => <FileSpreadsheet size={s} className="of-ic-sheet" />, what: 'bảng tính' },
-  { kind: 'pdf', label: 'PDF', icon: (s) => <FileType2 size={s} className="of-ic-pdf" />, what: 'PDF' },
-  { kind: 'oo', label: 'ONLYOFFICE', icon: (s) => <FileStack size={s} className="of-ic-oo" />, what: 'file Word, Excel, PowerPoint' }
+const KINDS: { kind: Kind; label: string; icon: (size: number) => React.ReactNode; what: (t: T) => string }[] = [
+  { kind: 'doc', label: 'Docs', icon: (s) => <FileText size={s} className="of-ic-doc" />, what: (t) => t('document', 'tài liệu') },
+  { kind: 'sheet', label: 'Sheets', icon: (s) => <FileSpreadsheet size={s} className="of-ic-sheet" />, what: (t) => t('spreadsheet', 'bảng tính') },
+  { kind: 'pdf', label: 'PDF', icon: (s) => <FileType2 size={s} className="of-ic-pdf" />, what: () => 'PDF' },
+  { kind: 'oo', label: 'ONLYOFFICE', icon: (s) => <FileStack size={s} className="of-ic-oo" />, what: (t) => t('Word, Excel, PowerPoint file', 'file Word, Excel, PowerPoint') }
 ]
 const label = (k: Kind): string => KINDS.find((x) => x.kind === k)!.label
 /** "open .docx / .xlsx with ONLYOFFICE" (the home page's switch), kept in the browser storage */
@@ -58,11 +59,11 @@ export function OfficePane(): React.JSX.Element {
 
   /** opens (or `create`s) any supported file in a workspace (default: the one of its kind) and shows it */
   const openFile = async (path: string, create = false, kind = kindOf(path)): Promise<Kind> => {
-    if (!kind) throw new Error(`Tab Office chưa mở được loại file này: ${fileName(path)}`)
-    if (create && kind === 'pdf') throw new Error('Không tạo được PDF mới: chỉ mở PDF có sẵn')
+    if (!kind) throw new Error(tr(`The Office tab can't open this kind of file: ${fileName(path)}`, `Tab Office chưa mở được loại file này: ${fileName(path)}`))
+    if (create && kind === 'pdf') throw new Error(tr("Can't create a new PDF: only existing PDFs can be opened", 'Không tạo được PDF mới: chỉ mở PDF có sẵn'))
     // two editors saving over the same file would undo each other's edits
     const elsewhere = KINDS.find((k) => k.kind !== kind && open[k.kind].some((p) => samePath(p, path)))
-    if (elsewhere) throw new Error(`${fileName(path)} đang mở ở ${elsewhere.label}: đóng nó ở đó rồi mở lại.`)
+    if (elsewhere) throw new Error(tr(`${fileName(path)} is open in ${elsewhere.label}: close it there, then open it again.`, `${fileName(path)} đang mở ở ${elsewhere.label}: đóng nó ở đó rồi mở lại.`))
     await ws(kind).open(path, create)
     setView(kind)
     await window.api.office.recentAdd(path).catch(() => {})
@@ -95,8 +96,8 @@ export function OfficePane(): React.JSX.Element {
     })
   const addMenu = (kind: Kind) => (e: React.MouseEvent) =>
     openMenu(e, [
-      { label: `Mở ${KINDS.find((k) => k.kind === kind)!.what}…`, icon: <FolderOpen size={14} />, action: () => pickOpen(kind) },
-      (kind === 'doc' || kind === 'sheet') && { label: kind === 'doc' ? 'Tài liệu mới…' : 'Bảng tính mới…', icon: <FilePlus2 size={14} />, action: () => pickNew(kind) }
+      { label: tr(`Open ${KINDS.find((k) => k.kind === kind)!.what(tr)}…`, `Mở ${KINDS.find((k) => k.kind === kind)!.what(tr)}…`), icon: <FolderOpen size={14} />, action: () => pickOpen(kind) },
+      (kind === 'doc' || kind === 'sheet') && { label: kind === 'doc' ? tr('New document…', 'Tài liệu mới…') : tr('New spreadsheet…', 'Bảng tính mới…'), icon: <FilePlus2 size={14} />, action: () => pickNew(kind) }
     ])
 
   /* ---------- Claude's tools: one at a time, in order ---------- */
@@ -162,12 +163,13 @@ export function OfficePane(): React.JSX.Element {
     if (showHome) loadRecent()
   }, [showHome, view])
 
+  const t = useT()
   return (
     <div className="of-root of-shell">
       <nav className="of-rail">
-        <button className={view === 'home' ? 'on' : ''} onClick={() => setView('home')} title="Trang chủ">
+        <button className={view === 'home' ? 'on' : ''} onClick={() => setView('home')} title={t('Home', 'Trang chủ')}>
           <Home size={20} />
-          <span>Trang chủ</span>
+          <span>{t('Home', 'Trang chủ')}</span>
         </button>
         {KINDS.map((k) => (
           <button key={k.kind} className={view === k.kind ? 'on' : ''} onClick={() => setView(k.kind)} title={k.label}>
@@ -226,84 +228,104 @@ function OfficeHome(p: {
   onForget: (path: string) => void
 }): React.JSX.Element {
   const list = (p.recent ?? []).filter((f) => !p.kind || (p.kind === 'oo' ? ooOpens(f.path) : kindOf(f.path) === p.kind))
-  const what = p.kind ? KINDS.find((k) => k.kind === p.kind)!.what : null
+  const t = useT()
+  const what = p.kind ? KINDS.find((k) => k.kind === p.kind)!.what(t) : null
   return (
     <div className="of-home">
       <div className="of-home-actions">
         <button className="of-open" disabled={p.busy} onClick={p.onPick}>
-          {p.busy ? <Loader2 size={16} className="of-spin" /> : <FolderOpen size={16} />} Mở{what ? ` ${what}` : ''}
+          {p.busy ? <Loader2 size={16} className="of-spin" /> : <FolderOpen size={16} />} {t('Open', 'Mở')}{what ? ` ${what}` : ''}
         </button>
         {(!p.kind || p.kind === 'doc') && (
           <button className="of-action" disabled={p.busy} onClick={() => p.onNew('doc')}>
-            <FilePlus2 size={16} className="of-ic-doc" /> Tài liệu mới
+            <FilePlus2 size={16} className="of-ic-doc" /> {t('New document', 'Tài liệu mới')}
           </button>
         )}
         {(!p.kind || p.kind === 'sheet') && (
           <button className="of-action" disabled={p.busy} onClick={() => p.onNew('sheet')}>
-            <FilePlus2 size={16} className="of-ic-sheet" /> Bảng tính mới
+            <FilePlus2 size={16} className="of-ic-sheet" /> {t('New spreadsheet', 'Bảng tính mới')}
           </button>
         )}
         {(!p.kind || p.kind === 'doc' || p.kind === 'sheet') && (
-          <button className="of-action" disabled={p.busy} onClick={p.onPickOo} title="Word, Excel, PowerPoint giữ đầy đủ định dạng. Lần đầu tải bộ ONLYOFFICE (khoảng 210 MB), sau đó chạy ngay trên máy, không cần mạng, không quảng cáo.">
-            <FileStack size={16} className="of-ic-oo" /> Mở bằng ONLYOFFICE
+          <button
+            className="of-action"
+            disabled={p.busy}
+            onClick={p.onPickOo}
+            title={t(
+              'Word, Excel, PowerPoint with full formatting. The first time downloads ONLYOFFICE (about 210 MB); after that it runs right on this computer, offline, with no ads.',
+              'Word, Excel, PowerPoint giữ đầy đủ định dạng. Lần đầu tải bộ ONLYOFFICE (khoảng 210 MB), sau đó chạy ngay trên máy, không cần mạng, không quảng cáo.'
+            )}
+          >
+            <FileStack size={16} className="of-ic-oo" /> {t('Open with ONLYOFFICE', 'Mở bằng ONLYOFFICE')}
           </button>
         )}
         {(!p.kind || p.kind === 'oo') && (
-          <label className="of-home-opt" title="Bật: .docx, .xlsx, .csv mở từ trang này và từ This PC sẽ vào ONLYOFFICE thay cho Docs / Sheets. Công cụ của Claude vẫn dùng Docs / Sheets.">
-            <input type="checkbox" checked={p.ooDefault} onChange={(e) => p.onOoDefault(e.target.checked)} /> Luôn mở Word / Excel bằng ONLYOFFICE
+          <label
+            className="of-home-opt"
+            title={t(
+              "On: .docx, .xlsx, .csv opened from this page and from This PC go to ONLYOFFICE instead of Docs / Sheets. Claude's tools still use Docs / Sheets.",
+              'Bật: .docx, .xlsx, .csv mở từ trang này và từ This PC sẽ vào ONLYOFFICE thay cho Docs / Sheets. Công cụ của Claude vẫn dùng Docs / Sheets.'
+            )}
+          >
+            <input type="checkbox" checked={p.ooDefault} onChange={(e) => p.onOoDefault(e.target.checked)} /> {t('Always open Word / Excel with ONLYOFFICE', 'Luôn mở Word / Excel bằng ONLYOFFICE')}
           </label>
         )}
       </div>
       {p.error && (
-        <p className="of-error of-pad" onClick={p.onClearError} title="Bấm để ẩn">
+        <p className="of-error of-pad" onClick={p.onClearError} title={t('Click to hide', 'Bấm để ẩn')}>
           {p.error}
         </p>
       )}
       <div className="of-recent-head">
-        <h2>{p.kind ? `${KINDS.find((k) => k.kind === p.kind)!.label} gần đây` : 'Gần đây'}</h2>
-        <button className="of-tb" title="Tải lại" onClick={p.onRefresh}>
+        <h2>{p.kind ? t(`Recent ${KINDS.find((k) => k.kind === p.kind)!.label}`, `${KINDS.find((k) => k.kind === p.kind)!.label} gần đây`) : t('Recent', 'Gần đây')}</h2>
+        <button className="of-tb" title={t('Refresh', 'Tải lại')} onClick={p.onRefresh}>
           <RefreshCw size={15} />
         </button>
       </div>
       <div className="of-recent">
         <div className="of-recent-row of-recent-cols">
-          <span>Tên file</span>
-          <span>Vị trí</span>
-          <span>Sửa lần cuối</span>
-          <span className="of-num">Dung lượng</span>
+          <span>{t('Name', 'Tên file')}</span>
+          <span>{t('Location', 'Vị trí')}</span>
+          <span>{t('Date modified', 'Sửa lần cuối')}</span>
+          <span className="of-num">{t('Size', 'Dung lượng')}</span>
           <span />
         </div>
-        {p.recent === null && <p className="of-dim of-pad">Đang tải…</p>}
+        {p.recent === null && <p className="of-dim of-pad">{t('Loading…', 'Đang tải…')}</p>}
         {p.recent !== null && list.length === 0 && (
-          <p className="of-dim of-pad">Chưa có {what ?? 'file'} nào. Bấm “Mở{what ? ` ${what}` : ''}” để mở file trên máy{p.kind === 'pdf' || p.kind === 'oo' ? '' : ' hoặc tạo mới'}.</p>
+          <p className="of-dim of-pad">
+            {t(
+              `No ${what ?? 'file'}s yet. Click “Open${what ? ` ${what}` : ''}” to open a file on this computer${p.kind === 'pdf' || p.kind === 'oo' ? '' : ' or create a new one'}.`,
+              `Chưa có ${what ?? 'file'} nào. Bấm “Mở${what ? ` ${what}` : ''}” để mở file trên máy${p.kind === 'pdf' || p.kind === 'oo' ? '' : ' hoặc tạo mới'}.`
+            )}
+          </p>
         )}
         {list.map((f) => (
           <div
             key={f.path}
             className={'of-recent-row' + (f.exists ? '' : ' gone')}
-            title={f.exists ? f.path : `Không còn file ở ${f.path}`}
+            title={f.exists ? f.path : t(`The file is no longer at ${f.path}`, `Không còn file ở ${f.path}`)}
             onClick={() => f.exists && p.onOpen(f.path)}
             onContextMenu={(e) =>
               openMenu(e, [
-                f.exists && { label: 'Mở', action: () => p.onOpen(f.path) },
-                f.exists && ooOpens(f.path) && kindOf(f.path) !== 'oo' && { label: 'Mở bằng ONLYOFFICE', icon: <FileStack size={14} />, action: () => p.onOpen(f.path, 'oo') },
-                f.exists && (kindOf(f.path) === 'doc' || kindOf(f.path) === 'sheet') && { label: `Mở bằng ${label(kindOf(f.path)!)}`, action: () => p.onOpen(f.path, kindOf(f.path)!) },
-                f.exists && { label: 'Mở thư mục chứa', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(f.path) },
-                { label: 'Xoá khỏi danh sách', icon: <Trash2 size={14} />, action: () => p.onForget(f.path) }
+                f.exists && { label: t('Open', 'Mở'), action: () => p.onOpen(f.path) },
+                f.exists && ooOpens(f.path) && kindOf(f.path) !== 'oo' && { label: t('Open with ONLYOFFICE', 'Mở bằng ONLYOFFICE'), icon: <FileStack size={14} />, action: () => p.onOpen(f.path, 'oo') },
+                f.exists && (kindOf(f.path) === 'doc' || kindOf(f.path) === 'sheet') && { label: t(`Open with ${label(kindOf(f.path)!)}`, `Mở bằng ${label(kindOf(f.path)!)}`), action: () => p.onOpen(f.path, kindOf(f.path)!) },
+                f.exists && { label: t('Open containing folder', 'Mở thư mục chứa'), icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(f.path) },
+                { label: t('Remove from list', 'Xoá khỏi danh sách'), icon: <Trash2 size={14} />, action: () => p.onForget(f.path) }
               ])
             }
           >
             <span className="of-recent-name">
               {kindIcon(f.path)}
               <b>{fileName(f.path)}</b>
-              {!f.exists && <em>không còn trên máy</em>}
+              {!f.exists && <em>{t('no longer on this computer', 'không còn trên máy')}</em>}
             </span>
             <span className="of-dim of-ellipsis">{folderOf(f.path)}</span>
-            <span className="of-dim">{f.modified ? new Date(f.modified).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</span>
+            <span className="of-dim">{f.modified ? new Date(f.modified).toLocaleDateString(t('en-US', 'vi-VN'), { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</span>
             <span className="of-dim of-num">{f.exists ? bytes(f.size) : ''}</span>
             <button
               className="of-fileclose"
-              title="Xoá khỏi danh sách (không xoá file)"
+              title={t('Remove from list (does not delete the file)', 'Xoá khỏi danh sách (không xoá file)')}
               onClick={(e) => {
                 e.stopPropagation()
                 p.onForget(f.path)

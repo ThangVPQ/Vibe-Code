@@ -4,6 +4,7 @@ import { createTerm, disposeTerm, focusTerm, onTerminalEvents, readScreen, resta
 import { disposeModel, hasUnsaved } from './fileModelsLite'
 import type { SessionInfo } from '../../shared/types'
 import { AGENTS, agentDef, type AgentId } from '../../shared/agents'
+import { tr } from './i18n'
 
 const st = useStore.getState
 const lastData = new Map<string, number>()

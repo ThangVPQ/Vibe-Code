@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AgentId } from '../../shared/agents'
-import type { AgentInfo, AppSettings, ClaudeInfo, GitState, ProjectGroup, WindowState } from '../../shared/types'
+import type { AgentInfo, AppSettings, ClaudeInfo, GitState, Lang, ProjectGroup, WindowState } from '../../shared/types'
 
 export type ChatStatus = 'starting' | 'working' | 'idle' | 'exited'
 
@@ -56,6 +56,8 @@ interface State {
   settings: AppSettings | null
   /** theme actually showing (system preference resolved) */
   themeResolved: 'light' | 'dark' | 'blue'
+  /** UI language (see i18n.ts) */
+  lang: Lang
 
   sidebarView: SidebarView
   sidebarOpen: boolean
@@ -117,6 +119,12 @@ export const useStore = create<State>((set) => ({
   win: null,
   settings: null,
   themeResolved: 'dark',
+  // cached so the first frame is already in the right language (settings.json is the source of truth)
+  lang: (() => {
+    const v = localStorage.getItem('vibe.lang')
+    if (v === 'en' || v === 'vi') return v
+    return navigator.language.toLowerCase().startsWith('vi') ? 'vi' : 'en'
+  })(),
 
   sidebarView: 'chats',
   sidebarOpen: true,

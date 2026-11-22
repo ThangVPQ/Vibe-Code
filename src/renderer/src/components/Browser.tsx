@@ -6,6 +6,7 @@ import { ExtensionsButton } from './BrowserExtensions'
 import { useStore } from '../store'
 import { HOME_URL, newBrowserTab, setBrowserUrl } from '../actions'
 import { SlidePill } from './motion'
+import { useT, type T } from '../i18n'
 
 /** transitions that never move anything (a slide or scale can move the page, so those still count) */
 const COLOR_ONLY = new Set(['background-color', 'color', 'opacity', 'box-shadow', 'border-color', 'outline-color', 'fill', 'stroke', 'text-decoration-color'])
@@ -31,7 +32,7 @@ const TABLET_UA =
 
 interface Device {
   key: string
-  label: string
+  label: (t: T) => string
   icon: React.JSX.Element
   w?: number
   h?: number
@@ -40,11 +41,11 @@ interface Device {
 }
 
 const DEVICES: Device[] = [
-  { key: 'fit', label: 'Fit', icon: <Maximize size={13} /> },
-  { key: 'fhd', label: 'Full HD 1920×1080', icon: <Monitor size={13} />, w: 1920, h: 1080 },
-  { key: 'laptop', label: 'Laptop 1366×768', icon: <Laptop size={13} />, w: 1366, h: 768 },
-  { key: 'ipad', label: 'iPad 820×1180', icon: <Tablet size={13} />, w: 820, h: 1180, ua: TABLET_UA },
-  { key: 'mobile', label: 'Mobile 390×844', icon: <Smartphone size={13} />, w: 390, h: 844, ua: MOBILE_UA }
+  { key: 'fit', label: (t) => t('Fit', 'Vừa khung'), icon: <Maximize size={13} /> },
+  { key: 'fhd', label: () => 'Full HD 1920×1080', icon: <Monitor size={13} />, w: 1920, h: 1080 },
+  { key: 'laptop', label: (t) => t('Laptop 1366×768', 'Máy tính xách tay 1366×768'), icon: <Laptop size={13} />, w: 1366, h: 768 },
+  { key: 'ipad', label: () => 'iPad 820×1180', icon: <Tablet size={13} />, w: 820, h: 1180, ua: TABLET_UA },
+  { key: 'mobile', label: (t) => t('Mobile 390×844', 'Điện thoại 390×844'), icon: <Smartphone size={13} />, w: 390, h: 844, ua: MOBILE_UA }
 ]
 
 const DEVICE_KEY = 'vibe.browserDevice'
@@ -67,6 +68,7 @@ const overlaps = (a: DOMRect, b: DOMRect): boolean => a.left < b.right && b.left
 let labelSeq = 0
 
 export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: string; tabId: string; active: boolean; onScreen: boolean }): React.JSX.Element {
+  const t = useT()
   const viewRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const url = useStore((s) => s.browsers[chatKey]?.tabs.find((t) => t.id === tabId)?.url ?? HOME_URL)
@@ -306,13 +308,13 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
   return (
     <div className="browser-tab">
       <div className="browser-bar">
-        <button className="icon-btn" title="Back" disabled={!nav.back} onClick={() => window.api.browser.back(label)}>
+        <button className="icon-btn" title={t('Back', 'Lùi')} disabled={!nav.back} onClick={() => window.api.browser.back(label)}>
           <ArrowLeft size={15} />
         </button>
-        <button className="icon-btn" title="Forward" disabled={!nav.fwd} onClick={() => window.api.browser.forward(label)}>
+        <button className="icon-btn" title={t('Forward', 'Tiến')} disabled={!nav.fwd} onClick={() => window.api.browser.forward(label)}>
           <ArrowRight size={15} />
         </button>
-        <button className="icon-btn" title={loading ? 'Stop' : 'Reload'} onClick={() => (loading ? window.api.browser.stop(label) : window.api.browser.reload(label))}>
+        <button className="icon-btn" title={loading ? t('Stop', 'Dừng') : t('Reload', 'Tải lại')} onClick={() => (loading ? window.api.browser.stop(label) : window.api.browser.reload(label))}>
           {loading ? <X size={15} /> : <RotateCw size={14} />}
         </button>
         <div className="browser-address-wrap">
@@ -321,7 +323,7 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
             className="browser-address"
             value={address}
             spellCheck={false}
-            placeholder="Search or type a URL"
+            placeholder={t('Search or type a URL', 'Tìm kiếm hoặc nhập URL')}
             onChange={(e) => onType(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             onBlur={() => {
@@ -357,19 +359,19 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
             </div>
           )}
         </div>
-        <div className="device-seg" role="radiogroup" aria-label="Screen size">
+        <div className="device-seg" role="radiogroup" aria-label={t('Screen size', 'Kích thước màn hình')}>
           <SlidePill />
           {DEVICES.map((d) => (
-            <button key={d.key} role="radio" aria-checked={d.key === deviceKey} className={d.key === deviceKey ? 'on' : ''} title={d.label} onClick={() => pickDevice(d.key)}>
+            <button key={d.key} role="radio" aria-checked={d.key === deviceKey} className={d.key === deviceKey ? 'on' : ''} title={d.label(t)} onClick={() => pickDevice(d.key)}>
               {d.icon}
             </button>
           ))}
         </div>
-        {box && <span className="device-zoom" title="Zoomed out to fit">{Math.round(box.zoom * 100)}%</span>}
+        {box && <span className="device-zoom" title={t('Zoomed out to fit', 'Đã thu nhỏ cho vừa khung')}>{Math.round(box.zoom * 100)}%</span>}
         {window.api.platform === 'win32' && (
           <button
             className={`icon-btn${adBlock ? ' adblock-on' : ''}`}
-            title={`Ad blocking ${adBlock ? 'on' : 'off'} — ${blocker}. Click to turn it ${adBlock ? 'off' : 'on'} (reloads)`}
+            title={t(`Ad blocking ${adBlock ? 'on' : 'off'} — ${blocker}. Click to turn it ${adBlock ? 'off' : 'on'} (reloads)`, `Chặn quảng cáo đang ${adBlock ? 'bật' : 'tắt'} — ${blocker}. Bấm để ${adBlock ? 'tắt' : 'bật'} (tải lại trang)`)}
             onClick={() => void toggleAdBlock()}
           >
             {adBlock ? <ShieldCheck size={14} /> : <ShieldOff size={14} />}
@@ -383,10 +385,10 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
             onChanged={() => window.api.browser.reload(label)}
           />
         )}
-        <button className="icon-btn" title="Clear cache & reload (keeps logins)" disabled={clearing} onClick={clearCache}>
+        <button className="icon-btn" title={t('Clear cache & reload (keeps logins)', 'Xoá bộ nhớ đệm và tải lại (giữ đăng nhập)')} disabled={clearing} onClick={clearCache}>
           <Eraser size={14} />
         </button>
-        <button className="icon-btn" title="Open in your browser" disabled={!address} onClick={() => window.api.app.openExternal(address)}>
+        <button className="icon-btn" title={t('Open in your browser', 'Mở trong trình duyệt của bạn')} disabled={!address} onClick={() => window.api.app.openExternal(address)}>
           <ExternalLink size={14} />
         </button>
       </div>
@@ -407,6 +409,7 @@ const randomPhoto = (): string => `https://picsum.photos/seed/${Math.random().to
 
 /** Blank tab: a new random photo every time, a clock and a search box — like a browser's new tab page. */
 function StartPage({ onGo }: { onGo: (text: string) => void }): React.JSX.Element {
+  const t = useT()
   const [photo, setPhoto] = useState(randomPhoto)
   const [ready, setReady] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
@@ -425,16 +428,16 @@ function StartPage({ onGo }: { onGo: (text: string) => void }): React.JSX.Elemen
   }, [photo])
 
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 10000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setNow(new Date()), 10000)
+    return () => clearInterval(timer)
   }, [])
 
   return (
     <div className="start-page">
       <div className={`start-photo${ready ? ' on' : ''}`} style={ready ? { backgroundImage: `url("${ready}")` } : undefined} />
       <div className="start-content">
-        <div className="start-clock">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-        <div className="start-date">{now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+        <div className="start-clock">{now.toLocaleTimeString(t('en-US', 'vi-VN'), { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="start-date">{now.toLocaleDateString(t('en-US', 'vi-VN'), { weekday: 'long', day: 'numeric', month: 'long' })}</div>
         <form
           className="start-search"
           onSubmit={(e) => {
@@ -443,10 +446,10 @@ function StartPage({ onGo }: { onGo: (text: string) => void }): React.JSX.Elemen
           }}
         >
           <Search size={16} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Google or type a URL" spellCheck={false} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Search Google or type a URL', 'Tìm trên Google hoặc nhập URL')} spellCheck={false} />
         </form>
       </div>
-      <button className="start-shuffle" title="Another photo" onClick={() => setPhoto(randomPhoto())}>
+      <button className="start-shuffle" title={t('Another photo', 'Ảnh khác')} onClick={() => setPhoto(randomPhoto())}>
         <Shuffle size={14} />
       </button>
     </div>

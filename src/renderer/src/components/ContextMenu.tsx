@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Clipboard, ClipboardPaste, Copy, Scissors, TextSelect } from 'lucide-react'
+import { tr } from '../i18n'
 
 export type MenuEntry = { label: string; icon?: React.ReactNode; action: () => unknown; disabled?: boolean; hint?: string } | 'sep' | null | undefined | false
 
@@ -34,10 +35,10 @@ function editItems(el: HTMLInputElement | HTMLTextAreaElement | HTMLElement): Me
   const ro = 'readOnly' in el ? el.readOnly || el.disabled : !el.isContentEditable
   const sel = 'selectionStart' in el && el.selectionStart !== null ? el.selectionStart !== el.selectionEnd : !!window.getSelection()?.toString()
   return [
-    { label: 'Cut', icon: <Scissors size={14} />, hint: 'Ctrl+X', disabled: ro || !sel, action: inField(el, () => document.execCommand('cut')) },
-    { label: 'Copy', icon: <Copy size={14} />, hint: 'Ctrl+C', disabled: !sel, action: inField(el, () => document.execCommand('copy')) },
+    { label: tr('Cut', 'Cắt'), icon: <Scissors size={14} />, hint: 'Ctrl+X', disabled: ro || !sel, action: inField(el, () => document.execCommand('cut')) },
+    { label: tr('Copy', 'Sao chép'), icon: <Copy size={14} />, hint: 'Ctrl+C', disabled: !sel, action: inField(el, () => document.execCommand('copy')) },
     {
-      label: 'Paste',
+      label: tr('Paste', 'Dán'),
       icon: <ClipboardPaste size={14} />,
       hint: 'Ctrl+V',
       disabled: ro,
@@ -49,7 +50,7 @@ function editItems(el: HTMLInputElement | HTMLTextAreaElement | HTMLElement): Me
       }
     },
     'sep',
-    { label: 'Select all', icon: <TextSelect size={14} />, hint: 'Ctrl+A', action: inField(el, () => document.execCommand('selectAll')) }
+    { label: tr('Select all', 'Chọn tất cả'), icon: <TextSelect size={14} />, hint: 'Ctrl+A', action: inField(el, () => document.execCommand('selectAll')) }
   ]
 }
 
@@ -68,7 +69,7 @@ function onContextMenu(e: MouseEvent): void {
   if (field && textInput) return show?.({ x: e.clientX, y: e.clientY, items: editItems(field) })
   const text = window.getSelection()?.toString()
   if (text)
-    show?.({ x: e.clientX, y: e.clientY, items: [{ label: 'Copy', icon: <Clipboard size={14} />, hint: 'Ctrl+C', action: () => navigator.clipboard.writeText(text) }] })
+    show?.({ x: e.clientX, y: e.clientY, items: [{ label: tr('Copy', 'Sao chép'), icon: <Clipboard size={14} />, hint: 'Ctrl+C', action: () => navigator.clipboard.writeText(text) }] })
 }
 
 /** Mounted once in App: draws the open menu and takes over the WebView's own right-click menu. */

@@ -31,6 +31,8 @@ pub struct AppSettings {
     pub open_at_login: Option<bool>,
     /// Web tabs drop requests to known ad / tracking servers
     pub ad_block: bool,
+    /// UI language: "en" | "vi" ("" until the app picks one from the system language)
+    pub language: String,
 }
 
 impl Default for AppSettings {
@@ -53,8 +55,19 @@ impl Default for AppSettings {
             editor_ligatures: true,
             open_at_login: None,
             ad_block: true,
+            language: String::new(),
         }
     }
+}
+
+/// The UI is in Vietnamese (the tray menu, pop-ups and messages follow the app's language).
+pub fn vi() -> bool {
+    CACHE.read().language == "vi"
+}
+
+/// The text for the UI language: `tr("Quit", "Thoát")`.
+pub fn tr<'a>(en: &'a str, vi: &'a str) -> &'a str {
+    if self::vi() { vi } else { en }
 }
 
 /// The Web tabs run uBlock Origin Lite.

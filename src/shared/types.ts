@@ -116,7 +116,11 @@ export interface AppSettings {
   openAtLogin?: boolean
   /** Web tabs block requests to known ad / tracking servers */
   adBlock: boolean
+  /** UI language — '' until the app first picks one from the system language */
+  language: Lang | ''
 }
+
+export type Lang = 'en' | 'vi'
 
 export interface WindowState {
   mode: WindowMode

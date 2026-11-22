@@ -1,11 +1,13 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { FileOutput, FileStack, Loader2, RefreshCw } from 'lucide-react'
 import { FileTabs, SaveStatus, type Workspace, type WorkspaceProps, errText, fileName, samePath, toBase64, useAutosave } from './officeShared'
+import { type T, tr, useT } from '../i18n'
 
 /** Old binary formats: x2t reads them but writes only their OOXML sibling, so they open read-only. */
 const LEGACY: Record<string, string> = { doc: 'docx', xls: 'xlsx', ppt: 'pptx' }
 const legacyTarget = (path: string): string | undefined => LEGACY[path.split('.').pop()?.toLowerCase() ?? '']
-const NOTE = 'Mở bằng ONLYOFFICE: giữ đầy đủ định dạng Word / Excel / PowerPoint. Tự lưu vài giây sau khi sửa.'
+const note = (t: T): string =>
+  t('Opened with ONLYOFFICE: keeps full Word / Excel / PowerPoint formatting. Saves itself a few seconds after each edit.', 'Mở bằng ONLYOFFICE: giữ đầy đủ định dạng Word / Excel / PowerPoint. Tự lưu vài giây sau khi sửa.')
 
 type OpenFile = {
   path: string
@@ -14,6 +16,8 @@ type OpenFile = {
   error?: string
   /** bumped to load the editor again after an error */
   gen: number
+  /** the editor's UI language, fixed when the file opens (changing it would reload the editor) */
+  locale: string
 }
 type Waiting = { resolve: (payload: Record<string, unknown>) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
 
@@ -51,11 +55,11 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
   const call = (path: string, type: string, payload: Record<string, unknown>, ms: number, transfer: Transferable[] = []): Promise<Record<string, unknown>> =>
     new Promise((resolve, reject) => {
       const win = frames.current.get(path)?.contentWindow
-      if (!win || !originRef.current) return reject(new Error('ONLYOFFICE chưa sẵn sàng'))
+      if (!win || !originRef.current) return reject(new Error(tr('ONLYOFFICE is not ready yet', 'ONLYOFFICE chưa sẵn sàng')))
       const id = `vibe-${++seq}`
       const timer = setTimeout(() => {
         waiting.current.delete(id)
-        reject(new Error('ONLYOFFICE không trả lời kịp'))
+        reject(new Error(tr('ONLYOFFICE did not answer in time', 'ONLYOFFICE không trả lời kịp')))
       }, ms)
       waiting.current.set(id, { resolve, reject, timer })
       win.postMessage({ id, type, payload }, { targetOrigin: originRef.current, transfer })
@@ -68,7 +72,7 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
       await call(path, 'document:open-buffer', { fileName: fileName(path), buffer: bytes, readonly: !!legacyTarget(path) }, 180_000, [bytes])
       patch(path, { state: 'ready', error: undefined })
     } catch (err) {
-      patch(path, { state: 'error', error: `Không mở được ${fileName(path)}: ${errText(err)}` })
+      patch(path, { state: 'error', error: tr(`Could not open ${fileName(path)}: ${errText(err)}`, `Không mở được ${fileName(path)}: ${errText(err)}`) })
     }
   }
 
@@ -76,7 +80,7 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
   const exportFile = async (path: string, targetExt?: string): Promise<{ data: string; dirty: boolean }> => {
     const p = await call(path, 'document:save', targetExt ? { targetExt } : {}, 300_000)
     const out = p.file
-    if (!(out instanceof Blob) || out.size === 0) throw new Error('ONLYOFFICE trả về file rỗng')
+    if (!(out instanceof Blob) || out.size === 0) throw new Error(tr('ONLYOFFICE returned an empty file', 'ONLYOFFICE trả về file rỗng'))
     return { data: toBase64(await out.arrayBuffer()), dirty: p.dirty === true }
   }
 
@@ -127,7 +131,7 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
     if (w) {
       clearTimeout(w.timer)
       waiting.current.delete(id!)
-      if (type === 'document:error') w.reject(new Error(String(payload.message ?? 'lỗi không rõ')))
+      if (type === 'document:error') w.reject(new Error(String(payload.message ?? tr('unknown error', 'lỗi không rõ'))))
       else w.resolve(payload)
       return
     }
@@ -167,10 +171,10 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
   }
 
   const openPath = async (path: string, create?: boolean): Promise<void> => {
-    if (create) throw new Error('ONLYOFFICE chỉ mở file có sẵn: tạo tài liệu / bảng tính mới ở Docs, Sheets')
+    if (create) throw new Error(tr('ONLYOFFICE only opens existing files: create new documents / spreadsheets in Docs, Sheets', 'ONLYOFFICE chỉ mở file có sẵn: tạo tài liệu / bảng tính mới ở Docs, Sheets'))
     const open = filesRef.current.find((f) => samePath(f.path, path))
     if (!open) {
-      filesRef.current = [...filesRef.current, { path, dirty: false, state: 'loading', gen: 0 }]
+      filesRef.current = [...filesRef.current, { path, dirty: false, state: 'loading', gen: 0, locale: tr('en', 'vi') }]
       setFiles(filesRef.current)
     }
     setActive(open?.path ?? path)
@@ -197,7 +201,7 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
       try {
         await auto.saveNow(path)
       } catch (err) {
-        if (!(await window.api.ask(`Không lưu được "${fileName(path)}":\n${errText(err)}\n\nVẫn đóng và bỏ các thay đổi chưa lưu?`))) return
+        if (!(await window.api.ask(tr(`Could not save "${fileName(path)}":\n${errText(err)}\n\nClose anyway and discard the unsaved changes?`, `Không lưu được "${fileName(path)}":\n${errText(err)}\n\nVẫn đóng và bỏ các thay đổi chưa lưu?`)))) return
       }
       drop()
     })()
@@ -213,7 +217,7 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
         () => true,
         () => false
       )
-      if (exists && !(await window.api.ask(`Đã có file "${fileName(to)}". Ghi đè lên nó?`))) return
+      if (exists && !(await window.api.ask(tr(`"${fileName(to)}" already exists. Overwrite it?`, `Đã có file "${fileName(to)}". Ghi đè lên nó?`)))) return
       if (exists) await window.api.office.backup(to)
       // a read-only editor refuses to export; the tab closes right after
       await call(path, 'document:set-readonly', { readonly: false }, 10_000)
@@ -222,7 +226,7 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
       close(path)
       await openPath(to)
     })()
-      .catch((err: unknown) => setError(`Không chuyển được ${fileName(path)}: ${errText(err)}`))
+      .catch((err: unknown) => setError(tr(`Could not convert ${fileName(path)}: ${errText(err)}`, `Không chuyển được ${fileName(path)}: ${errText(err)}`)))
       .finally(() => setBusy(false))
   }
 
@@ -233,23 +237,29 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
       filesRef.current.map((f) => `${f.path === active ? '[on screen] ' : ''}${f.path}${f.dirty ? ' (unsaved changes)' : ''}\n- open in the ONLYOFFICE editor (the doc_ / sheet_ tools cannot reach it)`)
   }))
 
+  const t = useT()
   if (!file) return null
   const legacy = legacyTarget(file.path)
   const failed = install && 'error' in install ? install.error : null
   return (
     <div className={'of-ws' + (shown ? ' on' : '')}>
-      <FileTabs files={files} active={active} icon={<FileStack size={13} className="of-ic-oo" />} onShow={setActive} onClose={close} onAdd={onAdd} addTitle="Mở file khác bằng ONLYOFFICE">
+      <FileTabs files={files} active={active} icon={<FileStack size={13} className="of-ic-oo" />} onShow={setActive} onClose={close} onAdd={onAdd} addTitle={t('Open another file with ONLYOFFICE', 'Mở file khác bằng ONLYOFFICE')}>
         {busy && <Loader2 size={15} className="of-spin of-dim" />}
         {legacy ? (
-          <button className="of-tool" title={`Định dạng cũ .${file.path.split('.').pop()} chỉ xem được. Lưu một bản .${legacy} cạnh nó để sửa.`} disabled={busy || file.state !== 'ready'} onClick={() => convert(file.path, legacy)}>
-            <FileOutput size={15} /> Lưu thành .{legacy} để sửa
+          <button
+            className="of-tool"
+            title={t(`The old .${file.path.split('.').pop()} format is view-only. Save a .${legacy} copy beside it to edit.`, `Định dạng cũ .${file.path.split('.').pop()} chỉ xem được. Lưu một bản .${legacy} cạnh nó để sửa.`)}
+            disabled={busy || file.state !== 'ready'}
+            onClick={() => convert(file.path, legacy)}
+          >
+            <FileOutput size={15} /> {t(`Save as .${legacy} to edit`, `Lưu thành .${legacy} để sửa`)}
           </button>
         ) : (
-          <SaveStatus dirty={file.dirty} s={auto.saveState[file.path]} note={NOTE} />
+          <SaveStatus dirty={file.dirty} s={auto.saveState[file.path]} note={note(t)} />
         )}
       </FileTabs>
       {error && (
-        <p className="of-error of-pad" onClick={() => setError('')} title="Bấm để ẩn">
+        <p className="of-error of-pad" onClick={() => setError('')} title={t('Click to hide', 'Bấm để ẩn')}>
           {error}
         </p>
       )}
@@ -262,7 +272,7 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
                 if (el) frames.current.set(f.path, el)
               }}
               className={f.path === active ? 'on' : ''}
-              src={`${origin}/editor.html?embed=1&locale=vi`}
+              src={`${origin}/editor.html?embed=1&locale=${f.locale}`}
               title={fileName(f.path)}
             />
           ))}
@@ -272,15 +282,15 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
               <>
                 <p className="of-error">{failed}</p>
                 <button className="of-action" onClick={() => void ensureEditor()}>
-                  <RefreshCw size={15} /> Thử lại
+                  <RefreshCw size={15} /> {t('Try again', 'Thử lại')}
                 </button>
               </>
             ) : install && 'total' in install ? (
               <>
-                <b>Đang tải ONLYOFFICE (chỉ lần đầu)</b>
+                <b>{t('Downloading ONLYOFFICE (first time only)', 'Đang tải ONLYOFFICE (chỉ lần đầu)')}</b>
                 <progress max={install.total} value={install.done} />
                 <p className="of-dim">
-                  {Math.round(install.done / 1048576)} / {Math.round(install.total / 1048576)} MB. Sau đó mở file không cần mạng.
+                  {Math.round(install.done / 1048576)} / {Math.round(install.total / 1048576)} MB. {t('After that, files open without the internet.', 'Sau đó mở file không cần mạng.')}
                 </p>
               </>
             ) : (
@@ -290,14 +300,14 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
         ) : file.state === 'loading' ? (
           <div className="of-oo-state">
             <Loader2 size={22} className="of-spin of-dim" />
-            <p className="of-dim">Đang mở {fileName(file.path)}…</p>
+            <p className="of-dim">{t(`Opening ${fileName(file.path)}…`, `Đang mở ${fileName(file.path)}…`)}</p>
           </div>
         ) : (
           file.state === 'error' && (
             <div className="of-oo-state">
               <p className="of-error">{file.error}</p>
               <button className="of-action" onClick={() => patch(file.path, { state: 'loading', error: undefined, gen: file.gen + 1 })}>
-                <RefreshCw size={15} /> Mở lại
+                <RefreshCw size={15} /> {t('Reopen', 'Mở lại')}
               </button>
             </div>
           )

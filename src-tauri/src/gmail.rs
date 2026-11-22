@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 
 use crate::core::{Res, err, user_data};
 use crate::secure;
+use crate::settings::tr;
 
 const HOST: &str = "imap.gmail.com";
 /// how many messages one page of the list loads (scrolling to the bottom loads the next page)
@@ -62,15 +63,21 @@ fn saved_account() -> Option<(String, String)> {
 
 fn connect(email: &str, password: &str) -> Result<Session> {
     let tls = native_tls::TlsConnector::new()?;
-    let client = imap::connect((HOST, 993), HOST, &tls).context("không kết nối được tới imap.gmail.com")?;
+    let client = imap::connect((HOST, 993), HOST, &tls).context(tr("could not connect to imap.gmail.com", "không kết nối được tới imap.gmail.com"))?;
     client.login(email, password).map_err(|(e, _)| {
         let detail = e.to_string();
         if detail.contains("Application-specific password required") {
-            anyhow!("Đây là mật khẩu Google thường. Gmail chỉ nhận mật khẩu ứng dụng: làm theo bước 1–2 bên dưới để tạo, rồi dán mã 16 ký tự vào ô mật khẩu.")
+            anyhow!(tr(
+                "This is your normal Google password. Gmail only accepts an app password: follow steps 1–2 below to create one, then paste the 16-character code into the password box.",
+                "Đây là mật khẩu Google thường. Gmail chỉ nhận mật khẩu ứng dụng: làm theo bước 1–2 bên dưới để tạo, rồi dán mã 16 ký tự vào ô mật khẩu."
+            ))
         } else if detail.contains("Invalid credentials") {
-            anyhow!("Sai email hoặc mật khẩu ứng dụng. Kiểm tra lại, hoặc tạo mật khẩu ứng dụng mới.")
+            anyhow!(tr(
+                "Wrong email or app password. Check them, or create a new app password.",
+                "Sai email hoặc mật khẩu ứng dụng. Kiểm tra lại, hoặc tạo mật khẩu ứng dụng mới."
+            ))
         } else {
-            anyhow!("Gmail từ chối đăng nhập: {detail}")
+            anyhow!("{} {detail}", tr("Gmail refused the sign-in:", "Gmail từ chối đăng nhập:"))
         }
     })
 }
@@ -94,7 +101,7 @@ fn with_inbox<T>(f: impl Fn(&mut Session) -> Result<T>) -> Result<T> {
         }
         *guard = None;
     }
-    let (email, password) = saved_account().ok_or_else(|| anyhow!("chưa đăng nhập Gmail"))?;
+    let (email, password) = saved_account().ok_or_else(|| anyhow!(tr("not signed in to Gmail", "chưa đăng nhập Gmail")))?;
     let mut s = connect(&email, &password)?;
     s.examine("INBOX")?;
     let v = f(&mut s)?;
@@ -124,7 +131,7 @@ fn decode(raw: Option<&[u8]>) -> String {
 fn walk(part: &ParsedMail, html: &mut Option<String>, text: &mut Option<String>, attachments: &mut Vec<String>) {
     let disposition = part.get_content_disposition();
     if disposition.disposition == DispositionType::Attachment {
-        attachments.push(disposition.params.get("filename").or(part.ctype.params.get("name")).cloned().unwrap_or_else(|| "(không tên)".into()));
+        attachments.push(disposition.params.get("filename").or(part.ctype.params.get("name")).cloned().unwrap_or_else(|| tr("(no name)", "(không tên)").into()));
         return;
     }
     if part.subparts.is_empty() {
@@ -158,7 +165,7 @@ pub async fn gmail_login(email: String, password: String) -> Res<String> {
     // Google shows app passwords as "abcd efgh ijkl mnop"
     let password: String = password.chars().filter(|c| !c.is_whitespace()).collect();
     if email.is_empty() || password.is_empty() {
-        return Err(err("Nhập email và mật khẩu ứng dụng"));
+        return Err(err(tr("Enter the email and app password", "Nhập email và mật khẩu ứng dụng")));
     }
     let (e, p) = (email.clone(), password.clone());
     let session = tokio::task::spawn_blocking(move || -> Result<Session> {
@@ -245,7 +252,7 @@ pub async fn gmail_list(before: Option<u32>) -> Res<Vec<MailSummary>> {
 fn fetch_raw(uid: u32) -> Result<Vec<u8>> {
     with_inbox(|s| {
         let fetched = s.uid_fetch(uid.to_string(), "RFC822")?;
-        fetched.iter().find_map(|m| m.body()).map(<[u8]>::to_vec).ok_or_else(|| anyhow!("không tìm thấy thư"))
+        fetched.iter().find_map(|m| m.body()).map(<[u8]>::to_vec).ok_or_else(|| anyhow!(tr("message not found", "không tìm thấy thư")))
     })
 }
 

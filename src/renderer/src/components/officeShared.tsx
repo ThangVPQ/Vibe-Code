@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CloudAlert, CloudCheck, Loader2, Plus, X } from 'lucide-react'
 import type { OfficeRequest } from '../../../shared/types'
+import { useT } from '../i18n'
 
 /** `oo`: the ONLYOFFICE editor (OnlyOffice.tsx) */
 export type Kind = 'doc' | 'sheet' | 'pdf' | 'oo'
@@ -150,25 +151,26 @@ export function useAutosave(o: { write: (path: string) => Promise<void>; isOpen:
 
 /** "Đang lưu… / Đã lưu / Chưa lưu được" next to the Save button */
 export function SaveStatus({ dirty, s, note }: { dirty: boolean; s?: SaveInfo; note?: string }): React.JSX.Element | null {
+  const t = useT()
   if (s?.state === 'error')
     return (
-      <span className="of-save err" title={`${s.msg ?? ''}\nĐang thử lưu lại mỗi 5 giây; dữ liệu vẫn còn trong app.`}>
-        <CloudAlert size={14} /> Chưa lưu được
+      <span className="of-save err" title={`${s.msg ?? ''}\n${t('Retrying every 5 seconds; your data is still in the app.', 'Đang thử lưu lại mỗi 5 giây; dữ liệu vẫn còn trong app.')}`}>
+        <CloudAlert size={14} /> {t('Not saved', 'Chưa lưu được')}
       </span>
     )
   if (dirty || s?.state === 'saving')
     return (
-      <span className="of-save" title="Tự động lưu khoảng 1 giây sau khi ngừng sửa">
-        <Loader2 size={14} className="of-spin" /> Đang lưu…
+      <span className="of-save" title={t('Saves automatically about 1 second after you stop editing', 'Tự động lưu khoảng 1 giây sau khi ngừng sửa')}>
+        <Loader2 size={14} className="of-spin" /> {t('Saving…', 'Đang lưu…')}
       </span>
     )
   if (!s) return null
-  const lines = [`Tự động lưu lúc ${new Date(s.at ?? 0).toLocaleTimeString('vi-VN')}`]
-  if (s.backup) lines.push(`Bản gốc trước khi sửa được giữ ở: ${s.backup}`)
+  const lines = [`${t('Autosaved at', 'Tự động lưu lúc')} ${new Date(s.at ?? 0).toLocaleTimeString(t('en-US', 'vi-VN'))}`]
+  if (s.backup) lines.push(t(`The original before editing is kept at: ${s.backup}`, `Bản gốc trước khi sửa được giữ ở: ${s.backup}`))
   if (note) lines.push(note)
   return (
     <span className="of-save ok" title={lines.join('\n')}>
-      <CloudCheck size={14} /> Đã lưu
+      <CloudCheck size={14} /> {t('Saved', 'Đã lưu')}
     </span>
   )
 }
@@ -185,6 +187,7 @@ export function FileTabs(p: {
   addTitle: string
   children?: React.ReactNode
 }): React.JSX.Element {
+  const t = useT()
   return (
     <div className="of-files">
       {p.files.map((f) => (
@@ -202,10 +205,10 @@ export function FileTabs(p: {
         >
           {p.icon}
           <span className="of-filename">{fileName(f.path)}</span>
-          {f.dirty && <span className="of-dirty" title="Có thay đổi chưa lưu" />}
+          {f.dirty && <span className="of-dirty" title={t('Unsaved changes', 'Có thay đổi chưa lưu')} />}
           <button
             className="of-fileclose"
-            title="Đóng file"
+            title={t('Close file', 'Đóng file')}
             onClick={(e) => {
               e.stopPropagation()
               p.onClose(f.path)

@@ -26,10 +26,12 @@ import {
 } from './actions'
 import { focusTerm } from './terminals'
 import { saveFile } from './fileModelsLite'
+import { setLang } from './i18n'
 
 export interface Command {
   id: string
-  label: string
+  /** [English, Vietnamese]: the palette shows and searches the one of the current language */
+  label: [en: string, vi: string]
   /** shown in the palette, e.g. "Ctrl+Shift+P" */
   keys?: string
   run: () => void
@@ -47,48 +49,53 @@ const showCode = (): void => useStore.setState({ centerView: 'code' })
 const palette = (query: string): void => useStore.setState({ quickOpen: true, quickOpenQuery: query })
 
 export const COMMANDS: Command[] = [
-  { id: 'palette', label: 'Show all commands', keys: 'Ctrl+Shift+P', run: () => palette('>') },
-  { id: 'quickOpen', label: 'Go to file…', keys: 'Ctrl+P', run: () => st().root && palette('') },
-  { id: 'symbol', label: 'Go to symbol in file…', keys: 'Ctrl+Shift+O', run: () => window.dispatchEvent(new Event('go-to-symbol')) },
-  { id: 'line', label: 'Go to line…', keys: 'Ctrl+G', run: () => window.dispatchEvent(new Event('go-to-line')) },
-  { id: 'openFolder', label: 'Open folder…', keys: 'Ctrl+O', run: () => void openFolder(null, { autoChat: false }) },
+  { id: 'palette', label: ['Show all commands', 'Hiện tất cả lệnh'], keys: 'Ctrl+Shift+P', run: () => palette('>') },
+  { id: 'quickOpen', label: ['Go to file…', 'Đi tới tệp…'], keys: 'Ctrl+P', run: () => st().root && palette('') },
+  { id: 'symbol', label: ['Go to symbol in file…', 'Đi tới ký hiệu trong tệp…'], keys: 'Ctrl+Shift+O', run: () => window.dispatchEvent(new Event('go-to-symbol')) },
+  { id: 'line', label: ['Go to line…', 'Đi tới dòng…'], keys: 'Ctrl+G', run: () => window.dispatchEvent(new Event('go-to-line')) },
+  { id: 'openFolder', label: ['Open folder…', 'Mở thư mục…'], keys: 'Ctrl+O', run: () => void openFolder(null, { autoChat: false }) },
 
-  { id: 'newChat', label: 'New chat', keys: 'Ctrl+Shift+N', run: () => void (defaultAgent() && newChat()) },
-  { id: 'nextChat', label: 'Next chat', keys: 'Ctrl+Alt+→', run: () => cycleChat(1) },
-  { id: 'prevChat', label: 'Previous chat', keys: 'Ctrl+Alt+←', run: () => cycleChat(-1) },
-  { id: 'focusChat', label: 'Focus chat', keys: 'Ctrl+Shift+L', run: () => focusActiveChat() },
+  { id: 'newChat', label: ['New chat', 'Chat mới'], keys: 'Ctrl+Shift+N', run: () => void (defaultAgent() && newChat()) },
+  { id: 'nextChat', label: ['Next chat', 'Chat tiếp theo'], keys: 'Ctrl+Alt+→', run: () => cycleChat(1) },
+  { id: 'prevChat', label: ['Previous chat', 'Chat trước'], keys: 'Ctrl+Alt+←', run: () => cycleChat(-1) },
+  { id: 'focusChat', label: ['Focus chat', 'Chuyển tới chat'], keys: 'Ctrl+Shift+L', run: () => focusActiveChat() },
   {
     id: 'closeChat',
-    label: 'Close chat',
+    label: ['Close chat', 'Đóng chat'],
     run: () => {
       const id = st().activeChatId
       if (id) closeChat(id)
     }
   },
 
-  { id: 'save', label: 'Save file', keys: 'Ctrl+S', run: () => saveActive() },
-  { id: 'closeTab', label: 'Close editor tab', keys: 'Ctrl+W', run: () => closeActiveTab() },
-  { id: 'reopenTab', label: 'Reopen closed editor tab', keys: 'Ctrl+Shift+T', run: () => reopenClosedTab() },
-  { id: 'nextTab', label: 'Next editor tab', keys: 'Ctrl+Tab', run: () => cycleTab(1) },
-  { id: 'prevTab', label: 'Previous editor tab', keys: 'Ctrl+Shift+Tab', run: () => cycleTab(-1) },
+  { id: 'save', label: ['Save file', 'Lưu tệp'], keys: 'Ctrl+S', run: () => saveActive() },
+  { id: 'closeTab', label: ['Close editor tab', 'Đóng tab soạn thảo'], keys: 'Ctrl+W', run: () => closeActiveTab() },
+  { id: 'reopenTab', label: ['Reopen closed editor tab', 'Mở lại tab soạn thảo vừa đóng'], keys: 'Ctrl+Shift+T', run: () => reopenClosedTab() },
+  { id: 'nextTab', label: ['Next editor tab', 'Tab soạn thảo tiếp theo'], keys: 'Ctrl+Tab', run: () => cycleTab(1) },
+  { id: 'prevTab', label: ['Previous editor tab', 'Tab soạn thảo trước'], keys: 'Ctrl+Shift+Tab', run: () => cycleTab(-1) },
 
-  { id: 'explorer', label: 'Show Explorer (files)', keys: 'Ctrl+Shift+E', run: () => showCode() },
-  { id: 'changes', label: 'Show Source Control (changes)', keys: 'Ctrl+Shift+G', run: () => showCode() },
-  { id: 'chats', label: 'Show chats sidebar', keys: 'Ctrl+Shift+C', run: () => useStore.setState({ sidebarView: 'chats', sidebarOpen: true }) },
-  { id: 'sidebar', label: 'Toggle sidebar', keys: 'Ctrl+B', run: () => useStore.setState({ sidebarOpen: !st().sidebarOpen }) },
-  { id: 'terminal', label: 'Toggle terminal', keys: 'Ctrl+`', run: () => toggleBottom() },
-  { id: 'panel', label: 'Toggle bottom panel', keys: 'Ctrl+J', run: () => toggleBottom() },
-  { id: 'newTerminal', label: 'New terminal', keys: 'Ctrl+Shift+`', run: () => newShell() },
+  { id: 'explorer', label: ['Show Explorer (files)', 'Hiện Explorer (tệp)'], keys: 'Ctrl+Shift+E', run: () => showCode() },
+  { id: 'changes', label: ['Show Source Control (changes)', 'Hiện Source Control (thay đổi)'], keys: 'Ctrl+Shift+G', run: () => showCode() },
+  { id: 'chats', label: ['Show chats sidebar', 'Hiện thanh bên chat'], keys: 'Ctrl+Shift+C', run: () => useStore.setState({ sidebarView: 'chats', sidebarOpen: true }) },
+  { id: 'sidebar', label: ['Toggle sidebar', 'Bật/tắt thanh bên'], keys: 'Ctrl+B', run: () => useStore.setState({ sidebarOpen: !st().sidebarOpen }) },
+  { id: 'terminal', label: ['Toggle terminal', 'Bật/tắt terminal'], keys: 'Ctrl+`', run: () => toggleBottom() },
+  { id: 'panel', label: ['Toggle bottom panel', 'Bật/tắt bảng dưới'], keys: 'Ctrl+J', run: () => toggleBottom() },
+  { id: 'newTerminal', label: ['New terminal', 'Terminal mới'], keys: 'Ctrl+Shift+`', run: () => newShell() },
 
-  { id: 'viewCode', label: 'Show Source code tab', keys: 'Ctrl+1', run: () => useStore.setState({ centerView: 'code' }) },
-  { id: 'viewWeb', label: 'Show Web tab', keys: 'Ctrl+2', run: () => openBrowser() },
-  { id: 'viewDb', label: 'Show Database tab', keys: 'Ctrl+3', run: () => useStore.setState({ centerView: 'db' }) },
-  { id: 'viewZalo', label: 'Show Zalo tab', keys: 'Ctrl+4', run: () => useStore.setState({ centerView: 'zalo' }) },
-  { id: 'viewGmail', label: 'Show Gmail tab', keys: 'Ctrl+5', run: () => useStore.setState({ centerView: 'gmail' }) },
-  { id: 'viewOffice', label: 'Show Office tab', keys: 'Ctrl+6', run: () => useStore.setState({ centerView: 'office' }) },
-  { id: 'viewFiles', label: 'Show This PC (browse the whole computer)', run: () => useStore.setState({ centerView: 'files' }) },
+  { id: 'viewCode', label: ['Show Source code tab', 'Hiện tab Source code'], keys: 'Ctrl+1', run: () => useStore.setState({ centerView: 'code' }) },
+  { id: 'viewWeb', label: ['Show Web tab', 'Hiện tab Web'], keys: 'Ctrl+2', run: () => openBrowser() },
+  { id: 'viewDb', label: ['Show Database tab', 'Hiện tab Database'], keys: 'Ctrl+3', run: () => useStore.setState({ centerView: 'db' }) },
+  { id: 'viewZalo', label: ['Show Zalo tab', 'Hiện tab Zalo'], keys: 'Ctrl+4', run: () => useStore.setState({ centerView: 'zalo' }) },
+  { id: 'viewGmail', label: ['Show Gmail tab', 'Hiện tab Gmail'], keys: 'Ctrl+5', run: () => useStore.setState({ centerView: 'gmail' }) },
+  { id: 'viewOffice', label: ['Show Office tab', 'Hiện tab Office'], keys: 'Ctrl+6', run: () => useStore.setState({ centerView: 'office' }) },
+  { id: 'viewFiles', label: ['Show This PC (browse the whole computer)', 'Hiện This PC (duyệt toàn bộ máy tính)'], run: () => useStore.setState({ centerView: 'files' }) },
 
-  { id: 'theme', label: 'Toggle light / dark theme', run: () => void toggleTheme() }
+  { id: 'theme', label: ['Toggle light / dark theme', 'Bật/tắt giao diện sáng / tối'], run: () => void toggleTheme() },
+  {
+    id: 'language',
+    label: ['Change language: English / Tiếng Việt', 'Đổi ngôn ngữ: English / Tiếng Việt'],
+    run: () => void setLang(st().lang === 'vi' ? 'en' : 'vi')
+  }
 ]
 
 const byId = new Map(COMMANDS.map((c) => [c.id, c]))

@@ -38,8 +38,13 @@ import { newChatFromOfficeFile } from '../actions'
 import { docxToHtml, htmlText, htmlToDocx } from '../docxHtml'
 import { openMenu } from './ContextMenu'
 import { FileTabs, SaveStatus, type Workspace, type WorkspaceProps, errText, fileName, findOpen, samePath, toBase64, useAutosave } from './officeShared'
+import { type T, tr, useT } from '../i18n'
 
-const DOC_NOTE = 'Lưu thành .docx giữ chữ, tiêu đề, định dạng chữ, màu, danh sách, bảng, ảnh, link; không giữ header/footer, section, text box.'
+const docNote = (t: T): string =>
+  t(
+    'Saving as .docx keeps text, headings, text formatting, colors, lists, tables, images and links; not headers/footers, sections or text boxes.',
+    'Lưu thành .docx giữ chữ, tiêu đề, định dạng chữ, màu, danh sách, bảng, ảnh, link; không giữ header/footer, section, text box.'
+  )
 const FONTS = ['Times New Roman', 'Arial', 'Calibri', 'Cambria', 'Tahoma', 'Verdana', 'Courier New']
 const SIZES = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72]
 const ZOOMS = [0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
@@ -165,7 +170,7 @@ export const DocsWorkspace = forwardRef<Workspace, WorkspaceProps>(function Docs
       try {
         await auto.saveNow(path)
       } catch (err) {
-        if (!(await window.api.ask(`Không lưu được "${fileName(path)}":\n${errText(err)}\n\nVẫn đóng và bỏ các thay đổi chưa lưu?`))) return
+        if (!(await window.api.ask(tr(`Could not save "${fileName(path)}":\n${errText(err)}\n\nClose anyway and discard the unsaved changes?`, `Không lưu được "${fileName(path)}":\n${errText(err)}\n\nVẫn đóng và bỏ các thay đổi chưa lưu?`)))) return
       }
       drop()
     })
@@ -212,6 +217,7 @@ export const DocsWorkspace = forwardRef<Workspace, WorkspaceProps>(function Docs
     return () => el.removeEventListener('wheel', wheel)
   }, [file !== null])
 
+  const t = useT()
   if (!file || !editor) return null
   return (
     <div
@@ -224,18 +230,18 @@ export const DocsWorkspace = forwardRef<Workspace, WorkspaceProps>(function Docs
         }
       }}
     >
-      <FileTabs files={files} active={active} icon={<FileText size={13} className="of-ic-doc" />} onShow={show} onClose={close} onAdd={onAdd} addTitle="Mở tài liệu khác / tạo mới">
+      <FileTabs files={files} active={active} icon={<FileText size={13} className="of-ic-doc" />} onShow={show} onClose={close} onAdd={onAdd} addTitle={t('Open another document / create new', 'Mở tài liệu khác / tạo mới')}>
         {busy && <Loader2 size={15} className="of-spin of-dim" />}
-        <SaveStatus dirty={file.dirty} s={auto.saveState[file.path]} note={DOC_NOTE} />
-        <button className="of-tool" title={`Lưu (Ctrl+S). ${DOC_NOTE}`} disabled={!file.dirty || busy} onClick={() => run(() => auto.saveNow(file.path))}>
-          <Save size={15} /> Lưu
+        <SaveStatus dirty={file.dirty} s={auto.saveState[file.path]} note={docNote(t)} />
+        <button className="of-tool" title={`${t('Save', 'Lưu')} (Ctrl+S). ${docNote(t)}`} disabled={!file.dirty || busy} onClick={() => run(() => auto.saveNow(file.path))}>
+          <Save size={15} /> {t('Save', 'Lưu')}
         </button>
-        <button className="of-tool of-ai" title="Mở chat Claude làm việc với tài liệu này" onClick={() => void newChatFromOfficeFile(file.path)}>
-          <Bot size={15} /> Giao cho AI
+        <button className="of-tool of-ai" title={t('Open a Claude chat that works on this document', 'Mở chat Claude làm việc với tài liệu này')} onClick={() => void newChatFromOfficeFile(file.path)}>
+          <Bot size={15} /> {t('Hand to AI', 'Giao cho AI')}
         </button>
       </FileTabs>
       {error && (
-        <p className="of-error of-pad" onClick={() => setError('')} title="Bấm để ẩn">
+        <p className="of-error of-pad" onClick={() => setError('')} title={t('Click to hide', 'Bấm để ẩn')}>
           {error}
         </p>
       )}
@@ -275,6 +281,7 @@ function DocToolbar({ editor, zoom, onZoom, onError }: { editor: Editor; zoom: n
       canRedo: e.can().redo()
     })
   })
+  const t = useT()
   const [linkOpen, setLinkOpen] = useState(false)
   const [href, setHref] = useState('')
   const chain = () => editor.chain().focus()
@@ -287,18 +294,18 @@ function DocToolbar({ editor, zoom, onZoom, onError }: { editor: Editor; zoom: n
     const [p] = await window.api.app.pickFiles()
     if (!p) return
     const mime = IMAGE_MIME[p.split('.').pop()?.toLowerCase() ?? '']
-    if (!mime) throw new Error('Chỉ chèn được ảnh .png, .jpg, .gif, .bmp')
+    if (!mime) throw new Error(tr('Only .png, .jpg, .gif, .bmp images can be inserted', 'Chỉ chèn được ảnh .png, .jpg, .gif, .bmp'))
     const src = `data:${mime};base64,${toBase64(await window.api.office.readFile(p))}`
     chain().setImage({ src }).run()
   }
   return (
     <div className="of-doc-toolbar">
-      {btn('Hoàn tác (Ctrl+Z)', <Undo2 size={15} />, () => chain().undo().run(), false, !s.canUndo)}
-      {btn('Làm lại (Ctrl+Y)', <Redo2 size={15} />, () => chain().redo().run(), false, !s.canRedo)}
+      {btn(t('Undo (Ctrl+Z)', 'Hoàn tác (Ctrl+Z)'), <Undo2 size={15} />, () => chain().undo().run(), false, !s.canUndo)}
+      {btn(t('Redo (Ctrl+Y)', 'Làm lại (Ctrl+Y)'), <Redo2 size={15} />, () => chain().redo().run(), false, !s.canRedo)}
       <span className="of-tbsep" />
       <select
         className="of-tbselect"
-        title="Kiểu đoạn"
+        title={t('Paragraph style', 'Kiểu đoạn')}
         value={s.block}
         onChange={(e) => {
           const v = e.target.value
@@ -306,21 +313,21 @@ function DocToolbar({ editor, zoom, onZoom, onError }: { editor: Editor; zoom: n
           else chain().setHeading({ level: Number(v[1]) as 1 | 2 | 3 }).run()
         }}
       >
-        <option value="p">Văn bản</option>
-        <option value="h1">Tiêu đề 1</option>
-        <option value="h2">Tiêu đề 2</option>
-        <option value="h3">Tiêu đề 3</option>
+        <option value="p">{t('Normal text', 'Văn bản')}</option>
+        <option value="h1">{t('Heading 1', 'Tiêu đề 1')}</option>
+        <option value="h2">{t('Heading 2', 'Tiêu đề 2')}</option>
+        <option value="h3">{t('Heading 3', 'Tiêu đề 3')}</option>
       </select>
-      <select className="of-tbselect wide" title="Font chữ" value={s.font} onChange={(e) => (e.target.value ? chain().setFontFamily(e.target.value).run() : chain().unsetFontFamily().run())}>
-        <option value="">Font mặc định</option>
+      <select className="of-tbselect wide" title={t('Font', 'Font chữ')} value={s.font} onChange={(e) => (e.target.value ? chain().setFontFamily(e.target.value).run() : chain().unsetFontFamily().run())}>
+        <option value="">{t('Default font', 'Font mặc định')}</option>
         {[...new Set([...FONTS, ...(s.font ? [s.font] : [])])].map((f) => (
           <option key={f} value={f}>
             {f}
           </option>
         ))}
       </select>
-      <select className="of-tbselect" title="Cỡ chữ" value={s.size} onChange={(e) => (e.target.value ? chain().setFontSize(`${e.target.value}pt`).run() : chain().unsetFontSize().run())}>
-        <option value="">Cỡ</option>
+      <select className="of-tbselect" title={t('Font size', 'Cỡ chữ')} value={s.size} onChange={(e) => (e.target.value ? chain().setFontSize(`${e.target.value}pt`).run() : chain().unsetFontSize().run())}>
+        <option value="">{t('Size', 'Cỡ')}</option>
         {[...new Set([...SIZES.map(String), ...(s.size ? [s.size] : [])])].map((n) => (
           <option key={n} value={n}>
             {n}
@@ -328,54 +335,54 @@ function DocToolbar({ editor, zoom, onZoom, onError }: { editor: Editor; zoom: n
         ))}
       </select>
       <span className="of-tbsep" />
-      {btn('Đậm (Ctrl+B)', <Bold size={15} />, () => chain().toggleBold().run(), s.bold)}
-      {btn('Nghiêng (Ctrl+I)', <Italic size={15} />, () => chain().toggleItalic().run(), s.italic)}
-      {btn('Gạch chân (Ctrl+U)', <Underline size={15} />, () => chain().toggleUnderline().run(), s.underline)}
-      {btn('Gạch ngang', <Strikethrough size={15} />, () => chain().toggleStrike().run(), s.strike)}
-      <label className="of-tb of-color" title="Màu chữ" onMouseDown={(e) => e.stopPropagation()}>
+      {btn(t('Bold (Ctrl+B)', 'Đậm (Ctrl+B)'), <Bold size={15} />, () => chain().toggleBold().run(), s.bold)}
+      {btn(t('Italic (Ctrl+I)', 'Nghiêng (Ctrl+I)'), <Italic size={15} />, () => chain().toggleItalic().run(), s.italic)}
+      {btn(t('Underline (Ctrl+U)', 'Gạch chân (Ctrl+U)'), <Underline size={15} />, () => chain().toggleUnderline().run(), s.underline)}
+      {btn(t('Strikethrough', 'Gạch ngang'), <Strikethrough size={15} />, () => chain().toggleStrike().run(), s.strike)}
+      <label className="of-tb of-color" title={t('Font color', 'Màu chữ')} onMouseDown={(e) => e.stopPropagation()}>
         <span style={{ borderBottomColor: s.color }}>A</span>
         <input type="color" value={/^#[0-9a-f]{6}$/i.test(s.color) ? s.color : '#000000'} onChange={(e) => chain().setColor(e.target.value).run()} />
       </label>
-      <label className="of-tb of-color" title="Tô nền chữ">
+      <label className="of-tb of-color" title={t('Highlight color', 'Tô nền chữ')}>
         <Highlighter size={15} />
         <input type="color" defaultValue="#ffff00" onChange={(e) => chain().setHighlight({ color: e.target.value }).run()} />
       </label>
       <span className="of-tbsep" />
-      {btn('Căn trái', <AlignLeft size={15} />, () => chain().setTextAlign('left').run(), s.align === 'left')}
-      {btn('Căn giữa', <AlignCenter size={15} />, () => chain().setTextAlign('center').run(), s.align === 'center')}
-      {btn('Căn phải', <AlignRight size={15} />, () => chain().setTextAlign('right').run(), s.align === 'right')}
-      {btn('Căn đều hai bên', <AlignJustify size={15} />, () => chain().setTextAlign('justify').run(), s.align === 'justify')}
+      {btn(t('Align left', 'Căn trái'), <AlignLeft size={15} />, () => chain().setTextAlign('left').run(), s.align === 'left')}
+      {btn(t('Center', 'Căn giữa'), <AlignCenter size={15} />, () => chain().setTextAlign('center').run(), s.align === 'center')}
+      {btn(t('Align right', 'Căn phải'), <AlignRight size={15} />, () => chain().setTextAlign('right').run(), s.align === 'right')}
+      {btn(t('Justify', 'Căn đều hai bên'), <AlignJustify size={15} />, () => chain().setTextAlign('justify').run(), s.align === 'justify')}
       <span className="of-tbsep" />
-      {btn('Danh sách chấm', <List size={15} />, () => chain().toggleBulletList().run(), s.bullet)}
-      {btn('Danh sách số', <ListOrdered size={15} />, () => chain().toggleOrderedList().run(), s.ordered)}
-      {btn('Giảm thụt lề (Shift+Tab)', <IndentDecrease size={15} />, () => chain().liftListItem('listItem').run(), false, !(s.bullet || s.ordered))}
-      {btn('Tăng thụt lề (Tab)', <IndentIncrease size={15} />, () => chain().sinkListItem('listItem').run(), false, !(s.bullet || s.ordered))}
+      {btn(t('Bulleted list', 'Danh sách chấm'), <List size={15} />, () => chain().toggleBulletList().run(), s.bullet)}
+      {btn(t('Numbered list', 'Danh sách số'), <ListOrdered size={15} />, () => chain().toggleOrderedList().run(), s.ordered)}
+      {btn(t('Decrease indent (Shift+Tab)', 'Giảm thụt lề (Shift+Tab)'), <IndentDecrease size={15} />, () => chain().liftListItem('listItem').run(), false, !(s.bullet || s.ordered))}
+      {btn(t('Increase indent (Tab)', 'Tăng thụt lề (Tab)'), <IndentIncrease size={15} />, () => chain().sinkListItem('listItem').run(), false, !(s.bullet || s.ordered))}
       <span className="of-tbsep" />
       <button
         className={'of-tb of-tbmenu' + (s.table ? ' on' : '')}
-        title="Bảng"
+        title={t('Table', 'Bảng')}
         onMouseDown={(e) => e.preventDefault()}
         onClick={(e) =>
           openMenu(e, [
-            { label: 'Chèn bảng 3 × 3', action: () => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run() },
+            { label: t('Insert table 3 × 3', 'Chèn bảng 3 × 3'), action: () => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run() },
             'sep',
-            { label: 'Thêm hàng phía trên', disabled: !s.table, action: () => chain().addRowBefore().run() },
-            { label: 'Thêm hàng phía dưới', disabled: !s.table, action: () => chain().addRowAfter().run() },
-            { label: 'Thêm cột bên trái', disabled: !s.table, action: () => chain().addColumnBefore().run() },
-            { label: 'Thêm cột bên phải', disabled: !s.table, action: () => chain().addColumnAfter().run() },
+            { label: t('Insert row above', 'Thêm hàng phía trên'), disabled: !s.table, action: () => chain().addRowBefore().run() },
+            { label: t('Insert row below', 'Thêm hàng phía dưới'), disabled: !s.table, action: () => chain().addRowAfter().run() },
+            { label: t('Insert column left', 'Thêm cột bên trái'), disabled: !s.table, action: () => chain().addColumnBefore().run() },
+            { label: t('Insert column right', 'Thêm cột bên phải'), disabled: !s.table, action: () => chain().addColumnAfter().run() },
             'sep',
-            { label: 'Xoá hàng', disabled: !s.table, action: () => chain().deleteRow().run() },
-            { label: 'Xoá cột', disabled: !s.table, action: () => chain().deleteColumn().run() },
-            { label: 'Gộp ô', disabled: !s.table, action: () => chain().mergeCells().run() },
-            { label: 'Tách ô', disabled: !s.table, action: () => chain().splitCell().run() },
-            { label: 'Xoá bảng', disabled: !s.table, action: () => chain().deleteTable().run() }
+            { label: t('Delete row', 'Xoá hàng'), disabled: !s.table, action: () => chain().deleteRow().run() },
+            { label: t('Delete column', 'Xoá cột'), disabled: !s.table, action: () => chain().deleteColumn().run() },
+            { label: t('Merge cells', 'Gộp ô'), disabled: !s.table, action: () => chain().mergeCells().run() },
+            { label: t('Split cell', 'Tách ô'), disabled: !s.table, action: () => chain().splitCell().run() },
+            { label: t('Delete table', 'Xoá bảng'), disabled: !s.table, action: () => chain().deleteTable().run() }
           ])
         }
       >
         <Table2 size={15} /> ▾
       </button>
-      {btn('Chèn ảnh', <ImagePlus size={15} />, () => void addImage().catch(onError))}
-      {btn(s.link ? 'Bỏ link' : 'Chèn link', <Link2 size={15} />, () => (s.link ? chain().unsetLink().run() : setLinkOpen((o) => !o)), s.link)}
+      {btn(t('Insert image', 'Chèn ảnh'), <ImagePlus size={15} />, () => void addImage().catch(onError))}
+      {btn(s.link ? t('Remove link', 'Bỏ link') : t('Insert link', 'Chèn link'), <Link2 size={15} />, () => (s.link ? chain().unsetLink().run() : setLinkOpen((o) => !o)), s.link)}
       {linkOpen && (
         <form
           className="of-linkform"
@@ -389,13 +396,13 @@ function DocToolbar({ editor, zoom, onZoom, onError }: { editor: Editor; zoom: n
           <input autoFocus placeholder="https://…" value={href} onChange={(e) => setHref(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setLinkOpen(false)} />
         </form>
       )}
-      {btn('Xoá định dạng', <Eraser size={15} />, () => chain().unsetAllMarks().clearNodes().run())}
+      {btn(t('Clear formatting', 'Xoá định dạng'), <Eraser size={15} />, () => chain().unsetAllMarks().clearNodes().run())}
       <span className="of-fill" />
-      {btn('Thu nhỏ (Ctrl + lăn chuột)', <Minus size={14} />, () => onZoom([...ZOOMS].reverse().find((z) => z < zoom - 0.001) ?? zoom), false, zoom <= ZOOMS[0])}
-      <button className="of-tb of-zoompct" title="Về 100%" onClick={() => onZoom(1)}>
+      {btn(t('Zoom out (Ctrl + mouse wheel)', 'Thu nhỏ (Ctrl + lăn chuột)'), <Minus size={14} />, () => onZoom([...ZOOMS].reverse().find((z) => z < zoom - 0.001) ?? zoom), false, zoom <= ZOOMS[0])}
+      <button className="of-tb of-zoompct" title={t('Reset to 100%', 'Về 100%')} onClick={() => onZoom(1)}>
         {Math.round(zoom * 100)}%
       </button>
-      {btn('Phóng to (Ctrl + lăn chuột)', <Plus size={14} />, () => onZoom(ZOOMS.find((z) => z > zoom + 0.001) ?? zoom), false, zoom >= ZOOMS[ZOOMS.length - 1])}
+      {btn(t('Zoom in (Ctrl + mouse wheel)', 'Phóng to (Ctrl + lăn chuột)'), <Plus size={14} />, () => onZoom(ZOOMS.find((z) => z > zoom + 0.001) ?? zoom), false, zoom >= ZOOMS[ZOOMS.length - 1])}
     </div>
   )
 }

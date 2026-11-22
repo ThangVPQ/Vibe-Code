@@ -5,6 +5,7 @@ import { applyTheme, detectClaude, loadSessions, openFolder, refreshGit, showCha
 import { onGlobalKey } from './shortcuts'
 import { focusTerm } from './terminals'
 import { reloadIfClean } from './fileModelsLite'
+import { syncLang } from './i18n'
 import { QuickOpen, StatusBar, TitleBar, Welcome } from './components/Chrome'
 import { Sidebar } from './components/Sidebar'
 import { EditorArea } from './components/Editor'
@@ -26,6 +27,7 @@ function useBoot(): void {
     ;(async () => {
       const [settings] = await Promise.all([window.api.app.settings(), detectClaude()])
       useStore.setState({ recent: settings.recentFolders, settings })
+      syncLang(settings.language)
       applyTheme()
       if (settings.lastFolder) openFolder(settings.lastFolder).catch(() => {})
     })()

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Image as ImageIcon, X } from 'lucide-react'
+import { useT } from '../i18n'
 
 /** Every picture in a chat's conversation (pasted images, screenshots), oldest first; follows the transcript live. */
 export function useChatImages(sessionId: string | undefined): string[] {
@@ -41,6 +42,7 @@ export function useChatImages(sessionId: string | undefined): string[] {
 
 /** The Images tab of a chat: a grid, newest first. Click one to see it full size (← → to step, Esc to close). */
 export function ChatImages({ images }: { images: string[] }): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState<number | null>(null)
   const grid = useRef<HTMLDivElement>(null)
 
@@ -68,7 +70,7 @@ export function ChatImages({ images }: { images: string[] }): React.JSX.Element 
       {images.length === 0 && (
         <div className="chat-images-empty">
           <ImageIcon size={22} />
-          <p>No images in this chat yet. Paste one (Ctrl+V) or let Claude take a screenshot.</p>
+          <p>{t('No images in this chat yet. Paste one (Ctrl+V) or let Claude take a screenshot.', 'Chat này chưa có ảnh nào. Dán ảnh vào (Ctrl+V) hoặc để Claude chụp màn hình.')}</p>
         </div>
       )}
       <div className="chat-images-grid" ref={grid}>
@@ -76,22 +78,22 @@ export function ChatImages({ images }: { images: string[] }): React.JSX.Element 
           .map((src, i) => ({ src, i }))
           .reverse()
           .map(({ src, i }) => (
-            <button key={i} className="chat-image" title="Show full size" onClick={() => setOpen(i)}>
-              <img src={src} alt={`Image ${i + 1}`} draggable={false} />
+            <button key={i} className="chat-image" title={t('Show full size', 'Xem kích thước đầy đủ')} onClick={() => setOpen(i)}>
+              <img src={src} alt={t(`Image ${i + 1}`, `Ảnh ${i + 1}`)} draggable={false} />
               <span className="chat-image-num">#{i + 1}</span>
             </button>
           ))}
       </div>
       {open !== null && images[open] && (
         <div className="image-lightbox" onClick={() => setOpen(null)}>
-          <img src={images[open]} alt={`Image ${open + 1}`} onClick={(e) => e.stopPropagation()} />
-          <button className="lb-btn lb-close" title="Close (Esc)" onClick={() => setOpen(null)}>
+          <img src={images[open]} alt={t(`Image ${open + 1}`, `Ảnh ${open + 1}`)} onClick={(e) => e.stopPropagation()} />
+          <button className="lb-btn lb-close" title={t('Close (Esc)', 'Đóng (Esc)')} onClick={() => setOpen(null)}>
             <X size={18} />
           </button>
           {open > 0 && (
             <button
               className="lb-btn lb-prev"
-              title="Previous (←)"
+              title={t('Previous (←)', 'Trước (←)')}
               onClick={(e) => {
                 e.stopPropagation()
                 setOpen(open - 1)
@@ -103,7 +105,7 @@ export function ChatImages({ images }: { images: string[] }): React.JSX.Element 
           {open < images.length - 1 && (
             <button
               className="lb-btn lb-next"
-              title="Next (→)"
+              title={t('Next (→)', 'Tiếp (→)')}
               onClick={(e) => {
                 e.stopPropagation()
                 setOpen(open + 1)

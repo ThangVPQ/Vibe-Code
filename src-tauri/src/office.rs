@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
 use crate::core::{Res, app, emit, user_data};
+use crate::settings::{self, tr};
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -26,8 +27,12 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /* ---------------- files ---------------- */
 
+fn cant_read(path: &str) -> String {
+    if settings::vi() { format!("không đọc được {path}") } else { format!("could not read {path}") }
+}
+
 fn read_csv(path: &str) -> Result<Vec<Vec<String>>> {
-    let bytes = std::fs::read(path).with_context(|| format!("không đọc được {path}"))?;
+    let bytes = std::fs::read(path).with_context(|| cant_read(path))?;
     let text = String::from_utf8_lossy(bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes)).into_owned();
     let mut rdr = csv::ReaderBuilder::new().has_headers(false).flexible(true).from_reader(text.as_bytes());
     Ok(rdr.records().map(|r| r.map(|r| r.iter().map(str::to_owned).collect())).collect::<Result<_, _>>()?)
@@ -40,7 +45,9 @@ fn write_csv(path: &str, rows: &[Vec<String>]) -> Result<()> {
         w.write_record(row)?;
     }
     let bytes = w.into_inner().map_err(|e| anyhow!("{e}"))?;
-    std::fs::write(path, bytes).with_context(|| format!("không lưu được {path} (file đang mở trong Excel?)"))
+    std::fs::write(path, bytes).with_context(|| {
+        if settings::vi() { format!("không lưu được {path} (file đang mở trong Excel?)") } else { format!("could not save {path} (is it open in Excel?)") }
+    })
 }
 
 /// What the ONLYOFFICE editor opens (onlyoffice.rs).
@@ -53,16 +60,16 @@ pub async fn office_pick(save: bool, kind: Option<String>) -> Res<Option<String>
     use tauri_plugin_dialog::DialogExt;
     let mut d = app().dialog().file();
     d = match kind.as_deref() {
-        Some("doc") => d.add_filter("Tài liệu Word", &["docx"]),
-        Some("sheet") => d.add_filter("Bảng tính", &["xlsx", "csv"]),
+        Some("doc") => d.add_filter(tr("Word document", "Tài liệu Word"), &["docx"]),
+        Some("sheet") => d.add_filter(tr("Spreadsheet", "Bảng tính"), &["xlsx", "csv"]),
         Some("pdf") => d.add_filter("PDF", &["pdf"]),
         Some("oo") => d.add_filter("Word, Excel, PowerPoint", &OO_EXTS),
-        _ => d.add_filter("Tài liệu, bảng tính, trình chiếu, PDF", &[&OO_EXTS[..], &["pdf"]].concat()),
+        _ => d.add_filter(tr("Documents, spreadsheets, presentations, PDF", "Tài liệu, bảng tính, trình chiếu, PDF"), &[&OO_EXTS[..], &["pdf"]].concat()),
     };
     if let Some(w) = crate::core::main_window() {
         d = d.set_parent(&w);
     }
-    let name = if kind.as_deref() == Some("doc") { "Tai lieu.docx" } else { "Bang tinh.xlsx" };
+    let name = if kind.as_deref() == Some("doc") { tr("Document.docx", "Tai lieu.docx") } else { tr("Spreadsheet.xlsx", "Bang tinh.xlsx") };
     let picked = tokio::task::spawn_blocking(move || if save { d.set_file_name(name).blocking_save_file() } else { d.blocking_pick_file() }).await?;
     Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
 }
@@ -70,7 +77,7 @@ pub async fn office_pick(save: bool, kind: Option<String>) -> Res<Option<String>
 /// A file's bytes (an ArrayBuffer on the page): .xlsx, .docx, .pdf.
 #[tauri::command]
 pub async fn office_read_file(path: String) -> Res<tauri::ipc::Response> {
-    let bytes = tokio::fs::read(&path).await.with_context(|| format!("không đọc được {path}"))?;
+    let bytes = tokio::fs::read(&path).await.with_context(|| cant_read(&path))?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -78,7 +85,9 @@ pub async fn office_read_file(path: String) -> Res<tauri::ipc::Response> {
 #[tauri::command]
 pub async fn office_write_file(path: String, data: String) -> Res<()> {
     let bytes = B64.decode(data)?;
-    tokio::fs::write(&path, bytes).await.with_context(|| format!("không lưu được {path} (file đang mở ở chương trình khác?)"))?;
+    tokio::fs::write(&path, bytes).await.with_context(|| {
+        if settings::vi() { format!("không lưu được {path} (file đang mở ở chương trình khác?)") } else { format!("could not save {path} (is it open in another program?)") }
+    })?;
     Ok(())
 }
 
@@ -94,7 +103,7 @@ fn backup(path: &str, dir: &Path) -> Result<String> {
     let name = Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let to = dir.join(format!("{stamp} {name}"));
-    std::fs::copy(path, &to).with_context(|| format!("không sao lưu được {path}"))?;
+    std::fs::copy(path, &to).with_context(|| if settings::vi() { format!("không sao lưu được {path}") } else { format!("could not back up {path}") })?;
     let mut old: Vec<_> = std::fs::read_dir(dir)?.flatten().map(|e| e.path()).collect();
     if old.len() > 200 {
         old.sort();

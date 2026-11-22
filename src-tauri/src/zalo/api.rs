@@ -204,10 +204,10 @@ pub async fn login(creds: &Credentials) -> Result<Arc<Api>> {
     let login_data = get_login_info(&http, &creds.imei, &language).await?;
     let server = get_server_info(&http, &creds.imei).await?;
     let info = login_data.as_ref().and_then(|d| d.get("data")).filter(|d| truthy(Some(d))).cloned();
-    let Some(info) = info else { return Err(zerr("Đăng nhập thất bại")) };
+    let Some(info) = info else { return Err(zerr(crate::settings::tr("Sign-in failed", "Đăng nhập thất bại"))) };
     let secret_key = info.get("zpw_enk").and_then(Value::as_str).unwrap_or_default().to_owned();
     if secret_key.is_empty() {
-        return Err(zerr("Khởi tạo ngữ cảnh thất bại."));
+        return Err(zerr(crate::settings::tr("Could not set up the session.", "Khởi tạo ngữ cảnh thất bại.")));
     }
     let settings = server.get("setttings").filter(|v| truthy(Some(v))).or_else(|| server.get("settings")).cloned().unwrap_or(Value::Null);
     Ok(Arc::new(Api {

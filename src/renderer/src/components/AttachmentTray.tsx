@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { File, FileArchive, FileCode, FileSpreadsheet, FileText, Folder, Paperclip, X } from 'lucide-react'
 import { clearAttachments, formatSize, removeAttachment, useAttachments, type Attachment } from '../attachments'
 import { focusTerm } from '../terminals'
+import { useT } from '../i18n'
 
 const EMPTY: Attachment[] = []
 
@@ -29,6 +30,7 @@ export function AttachmentTray({
 }): React.JSX.Element | null {
   const items = useAttachments((s) => s.byChat[chatId] ?? EMPTY)
   const [zoom, setZoom] = useState<string | null>(null)
+  const t = useT()
 
   useEffect(() => {
     if (!zoom) return
@@ -53,7 +55,10 @@ export function AttachmentTray({
       <div className="attach-head">
         <Paperclip size={12} />
         <span>
-          {items.length} {items.length === 1 ? 'file' : 'files'} · sent with your next message (Enter)
+          {t(
+            `${items.length} ${items.length === 1 ? 'file' : 'files'} · sent with your next message (Enter)`,
+            `${items.length} tệp · gửi kèm tin nhắn tiếp theo (Enter)`
+          )}
         </span>
         <button
           className="attach-clear"
@@ -62,7 +67,7 @@ export function AttachmentTray({
             refocus()
           }}
         >
-          Clear all
+          {t('Clear all', 'Xoá hết')}
         </button>
       </div>
       <div className="attach-list">
@@ -72,7 +77,7 @@ export function AttachmentTray({
               <button className="attach-thumb-img" onClick={() => setZoom(a.preview!)}>
                 <img src={a.preview} alt={a.name} draggable={false} />
               </button>
-              <button className="attach-x" title="Remove" onClick={() => remove(a.key)}>
+              <button className="attach-x" title={t('Remove', 'Bỏ')} onClick={() => remove(a.key)}>
                 <X size={11} />
               </button>
             </div>
@@ -81,9 +86,9 @@ export function AttachmentTray({
               <span className="attach-file-icon">{iconFor(a)}</span>
               <span className="attach-file-text">
                 <span className="attach-file-name">{a.name}</span>
-                <span className="attach-file-size">{a.dir ? 'Folder' : formatSize(a.size) || '—'}</span>
+                <span className="attach-file-size">{a.dir ? t('Folder', 'Thư mục') : formatSize(a.size) || '—'}</span>
               </span>
-              <button className="attach-x" title="Remove" onClick={() => remove(a.key)}>
+              <button className="attach-x" title={t('Remove', 'Bỏ')} onClick={() => remove(a.key)}>
                 <X size={11} />
               </button>
             </div>
@@ -93,7 +98,7 @@ export function AttachmentTray({
       {zoom && (
         <div className="image-lightbox" onClick={() => setZoom(null)}>
           <img src={zoom} alt="" onClick={(e) => e.stopPropagation()} />
-          <button className="lb-btn lb-close" title="Close (Esc)" onClick={() => setZoom(null)}>
+          <button className="lb-btn lb-close" title={t('Close (Esc)', 'Đóng (Esc)')} onClick={() => setZoom(null)}>
             <X size={18} />
           </button>
         </div>

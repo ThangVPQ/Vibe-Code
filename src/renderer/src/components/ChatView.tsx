@@ -6,6 +6,7 @@ import { chatBoxFocus, menuShown, promptSuggestion, takeFiles } from '../termina
 import { IMAGE_RE, imagePreview, pickAttachments } from '../attachments'
 import { openFile } from '../actions'
 import { AttachmentTray } from './AttachmentTray'
+import { useT, type T } from '../i18n'
 import { queuePrompt, sendMessage, sendQueuedNow, sentSeen, unqueue, usePromptQueue, useSentPrompts, type QueuedPrompt, type SentPrompt } from '../promptQueue'
 
 const NO_QUEUE: QueuedPrompt[] = []
@@ -57,34 +58,34 @@ const tokens = (n: number): string => (n < 1000 ? String(n) : n < 100_000 ? `${(
 const base = (p: string): string => p.slice(Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')) + 1)
 
 /** What a run of tool calls did, in one line: "Ran 5 commands, edited 2 files". */
-function summary(tools: Tool[]): string {
+function summary(tools: Tool[], t: T): string {
   const counts = new Map<string, number>()
   const add = (k: string): void => void counts.set(k, (counts.get(k) ?? 0) + 1)
-  for (const t of tools) {
-    if (t.name === 'Bash' || t.name === 'PowerShell') add('cmd')
-    else if (t.name === 'Read') add('read')
-    else if (t.name === 'Edit' || t.name === 'MultiEdit' || t.name === 'NotebookEdit') add('edit')
-    else if (t.name === 'Write') add(tools.length === 1 ? 'write:' + base(t.label) : 'write')
-    else if (t.name === 'Grep' || t.name === 'Glob') add('search')
-    else if (t.name === 'WebFetch' || t.name === 'WebSearch') add('web')
-    else if (t.name === 'Agent' || t.name === 'Task') add('agent')
-    else if (t.name === 'ToolSearch') add('tools')
-    else if (t.name.startsWith('mcp__')) add('mcp:' + t.name.split('__')[1])
-    else add('use:' + t.name)
+  for (const tool of tools) {
+    if (tool.name === 'Bash' || tool.name === 'PowerShell') add('cmd')
+    else if (tool.name === 'Read') add('read')
+    else if (tool.name === 'Edit' || tool.name === 'MultiEdit' || tool.name === 'NotebookEdit') add('edit')
+    else if (tool.name === 'Write') add(tools.length === 1 ? 'write:' + base(tool.label) : 'write')
+    else if (tool.name === 'Grep' || tool.name === 'Glob') add('search')
+    else if (tool.name === 'WebFetch' || tool.name === 'WebSearch') add('web')
+    else if (tool.name === 'Agent' || tool.name === 'Task') add('agent')
+    else if (tool.name === 'ToolSearch') add('tools')
+    else if (tool.name.startsWith('mcp__')) add('mcp:' + tool.name.split('__')[1])
+    else add('use:' + tool.name)
   }
   const n = (k: number, one: string, many: string): string => (k === 1 ? one : `${k} ${many}`)
   const parts = [...counts].map(([k, c]) => {
-    if (k === 'cmd') return 'ran ' + n(c, 'a command', 'commands')
-    if (k === 'read') return 'read ' + n(c, '1 file', 'files')
-    if (k === 'edit') return 'edited ' + n(c, '1 file', 'files')
-    if (k === 'write') return 'wrote ' + n(c, '1 file', 'files')
-    if (k.startsWith('write:')) return 'created ' + k.slice(6)
-    if (k === 'search') return 'searched ' + n(c, '1 pattern', 'patterns')
-    if (k === 'web') return 'browsed ' + n(c, '1 page', 'pages')
-    if (k === 'agent') return 'ran ' + n(c, 'an agent', 'agents')
-    if (k === 'tools') return 'loaded tools'
-    if (k.startsWith('mcp:')) return 'called ' + k.slice(4)
-    return 'used ' + k.slice(4)
+    if (k === 'cmd') return t('ran ' + n(c, 'a command', 'commands'), `chạy ${c} lệnh`)
+    if (k === 'read') return t('read ' + n(c, '1 file', 'files'), `đọc ${c} tệp`)
+    if (k === 'edit') return t('edited ' + n(c, '1 file', 'files'), `sửa ${c} tệp`)
+    if (k === 'write') return t('wrote ' + n(c, '1 file', 'files'), `ghi ${c} tệp`)
+    if (k.startsWith('write:')) return t('created ', 'tạo ') + k.slice(6)
+    if (k === 'search') return t('searched ' + n(c, '1 pattern', 'patterns'), `tìm ${c} mẫu`)
+    if (k === 'web') return t('browsed ' + n(c, '1 page', 'pages'), `xem ${c} trang`)
+    if (k === 'agent') return t('ran ' + n(c, 'an agent', 'agents'), `chạy ${c} agent`)
+    if (k === 'tools') return t('loaded tools', 'nạp công cụ')
+    if (k.startsWith('mcp:')) return t('called ', 'gọi ') + k.slice(4)
+    return t('used ', 'dùng ') + k.slice(4)
   })
   const s = parts.join(', ')
   return s.charAt(0).toUpperCase() + s.slice(1)
@@ -113,13 +114,14 @@ function filePath(raw: string, cwd: string): string | null {
 }
 
 function PathLink({ raw, children }: { raw: string; children: React.ReactNode }): React.JSX.Element {
+  const t = useT()
   const abs = filePath(raw, useContext(Cwd))
   if (!abs) return <>{children}</>
   return (
     <a
       className="cv-path"
       href="#"
-      title={`Open ${abs} in Source code`}
+      title={t(`Open ${abs} in Source code`, `Mở ${abs} trong Mã nguồn`)}
       onClick={(e) => {
         e.preventDefault()
         openFile(abs)
@@ -184,13 +186,14 @@ function MiniPics({ paths, max = 4 }: { paths: string[] | undefined; max?: numbe
 
 /** Pictures full width, one under the other; click one to see it at full size. */
 function BigPics({ paths }: { paths: string[] | undefined }): React.JSX.Element | null {
+  const t = useT()
   const pics = usePics(paths)
   const [zoom, setZoom] = useState<string | null>(null)
   if (!pics.length) return null
   return (
     <div className="cv-bigpics">
       {pics.map((p) => (
-        <button key={p.path} className="cv-bigpic" title="Click to see it full size" onClick={() => setZoom(p.src)}>
+        <button key={p.path} className="cv-bigpic" title={t('Click to see it full size', 'Bấm để xem kích thước đầy đủ')} onClick={() => setZoom(p.src)}>
           <img src={p.src} alt="" draggable={false} />
         </button>
       ))}
@@ -200,6 +203,7 @@ function BigPics({ paths }: { paths: string[] | undefined }): React.JSX.Element 
 }
 
 function Lightbox({ src, onClose }: { src: string; onClose: () => void }): React.JSX.Element {
+  const t = useT()
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
@@ -213,7 +217,7 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }): React
   return (
     <div className="image-lightbox" onClick={onClose}>
       <img src={src} alt="" onClick={(e) => e.stopPropagation()} />
-      <button className="lb-btn lb-close" title="Close (Esc)" onClick={onClose}>
+      <button className="lb-btn lb-close" title={t('Close (Esc)', 'Đóng (Esc)')} onClick={onClose}>
         <X size={18} />
       </button>
     </div>
@@ -222,6 +226,7 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }): React
 
 /** Small previews; click one to open it big right below (click again to fold it). */
 function Pics({ paths, end }: { paths: string[]; end?: boolean }): React.JSX.Element | null {
+  const t = useT()
   const pics = usePics(paths)
   const [open, setOpen] = useState<string | null>(null)
   const shown = pics.find((p) => p.path === open)
@@ -233,7 +238,7 @@ function Pics({ paths, end }: { paths: string[]; end?: boolean }): React.JSX.Ele
           <button
             key={p.path}
             className={`cv-thumb${p.path === open ? ' on' : ''}`}
-            title={p.path === open ? 'Fold the picture' : 'Show the picture'}
+            title={p.path === open ? t('Fold the picture', 'Thu gọn ảnh') : t('Show the picture', 'Hiện ảnh')}
             onClick={() => setOpen(p.path === open ? null : p.path)}
           >
             <img src={p.src} alt="" draggable={false} />
@@ -254,6 +259,7 @@ function Thumbs({ text, end }: { text: string; end?: boolean }): React.JSX.Eleme
 
 /** What I sent: the pictures in it show as pictures only — their paths are left out of the text. */
 function UserMessage({ text, cwd, sending }: { text: string; cwd: string; sending?: boolean }): React.JSX.Element {
+  const t = useT()
   const shown = text
     .replace(PATH_RE, (m) => {
       const p = filePath(m, cwd)
@@ -263,7 +269,7 @@ function UserMessage({ text, cwd, sending }: { text: string; cwd: string; sendin
     .replace(/[ \t]+\n/g, '\n')
     .trim()
   return (
-    <div className={`cv-user-wrap${sending ? ' sending' : ''}`} title={sending ? 'Sent — Claude reads it as soon as it can' : undefined}>
+    <div className={`cv-user-wrap${sending ? ' sending' : ''}`} title={sending ? t('Sent — Claude reads it as soon as it can', 'Đã gửi — Claude sẽ đọc ngay khi có thể') : undefined}>
       {shown && <div className="cv-user">{withPaths(shown)}</div>}
       <Thumbs text={text} end />
     </div>
@@ -403,24 +409,25 @@ function Markdown({ text }: { text: string }): React.JSX.Element {
 
 /* ---------------- the conversation ---------------- */
 
-function ToolRow({ t }: { t: Tool }): React.JSX.Element {
+function ToolRow({ t: tool }: { t: Tool }): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
-  const short = t.name.startsWith('mcp__') ? t.name.split('__').slice(2).join('__') : t.name
-  const isFile = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(t.name) && !!t.label
-  const label = isFile ? base(t.label) : t.label
+  const short = tool.name.startsWith('mcp__') ? tool.name.split('__').slice(2).join('__') : tool.name
+  const isFile = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(tool.name) && !!tool.label
+  const label = isFile ? base(tool.label) : tool.label
   return (
-    <div className={`cv-tool${t.error ? ' err' : ''}`}>
-      <button className="cv-tool-head" onClick={() => setOpen(!open)} title={t.label}>
+    <div className={`cv-tool${tool.error ? ' err' : ''}`}>
+      <button className="cv-tool-head" onClick={() => setOpen(!open)} title={tool.label}>
         <ChevronRight size={12} className={open ? 'task-chev open' : 'task-chev'} />
         <span className="cv-tool-name">{short}</span>
         {isFile ? (
           <span className="cv-tool-label">
             <span
               className="cv-path"
-              title={`Open ${t.label} in Source code`}
+              title={t(`Open ${tool.label} in Source code`, `Mở ${tool.label} trong Mã nguồn`)}
               onClick={(e) => {
                 e.stopPropagation()
-                openFile(t.label)
+                openFile(tool.label)
               }}
             >
               {label}
@@ -429,24 +436,24 @@ function ToolRow({ t }: { t: Tool }): React.JSX.Element {
         ) : (
           <span className="cv-tool-label">{label}</span>
         )}
-        {t.added + t.removed > 0 && (
+        {tool.added + tool.removed > 0 && (
           <span className="cv-diff">
-            {t.added > 0 && <span className="add">+{t.added}</span>}
-            {t.removed > 0 && <span className="del">−{t.removed}</span>}
+            {tool.added > 0 && <span className="add">+{tool.added}</span>}
+            {tool.removed > 0 && <span className="del">−{tool.removed}</span>}
           </span>
         )}
-        {t.output === undefined && <Loader size={12} className="task-spin" />}
-        {!open && <MiniPics paths={t.images} />}
+        {tool.output === undefined && <Loader size={12} className="task-spin" />}
+        {!open && <MiniPics paths={tool.images} />}
       </button>
       {open && (
         <div className="cv-tool-body">
-          {t.detail && <pre className="task-out">{t.detail}</pre>}
-          {t.images?.length ? (
-            <BigPics paths={t.images} />
-          ) : t.diff?.length && !t.error ? (
-            <Diff lines={t.diff} />
+          {tool.detail && <pre className="task-out">{tool.detail}</pre>}
+          {tool.images?.length ? (
+            <BigPics paths={tool.images} />
+          ) : tool.diff?.length && !tool.error ? (
+            <Diff lines={tool.diff} />
           ) : (
-            t.output !== undefined && <pre className="task-out">{t.output.trim() || 'No output.'}</pre>
+            tool.output !== undefined && <pre className="task-out">{tool.output.trim() || t('No output.', 'Không có output.')}</pre>
           )}
         </div>
       )}
@@ -484,24 +491,25 @@ function Diff({ lines }: { lines: string[] }): React.JSX.Element {
 }
 
 function ToolGroup({ tools, live }: { tools: Tool[]; live: boolean }): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
-  const added = tools.reduce((n, t) => n + t.added, 0)
-  const removed = tools.reduce((n, t) => n + t.removed, 0)
-  const running = live && tools.some((t) => t.output === undefined)
+  const added = tools.reduce((n, tool) => n + tool.added, 0)
+  const removed = tools.reduce((n, tool) => n + tool.removed, 0)
+  const running = live && tools.some((tool) => tool.output === undefined)
   // no pictures on this line: the ones Claude looked at are mostly the ones I sent, already shown above
   return (
     <div className="cv-group">
       <button className="cv-group-head" onClick={() => setOpen(!open)}>
         {running && <Loader size={12} className="task-spin" />}
-        <span>{summary(tools)}</span>
+        <span>{summary(tools, t)}</span>
         {added > 0 && <span className="cv-diff"><span className="add">+{added}</span></span>}
         {removed > 0 && <span className="cv-diff"><span className="del">−{removed}</span></span>}
         <ChevronRight size={13} className={open ? 'task-chev open' : 'task-chev'} />
       </button>
       {open && (
         <div className="cv-group-body">
-          {tools.map((t) => (
-            <ToolRow key={t.id} t={t} />
+          {tools.map((tool) => (
+            <ToolRow key={tool.id} t={tool} />
           ))}
         </div>
       )}
@@ -540,6 +548,7 @@ function blocks(log: ChatLog): Block[] {
 
 /** The Chat tab: the conversation drawn from the transcript, and a message box that types into Claude's terminal. */
 export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => void }): React.JSX.Element {
+  const t = useT()
   const log = useChatLog(chat.sessionId)
   const sent = useSentPrompts((s) => s.byChat[chat.id] ?? NO_SENT)
   const working = chat.status === 'working'
@@ -640,10 +649,17 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
           {!list.length && !sending.length && (
             <div className="chat-images-empty">
               <MessageSquare size={22} />
-              <p>{log === undefined ? 'Loading…' : 'Send a message to start. Everything Claude does in this chat shows up here; the Terminal tab has the full screen.'}</p>
+              <p>
+                {log === undefined
+                  ? t('Loading…', 'Đang tải…')
+                  : t(
+                      'Send a message to start. Everything Claude does in this chat shows up here; the Terminal tab has the full screen.',
+                      'Gửi một tin nhắn để bắt đầu. Mọi việc Claude làm trong chat này đều hiện ở đây; tab Terminal có toàn bộ màn hình.'
+                    )}
+              </p>
             </div>
           )}
-          {log && log.skipped > 0 && <div className="cv-note">Earlier messages are in the Terminal tab.</div>}
+          {log && log.skipped > 0 && <div className="cv-note">{t('Earlier messages are in the Terminal tab.', 'Các tin nhắn trước đó nằm trong tab Terminal.')}</div>}
           {list.map((b, n) => (
             <Fragment key={b.key}>
               {b.kind === 'todos' && log && <Todos todos={log.todos} />}
@@ -659,8 +675,8 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
               )}
               {b.kind === 'item' && b.item.kind === 'done' && (
                 <div className="cv-note">
-                  {b.item.ms ? `Worked for ${dur(b.item.ms)}` : 'Interrupted'}
-                  {!working && b.key === String(lastDone) && !!log?.outTokens && ` · ${tokens(log.outTokens)} tokens out in this chat`}
+                  {b.item.ms ? t(`Worked for ${dur(b.item.ms)}`, `Đã làm trong ${dur(b.item.ms)}`) : t('Interrupted', 'Đã bị ngắt')}
+                  {!working && b.key === String(lastDone) && !!log?.outTokens && t(` · ${tokens(log.outTokens)} tokens out in this chat`, ` · ${tokens(log.outTokens)} token đầu ra trong chat này`)}
                 </div>
               )}
             </Fragment>
@@ -671,16 +687,16 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
           {working && (
             <div className="cv-working">
               <Loader size={13} className="task-spin" />
-              Working{startAt ? ` · ${dur(Date.now() - startAt)}` : '…'}
-              {!!log?.turnOutTokens && <span title="Tokens Claude wrote in this turn">· ↓ {tokens(log.turnOutTokens)} tokens</span>}
-              {!!log?.outTokens && <span className="cv-working-total" title="Tokens Claude wrote in this whole chat">· {tokens(log.outTokens)} in this chat</span>}
+              {t('Working', 'Đang làm')}{startAt ? ` · ${dur(Date.now() - startAt)}` : '…'}
+              {!!log?.turnOutTokens && <span title={t('Tokens Claude wrote in this turn', 'Số token Claude đã viết trong lượt này')}>· ↓ {tokens(log.turnOutTokens)} {t('tokens', 'token')}</span>}
+              {!!log?.outTokens && <span className="cv-working-total" title={t('Tokens Claude wrote in this whole chat', 'Số token Claude đã viết trong cả chat này')}>· {tokens(log.outTokens)} {t('in this chat', 'trong chat này')}</span>}
             </div>
           )}
           {asking && (
             <div className="cv-asking">
-              <span>Claude is asking you to choose something.</span>
+              <span>{t('Claude is asking you to choose something.', 'Claude đang hỏi bạn chọn một mục.')}</span>
               <button className="btn btn-sm" onClick={onTerminal}>
-                <SquareTerminal size={13} /> Answer in Terminal
+                <SquareTerminal size={13} /> {t('Answer in Terminal', 'Trả lời trong Terminal')}
               </button>
             </div>
           )}
@@ -698,10 +714,10 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
                     <Paperclip size={11} /> {q.files.length}
                   </span>
                 )}
-                <button className="cv-queued-send" title="Send it now — Claude reads it while it works" onClick={() => sendQueuedNow(chat.id, q.id)}>
-                  <ArrowUp size={12} /> Send now
+                <button className="cv-queued-send" title={t('Send it now — Claude reads it while it works', 'Gửi ngay — Claude sẽ đọc trong lúc đang làm')} onClick={() => sendQueuedNow(chat.id, q.id)}>
+                  <ArrowUp size={12} /> {t('Send now', 'Gửi ngay')}
                 </button>
-                <button className="cv-queued-x" title="Take it back to the message box" onClick={() => takeBack(q.id)}>
+                <button className="cv-queued-x" title={t('Take it back to the message box', 'Đưa lại vào ô tin nhắn')} onClick={() => takeBack(q.id)}>
                   <X size={13} />
                 </button>
               </div>
@@ -712,7 +728,7 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
         <div className="cv-compose">
           <button
             className="cv-icon"
-            title="Attach files — they go with your next message"
+            title={t('Attach files — they go with your next message', 'Đính kèm tệp — gửi cùng tin nhắn tiếp theo')}
             disabled={chat.status === 'exited'}
             onClick={async () => {
               await pickAttachments(chat.id, chat.cwd)
@@ -725,7 +741,11 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
             ref={box}
             rows={1}
             value={draft}
-            placeholder={chat.status === 'exited' ? 'This chat has ended' : suggestion || 'Message Claude (Enter to send, Shift+Enter for a new line)'}
+            placeholder={
+              chat.status === 'exited'
+                ? t('This chat has ended', 'Chat này đã kết thúc')
+                : suggestion || t('Message Claude (Enter to send, Shift+Enter for a new line)', 'Nhắn cho Claude (Enter để gửi, Shift+Enter để xuống dòng)')
+            }
             disabled={chat.status === 'exited'}
             onChange={(e) => setDraft(e.target.value)}
             onFocus={() => chatBoxFocus(chat.id, true)}
@@ -749,19 +769,19 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
             }}
           />
           {suggestion && (
-            <button className="cv-tab-hint" title="Take Claude's suggestion (Tab)" onMouseDown={(e) => e.preventDefault()} onClick={() => {
+            <button className="cv-tab-hint" title={t("Take Claude's suggestion (Tab)", 'Dùng gợi ý của Claude (Tab)')} onMouseDown={(e) => e.preventDefault()} onClick={() => {
                 setDraft(suggestion)
                 box.current?.focus()
               }}>
               Tab
             </button>
           )}
-          <button className="cv-icon cv-send" title="Send (Enter)" disabled={!draft.trim() || chat.status === 'exited' || chat.status === 'starting'} onClick={send}>
+          <button className="cv-icon cv-send" title={t('Send (Enter)', 'Gửi (Enter)')} disabled={!draft.trim() || chat.status === 'exited' || chat.status === 'starting'} onClick={send}>
             <CornerDownLeft size={16} />
           </button>
           <button
             className="cv-icon"
-            title="Voice typing (Windows, Win+H)"
+            title={t('Voice typing (Windows, Win+H)', 'Nhập bằng giọng nói (Windows, Win+H)')}
             disabled={chat.status === 'exited'}
             onClick={() => {
               box.current?.focus()

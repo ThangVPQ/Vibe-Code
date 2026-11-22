@@ -20,9 +20,11 @@ const GmailPane = lazy(() => import('./Gmail').then((m) => ({ default: m.GmailPa
 const OfficePane = lazy(() => import('./Office').then((m) => ({ default: m.OfficePane })))
 import type { ZaloTasksState } from '../../../shared/types'
 import { revealIn } from '../scroll'
+import { tr, useT } from '../i18n'
 
 /** Middle area: fixed tabs — Source code (project files, diffs, and This PC: any file on the computer), Web (built-in browser), Database, … */
 export function EditorArea(): React.JSX.Element {
+  const t = useT()
   const view = useStore((s) => s.centerView)
   const fileCount = useStore((s) => s.tabs.length)
   const key = useStore((s) => browserKey(s.activeChatId))
@@ -60,10 +62,10 @@ export function EditorArea(): React.JSX.Element {
           role="tab"
           aria-selected={view === 'code' || view === 'files'}
           className={view === 'code' || view === 'files' ? 'on' : ''}
-          title="Project files, Git changes and This PC"
+          title={t('Project files, Git changes and This PC', 'Tệp dự án, thay đổi Git và This PC')}
           onClick={() => useStore.setState({ centerView: lastSource.current })}
         >
-          <Code2 size={14} /> <span className="center-label">Source code</span>
+          <Code2 size={14} /> <span className="center-label">{t('Source code', 'Mã nguồn')}</span>
           {fileCount > 0 && <span className="center-count">{fileCount}</span>}
         </button>
         <button role="tab" aria-selected={view === 'web'} className={view === 'web' ? 'on' : ''} onClick={() => openBrowser()}>
@@ -75,7 +77,7 @@ export function EditorArea(): React.JSX.Element {
         <button role="tab" aria-selected={view === 'zalo'} className={view === 'zalo' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'zalo' })}>
           <MessageCircle size={14} /> <span className="center-label">Zalo</span>
           {zaloBadge > 0 && (
-            <span key={zaloBadge} className="center-count alert" title={`${zaloBadge} việc mới / vừa cập nhật`}>
+            <span key={zaloBadge} className="center-count alert" title={t(`${zaloBadge} new / updated ${zaloBadge === 1 ? 'task' : 'tasks'}`, `${zaloBadge} việc mới / vừa cập nhật`)}>
               {zaloBadge > 99 ? '99+' : zaloBadge}
             </span>
           )}
@@ -190,11 +192,12 @@ function taskbarBadge(n: number): void {
   g.textAlign = 'center'
   g.textBaseline = 'middle'
   g.fillText(text, 16, 17)
-  window.api.win.badge(c.toDataURL('image/png'), `${n} việc chưa xong`)
+  window.api.win.badge(c.toDataURL('image/png'), tr(`${n} unfinished ${n === 1 ? 'task' : 'tasks'}`, `${n} việc chưa xong`))
 }
 
 /** A chat's browser: its tab strip and one page per tab. */
 function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
+  const tt = useT()
   const b = useStore((s) => s.browsers[chatKey])
   const shown = useStore((s) => s.centerView === 'web' && browserKey(s.activeChatId) === chatKey)
   const stripRef = useRef<HTMLDivElement>(null)
@@ -230,11 +233,11 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
             onClick={() => selectBrowserTab(chatKey, t.id)}
             onContextMenu={(e) =>
               openMenu(e, [
-                { label: 'Close tab', icon: <X size={14} />, action: () => close(t.id) },
-                b.tabs.length > 1 && { label: 'Close other tabs', action: () => b.tabs.forEach((o) => o.id !== t.id && close(o.id)) },
+                { label: tt('Close tab', 'Đóng tab'), icon: <X size={14} />, action: () => close(t.id) },
+                b.tabs.length > 1 && { label: tt('Close other tabs', 'Đóng các tab khác'), action: () => b.tabs.forEach((o) => o.id !== t.id && close(o.id)) },
                 t.url !== HOME_URL && 'sep',
-                t.url !== HOME_URL && { label: 'Copy address', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(t.url) },
-                t.url !== HOME_URL && { label: 'Open in default browser', icon: <ExternalLink size={14} />, action: () => window.api.app.openExternal(t.url) }
+                t.url !== HOME_URL && { label: tt('Copy address', 'Sao chép địa chỉ'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(t.url) },
+                t.url !== HOME_URL && { label: tt('Open in default browser', 'Mở bằng trình duyệt mặc định'), icon: <ExternalLink size={14} />, action: () => window.api.app.openExternal(t.url) }
               ])
             }
             onMouseDown={(e) => {
@@ -243,13 +246,13 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
                 close(t.id)
               }
             }}
-            title={t.url === HOME_URL ? 'New tab' : t.url}
+            title={t.url === HOME_URL ? tt('New tab', 'Tab mới') : t.url}
           >
             <Globe size={13} />
-            <span className="tab-title">{t.title || (t.url === HOME_URL ? 'New tab' : t.url.replace(/^https?:\/\//, ''))}</span>
+            <span className="tab-title">{t.title || (t.url === HOME_URL ? tt('New tab', 'Tab mới') : t.url.replace(/^https?:\/\//, ''))}</span>
             <button
               className="tab-close"
-              title="Close tab"
+              title={tt('Close tab', 'Đóng tab')}
               onClick={(e) => {
                 e.stopPropagation()
                 close(t.id)
@@ -259,7 +262,7 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
             </button>
           </div>
         ))}
-        <button className="icon-btn tab-strip-btn" title="New tab" onClick={() => newBrowserTab(chatKey)}>
+        <button className="icon-btn tab-strip-btn" title={tt('New tab', 'Tab mới')} onClick={() => newBrowserTab(chatKey)}>
           <Plus size={15} />
         </button>
         <div className="tab-strip-fill" />
@@ -310,14 +313,14 @@ function tabMenu(e: React.MouseEvent, t: EditorTab): void {
   const right = tabs.slice(tabs.findIndex((x) => x.id === t.id) + 1)
   const rel = t.kind === 'diff' ? t.rel : root && t.path.toLowerCase().startsWith(root.toLowerCase()) ? t.path.slice(root.length).replace(/^[\\/]+/, '').replace(/\\/g, '/') : null
   openMenu(e, [
-    { label: 'Close', icon: <X size={14} />, hint: 'Ctrl+W', action: () => closeTab(t.id) },
-    others.length > 0 && { label: 'Close others', action: () => others.forEach((x) => closeTab(x.id)) },
-    right.length > 0 && { label: 'Close to the right', action: () => right.forEach((x) => closeTab(x.id)) },
-    others.length > 0 && { label: 'Close all', action: () => tabs.forEach((x) => closeTab(x.id)) },
+    { label: tr('Close', 'Đóng'), icon: <X size={14} />, hint: 'Ctrl+W', action: () => closeTab(t.id) },
+    others.length > 0 && { label: tr('Close others', 'Đóng các tab khác'), action: () => others.forEach((x) => closeTab(x.id)) },
+    right.length > 0 && { label: tr('Close to the right', 'Đóng các tab bên phải'), action: () => right.forEach((x) => closeTab(x.id)) },
+    others.length > 0 && { label: tr('Close all', 'Đóng tất cả'), action: () => tabs.forEach((x) => closeTab(x.id)) },
     'sep',
-    { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(t.path) },
-    !!rel && { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(rel) },
-    { label: 'Reveal in This PC', icon: <FolderOpen size={14} />, action: () => revealInApp(t.path, false) }
+    { label: tr('Copy path', 'Sao chép đường dẫn'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(t.path) },
+    !!rel && { label: tr('Copy relative path', 'Sao chép đường dẫn tương đối'), icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(rel) },
+    { label: tr('Reveal in This PC', 'Hiện trong This PC'), icon: <FolderOpen size={14} />, action: () => revealInApp(t.path, false) }
   ])
 }
 
@@ -401,12 +404,13 @@ const CodeArea = memo(function CodeArea(): React.JSX.Element {
 /* ================================ Empty state ================================ */
 
 function EmptyEditor(): React.JSX.Element {
+  const t = useT()
   const rows: [React.ReactNode, string, string][] = [
-    [<Search size={14} key="s" />, 'Go to file', 'Ctrl+P'],
-    [<MessageSquarePlus size={14} key="n" />, 'New chat', 'Ctrl+Shift+N'],
-    [<GitCompare size={14} key="g" />, 'Show changes', 'Ctrl+Shift+G'],
-    [<Command size={14} key="t" />, 'Toggle terminal', 'Ctrl+`'],
-    [<Command size={14} key="b" />, 'Toggle sidebar', 'Ctrl+B']
+    [<Search size={14} key="s" />, t('Go to file', 'Đi tới tệp'), 'Ctrl+P'],
+    [<MessageSquarePlus size={14} key="n" />, t('New chat', 'Chat mới'), 'Ctrl+Shift+N'],
+    [<GitCompare size={14} key="g" />, t('Show changes', 'Hiện thay đổi'), 'Ctrl+Shift+G'],
+    [<Command size={14} key="t" />, t('Toggle terminal', 'Bật/tắt terminal'), 'Ctrl+`'],
+    [<Command size={14} key="b" />, t('Toggle sidebar', 'Bật/tắt thanh bên'), 'Ctrl+B']
   ]
   return (
     <div className="empty-editor">
@@ -414,7 +418,7 @@ function EmptyEditor(): React.JSX.Element {
         <Logo size={64} />
       </div>
       <button className="btn btn-primary btn-lg" onClick={() => openBrowser()}>
-        <Globe size={16} /> Open browser
+        <Globe size={16} /> {t('Open browser', 'Mở trình duyệt')}
       </button>
       <div className="shortcut-list">
         {rows.map(([icon, label, key]) => (

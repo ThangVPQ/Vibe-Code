@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, Download, Folder, Globe } from 'lucide-react'
 import type { WebBookmark, WebData } from '../../../shared/types'
+import { useT } from '../i18n'
 
 /* One copy for every Web tab: loaded once, and every bar updates after the import. */
 let data: WebData | null = null
@@ -47,6 +48,7 @@ function flatten(list: WebBookmark[], path = ''): { b: WebBookmark; path: string
 }
 
 export function BookmarkBar({ onOpen }: { onOpen: (url: string) => void }): React.JSX.Element | null {
+  const t = useT()
   const d = useWebData()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -59,7 +61,7 @@ export function BookmarkBar({ onOpen }: { onOpen: (url: string) => void }): Reac
     if (!d.chromeFound) return null
     return (
       <div className="bm-bar bm-import">
-        <span>Bring your Chrome bookmarks and history into the Web tab (all profiles, one time).</span>
+        <span>{t('Bring your Chrome bookmarks and history into the Web tab (all profiles, one time).', 'Đưa dấu trang và lịch sử Chrome của bạn vào tab Web (mọi hồ sơ, một lần).')}</span>
         <button
           className="chip"
           disabled={busy}
@@ -77,7 +79,7 @@ export function BookmarkBar({ onOpen }: { onOpen: (url: string) => void }): Reac
           }}
         >
           <Download size={12} />
-          {busy ? 'Importing…' : 'Import from Chrome'}
+          {busy ? t('Importing…', 'Đang nhập…') : t('Import from Chrome', 'Nhập từ Chrome')}
         </button>
         {error && <span className="bm-error">{error}</span>}
       </div>

@@ -9,10 +9,12 @@ import { ensureModel, getModel, isDirty, markTab, saveModel } from '../fileModel
 import { FileIcon } from './icons'
 import { useEditorFont } from './EditorFont'
 import { IMAGE_RE, imagePreview } from '../attachments'
+import { tr, useT } from '../i18n'
 
 /* Everything that needs Monaco: loaded the first time a file or diff tab opens. */
 
 function Breadcrumbs({ path }: { path: string }): React.JSX.Element {
+  const t = useT()
   const root = useStore((s) => s.root) ?? ''
   const rel = path.toLowerCase().startsWith(root.toLowerCase()) ? path.slice(root.length).replace(/^[\\/]/, '') : path
   const parts = rel.split(/[\\/]/)
@@ -25,8 +27,8 @@ function Breadcrumbs({ path }: { path: string }): React.JSX.Element {
           {i < parts.length - 1 && <span className="crumb-sep">›</span>}
         </span>
       ))}
-      <button className="crumb-symbols" title="Go to function / symbol (Ctrl+Shift+O)" onClick={() => window.dispatchEvent(new Event('go-to-symbol'))}>
-        <Braces size={13} /> Symbols
+      <button className="crumb-symbols" title={t('Go to function / symbol (Ctrl+Shift+O)', 'Đi tới hàm / ký hiệu (Ctrl+Shift+O)')} onClick={() => window.dispatchEvent(new Event('go-to-symbol'))}>
+        <Braces size={13} /> {t('Symbols', 'Ký hiệu')}
       </button>
     </div>
   )
@@ -131,6 +133,7 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
 
 /** A picture opened as a file: shown instead of "binary file". */
 function ImageFile({ path }: { path: string }): React.JSX.Element {
+  const t = useT()
   const [src, setSrc] = useState<{ path: string; src?: string } | null>(null)
   useEffect(() => {
     let live = true
@@ -144,7 +147,7 @@ function ImageFile({ path }: { path: string }): React.JSX.Element {
     <>
       <Breadcrumbs path={path} />
       {mine && !mine.src ? (
-        <div className="editor-message">This picture cannot be shown (missing, or larger than 15 MB).</div>
+        <div className="editor-message">{t('This picture cannot be shown (missing, or larger than 15 MB).', 'Không hiển thị được ảnh này (không tồn tại, hoặc lớn hơn 15 MB).')}</div>
       ) : (
         <div className="image-file">{mine?.src && <img src={mine.src} alt={path} draggable={false} />}</div>
       )}
@@ -160,6 +163,7 @@ function ImageFile({ path }: { path: string }): React.JSX.Element {
  * stays on screen until the next one has been read - no blank frame in between.
  */
 export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> }): React.JSX.Element {
+  const t = useT()
   const theme = useMonacoTheme()
   const font = useEditorFont()
   const gitRoot = useStore((s) => s.git.root)
@@ -192,7 +196,7 @@ export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> })
             window.api.git.original(gitRoot, tab.rel),
             window.api.fs
               .readFile(tab.path)
-              .then((r) => (r.binary ? '[binary file]' : r.content))
+              .then((r) => (r.binary ? tr('[binary file]', '[tệp nhị phân]') : r.content))
               .catch(() => '')
           ]
     ).then(([original, modified]) => live && setTexts({ id: tab.id, original, modified }))
@@ -266,10 +270,10 @@ export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> })
   const label = commit
     ? `${commit.short} · ${commit.subject}`
     : file?.status === '?' || file?.status === 'A'
-      ? 'New file'
+      ? t('New file', 'Tệp mới')
       : file?.status === 'D'
-        ? 'Deleted'
-        : 'Working tree ↔ HEAD'
+        ? t('Deleted', 'Đã xoá')
+        : t('Working tree ↔ HEAD', 'Thư mục làm việc ↔ HEAD')
 
   return (
     <>
@@ -288,16 +292,16 @@ export function DiffView({ tab }: { tab: Extract<EditorTab, { kind: 'diff' }> })
         <div className="diff-actions">
           <div className="seg">
             <SlidePill />
-            <button className={sideBySide ? 'on' : ''} onClick={() => useStore.setState({ diffSideBySide: true })} title="Side by side">
+            <button className={sideBySide ? 'on' : ''} onClick={() => useStore.setState({ diffSideBySide: true })} title={t('Side by side', 'Hai bên')}>
               <Columns2 size={14} />
             </button>
-            <button className={!sideBySide ? 'on' : ''} onClick={() => useStore.setState({ diffSideBySide: false })} title="Inline">
+            <button className={!sideBySide ? 'on' : ''} onClick={() => useStore.setState({ diffSideBySide: false })} title={t('Inline', 'Cùng dòng')}>
               <Rows2 size={14} />
             </button>
           </div>
           {(commit || file?.status !== 'D') && (
             <button className="btn btn-ghost btn-sm" onClick={() => openFile(tab.path)}>
-              <FileText size={13} /> Open file
+              <FileText size={13} /> {t('Open file', 'Mở tệp')}
             </button>
           )}
         </div>

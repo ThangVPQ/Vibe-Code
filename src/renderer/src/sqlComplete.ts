@@ -1,4 +1,5 @@
 import { monaco } from './monaco'
+import { tr } from './i18n'
 
 /* IntelliSense for the Database tab's SQL editor, after SSMS:
  * - completion: T-SQL keywords, functions, data types, snippets, databases, schemas, tables, views,
@@ -336,23 +337,24 @@ for (const line of BUILTIN_SIGS.split('\n')) {
 /** built-ins used like tables (FROM OPENJSON(...)) — never "invalid object name" */
 const ROWSET_FUNCS = new Set(['OPENJSON', 'STRING_SPLIT', 'GENERATE_SERIES', 'OPENROWSET', 'OPENQUERY', 'OPENXML', 'OPENDATASOURCE', 'CHANGETABLE', 'CONTAINSTABLE', 'FREETEXTTABLE', 'INSERTED', 'DELETED', 'PREDICT'])
 
-const SYS_VARS: Record<string, string> = {
-  '@@ROWCOUNT': 'rows affected by the last statement',
-  '@@IDENTITY': 'last identity value inserted (any scope)',
-  '@@ERROR': 'error number of the last statement, 0 if none',
-  '@@TRANCOUNT': 'number of open transactions',
-  '@@FETCH_STATUS': 'status of the last cursor FETCH (0 = success)',
-  '@@SPID': 'session id of the current connection',
-  '@@VERSION': 'SQL Server version and build',
-  '@@SERVERNAME': 'name of the server',
-  '@@SERVICENAME': 'name of the SQL Server instance',
-  '@@DATEFIRST': 'first day of the week (SET DATEFIRST)',
-  '@@LANGUAGE': 'current language',
-  '@@NESTLEVEL': 'nesting level of the current procedure',
-  '@@PROCID': 'object id of the current module',
-  '@@MAX_PRECISION': 'precision of decimal and numeric',
-  '@@OPTIONS': 'current SET options',
-  '@@LOCK_TIMEOUT': 'lock timeout in milliseconds'
+/** [English, Vietnamese] */
+const SYS_VARS: Record<string, [string, string]> = {
+  '@@ROWCOUNT': ['rows affected by the last statement', 'số hàng bị ảnh hưởng bởi câu lệnh cuối'],
+  '@@IDENTITY': ['last identity value inserted (any scope)', 'giá trị identity chèn gần nhất (mọi phạm vi)'],
+  '@@ERROR': ['error number of the last statement, 0 if none', 'mã lỗi của câu lệnh cuối, 0 nếu không có lỗi'],
+  '@@TRANCOUNT': ['number of open transactions', 'số transaction đang mở'],
+  '@@FETCH_STATUS': ['status of the last cursor FETCH (0 = success)', 'trạng thái của lần FETCH cursor cuối (0 = thành công)'],
+  '@@SPID': ['session id of the current connection', 'id phiên của kết nối hiện tại'],
+  '@@VERSION': ['SQL Server version and build', 'phiên bản và bản build SQL Server'],
+  '@@SERVERNAME': ['name of the server', 'tên máy chủ'],
+  '@@SERVICENAME': ['name of the SQL Server instance', 'tên instance SQL Server'],
+  '@@DATEFIRST': ['first day of the week (SET DATEFIRST)', 'ngày đầu tuần (SET DATEFIRST)'],
+  '@@LANGUAGE': ['current language', 'ngôn ngữ hiện tại'],
+  '@@NESTLEVEL': ['nesting level of the current procedure', 'cấp lồng nhau của procedure hiện tại'],
+  '@@PROCID': ['object id of the current module', 'object id của module hiện tại'],
+  '@@MAX_PRECISION': ['precision of decimal and numeric', 'độ chính xác của decimal và numeric'],
+  '@@OPTIONS': ['current SET options', 'các tuỳ chọn SET hiện tại'],
+  '@@LOCK_TIMEOUT': ['lock timeout in milliseconds', 'thời gian chờ khoá, tính bằng mili giây']
 }
 
 const SYSTEM_VIEWS: Record<string, string[]> = {
@@ -397,7 +399,8 @@ const SYS_PROCS: Record<string, string[]> = {
   sp_describe_first_result_set: ['@tsql', '[@params]', '[@browse_information_mode]']
 }
 
-const SNIPPETS: [string, string, string][] = [
+/** label, detail, body, Vietnamese detail (when the detail is prose) */
+const SNIPPETS: [string, string, string, string?][] = [
   ['select-top', 'SELECT TOP (100) …', 'SELECT TOP (${1:100}) ${2:*}\nFROM ${3:table}\nWHERE ${4:1 = 1};'],
   ['insert-into', 'INSERT INTO … VALUES', 'INSERT INTO ${1:table} (${2:columns})\nVALUES (${3:values});'],
   ['update-set', 'UPDATE … SET … WHERE', 'UPDATE ${1:table}\nSET ${2:column} = ${3:value}\nWHERE ${4:condition};'],
@@ -409,11 +412,11 @@ const SNIPPETS: [string, string, string][] = [
   ['cte', 'WITH … AS (…)', 'WITH ${1:cte} AS\n(\n\tSELECT $2\n)\nSELECT * FROM ${1:cte};'],
   ['begin-tran', 'BEGIN TRAN … COMMIT', 'BEGIN TRAN;\n\t$0\nCOMMIT TRAN;'],
   ['try-catch', 'BEGIN TRY … BEGIN CATCH', 'BEGIN TRY\n\t$0\nEND TRY\nBEGIN CATCH\n\tSELECT ERROR_NUMBER() AS ErrorNumber, ERROR_MESSAGE() AS ErrorMessage;\nEND CATCH'],
-  ['tran-try-catch', 'transaction with TRY/CATCH', 'BEGIN TRY\n\tBEGIN TRAN;\n\t$0\n\tCOMMIT TRAN;\nEND TRY\nBEGIN CATCH\n\tIF @@TRANCOUNT > 0 ROLLBACK TRAN;\n\tTHROW;\nEND CATCH'],
+  ['tran-try-catch', 'transaction with TRY/CATCH', 'BEGIN TRY\n\tBEGIN TRAN;\n\t$0\n\tCOMMIT TRAN;\nEND TRY\nBEGIN CATCH\n\tIF @@TRANCOUNT > 0 ROLLBACK TRAN;\n\tTHROW;\nEND CATCH', 'transaction với TRY/CATCH'],
   ['if-exists', 'IF EXISTS (…)', 'IF EXISTS (SELECT 1 FROM ${1:table} WHERE ${2:condition})\nBEGIN\n\t$0\nEND'],
   ['while', 'WHILE … BEGIN … END', 'WHILE ${1:condition}\nBEGIN\n\t$0\nEND'],
-  ['cursor', 'cursor loop', 'DECLARE ${1:cur} CURSOR LOCAL FAST_FORWARD FOR\n\tSELECT ${2:col} FROM ${3:table};\nOPEN ${1:cur};\nFETCH NEXT FROM ${1:cur} INTO @${4:var};\nWHILE @@FETCH_STATUS = 0\nBEGIN\n\t$0\n\tFETCH NEXT FROM ${1:cur} INTO @${4:var};\nEND\nCLOSE ${1:cur};\nDEALLOCATE ${1:cur};'],
-  ['find-column', 'find tables having a column', "SELECT s.name AS [schema], t.name AS [table], c.name AS [column]\nFROM sys.columns c\nJOIN sys.tables t ON t.object_id = c.object_id\nJOIN sys.schemas s ON s.schema_id = t.schema_id\nWHERE c.name LIKE N'%${1:name}%'\nORDER BY s.name, t.name;"]
+  ['cursor', 'cursor loop', 'DECLARE ${1:cur} CURSOR LOCAL FAST_FORWARD FOR\n\tSELECT ${2:col} FROM ${3:table};\nOPEN ${1:cur};\nFETCH NEXT FROM ${1:cur} INTO @${4:var};\nWHILE @@FETCH_STATUS = 0\nBEGIN\n\t$0\n\tFETCH NEXT FROM ${1:cur} INTO @${4:var};\nEND\nCLOSE ${1:cur};\nDEALLOCATE ${1:cur};', 'vòng lặp cursor'],
+  ['find-column', 'find tables having a column', "SELECT s.name AS [schema], t.name AS [table], c.name AS [column]\nFROM sys.columns c\nJOIN sys.tables t ON t.object_id = c.object_id\nJOIN sys.schemas s ON s.schema_id = t.schema_id\nWHERE c.name LIKE N'%${1:name}%'\nORDER BY s.name, t.name;", 'tìm các bảng có một cột']
 ]
 
 const TABLE_LIKE = new Set(['U', 'V', 'IF', 'TF', 'FT', 'SN'])
@@ -422,6 +425,11 @@ const FUNC_TYPES = new Set(['FN', 'FS', 'IF', 'TF', 'FT'])
 const KIND_NAME: Record<string, string> = {
   U: 'table', V: 'view', P: 'procedure', X: 'procedure', PC: 'procedure', FN: 'function', FS: 'function', IF: 'table function', TF: 'table function', FT: 'table function', SN: 'synonym'
 }
+const KIND_NAME_VI: Record<string, string> = {
+  U: 'bảng', V: 'view', P: 'procedure', X: 'procedure', PC: 'procedure', FN: 'hàm', FS: 'hàm', IF: 'hàm trả về bảng', TF: 'hàm trả về bảng', FT: 'hàm trả về bảng', SN: 'synonym'
+}
+/** a local's kind as shown in the suggestion list (the kind itself is compared, so it stays English) */
+const LOCAL_KIND_VI: Record<string, string> = { CTE: 'CTE', 'temp table': 'bảng tạm', 'table variable': 'biến bảng', 'derived table': 'bảng dẫn xuất' }
 const kindOf = (type: string): monaco.languages.CompletionItemKind =>
   type === 'U' ? K.Struct : type === 'V' ? K.Interface : PROC_TYPES.has(type) ? K.Method : type === 'SN' ? K.Reference : K.Function
 
@@ -784,7 +792,7 @@ monaco.languages.registerCompletionItemProvider('sql', {
         add({
           label,
           kind: kindOf(o.type),
-          detail: `${KIND_NAME[o.type] ?? 'view'} · ${o.schema}`,
+          detail: `${tr(KIND_NAME[o.type] ?? 'view', KIND_NAME_VI[o.type] ?? 'view')} · ${o.schema}`,
           insertText: bare ? quote(o.name) : `${quote(o.schema)}.${quote(o.name)}`,
           sortText: sort + label
         })
@@ -811,17 +819,17 @@ monaco.languages.registerCompletionItemProvider('sql', {
     const cat = await catalogOf(t.id, db)
     const dbs = (await databasesOf(t.id)) ?? []
     const addDbs = (sort: string): void => {
-      for (const d of dbs) add({ label: d, kind: K.Module, detail: 'database', insertText: quote(d), sortText: sort + d })
+      for (const d of dbs) add({ label: d, kind: K.Module, detail: tr('database', 'cơ sở dữ liệu'), insertText: quote(d), sortText: sort + d })
     }
     const addSchemas = (sort: string): void => {
       for (const s of [...(cat?.schemas ?? []), 'sys', 'INFORMATION_SCHEMA']) add({ label: s, kind: K.Folder, detail: 'schema', insertText: quote(s), sortText: sort + s })
     }
     const addLocals = (sort: string): void => {
-      for (const l of localsAt(a, at)) if (l.kind !== 'derived table') add({ label: l.name, kind: K.Struct, detail: l.kind, insertText: l.name.startsWith('#') || l.name.startsWith('@') ? l.name : quote(l.name), sortText: sort + l.name })
+      for (const l of localsAt(a, at)) if (l.kind !== 'derived table') add({ label: l.name, kind: K.Struct, detail: tr(l.kind, LOCAL_KIND_VI[l.kind] ?? l.kind), insertText: l.name.startsWith('#') || l.name.startsWith('@') ? l.name : quote(l.name), sortText: sort + l.name })
     }
     const addVars = (sort: string): void => {
-      for (const v of varsAt(a, at)) add({ label: v.name, kind: K.Variable, detail: v.type || 'variable', insertText: v.name, sortText: sort + v.name })
-      for (const [v, doc] of Object.entries(SYS_VARS)) add({ label: v, kind: K.Variable, detail: 'system function', documentation: doc, insertText: v, sortText: sort + 'z' + v })
+      for (const v of varsAt(a, at)) add({ label: v.name, kind: K.Variable, detail: v.type || tr('variable', 'biến'), insertText: v.name, sortText: sort + v.name })
+      for (const [v, doc] of Object.entries(SYS_VARS)) add({ label: v, kind: K.Variable, detail: tr('system function', 'hàm hệ thống'), documentation: tr(...doc), insertText: v, sortText: sort + 'z' + v })
     }
 
     /* ---- USE | ---- */
@@ -862,7 +870,7 @@ monaco.languages.registerCompletionItemProvider('sql', {
       for (const p of ps?.params ?? []) {
         const name = p.split(' ')[0].replace(/^\[|\]$/g, '')
         if (!name.startsWith('@')) continue
-        add({ label: name, kind: K.Property, detail: p.slice(name.length).trim() || 'parameter', documentation: ps!.label, insertText: `${name} = `, sortText: '0' + name })
+        add({ label: name, kind: K.Property, detail: p.slice(name.length).trim() || tr('parameter', 'tham số'), documentation: ps!.label, insertText: `${name} = `, sortText: '0' + name })
       }
       addVars('1')
       for (const k of ['OUTPUT', 'DEFAULT', 'NULL']) add({ label: k, kind: K.Keyword, insertText: k, sortText: '2' + k })
@@ -872,7 +880,7 @@ monaco.languages.registerCompletionItemProvider('sql', {
     /* ---- EXEC | → procedures ---- */
     if (kw === 'EXEC' || kw === 'EXECUTE') {
       addObjs(cat?.objects.filter((o) => PROC_TYPES.has(o.type)) ?? [], '0', true)
-      for (const p of Object.keys(SYS_PROCS)) add({ label: p, kind: K.Method, detail: 'system procedure', insertText: p, sortText: '1' + p })
+      for (const p of Object.keys(SYS_PROCS)) add({ label: p, kind: K.Method, detail: tr('system procedure', 'procedure hệ thống'), insertText: p, sortText: '1' + p })
       addSchemas('2')
       addDbs('3')
       return { suggestions: items }
@@ -884,7 +892,7 @@ monaco.languages.registerCompletionItemProvider('sql', {
       addObjs(cat?.objects.filter((o) => TABLE_LIKE.has(o.type)) ?? [], '0', true)
       addSchemas('1')
       addDbs('2')
-      for (const f of ROWSET_FUNCS) if (BUILTINS.has(f)) add({ label: f, kind: K.Function, detail: 'rowset function', insertText: f, sortText: '3' + f })
+      for (const f of ROWSET_FUNCS) if (BUILTINS.has(f)) add({ label: f, kind: K.Function, detail: tr('rowset function', 'hàm rowset'), insertText: f, sortText: '3' + f })
       for (const k of KEYWORDS) add({ label: k, kind: K.Keyword, insertText: k, sortText: '4' + k })
       return { suggestions: items }
     }
@@ -895,19 +903,19 @@ monaco.languages.registerCompletionItemProvider('sql', {
     const refs = a.refs.filter((r) => r.at >= b0 && r.at < b1 && r.kw !== 'EXEC').sort((x, y) => Math.abs(x.at - at) - Math.abs(y.at - at)).slice(0, 12)
     const found = await Promise.all(refs.map((r) => columnsFor(t, a, r.parts, at, false)))
     for (const [i, f] of found.entries()) if (f) addCols(f.cols, refs[i].alias ? `${f.label} (${refs[i].alias})` : f.label, '0')
-    for (const l of localsAt(a, at)) if (l.kind === 'derived table' && l.at >= b0 && l.at < b1) addCols(l.cols, `${l.kind} ${l.name}`, '0')
+    for (const l of localsAt(a, at)) if (l.kind === 'derived table' && l.at >= b0 && l.at < b1) addCols(l.cols, `${tr(l.kind, LOCAL_KIND_VI[l.kind] ?? l.kind)} ${l.name}`, '0')
     // aliases themselves
-    for (const r of refs) if (r.alias) add({ label: r.alias, kind: K.Reference, detail: `alias · ${r.parts.join('.')}`, insertText: r.alias, sortText: '1' + r.alias })
+    for (const r of refs) if (r.alias) add({ label: r.alias, kind: K.Reference, detail: `${tr('alias', 'bí danh')} · ${r.parts.join('.')}`, insertText: r.alias, sortText: '1' + r.alias })
     addVars('1')
     for (const k of KEYWORDS) add({ label: k, kind: K.Keyword, insertText: k, sortText: '2' + k })
     for (const [f, ps] of BUILTINS) add({ label: f, kind: K.Function, detail: `${f}(${ps.join(', ')})`, insertText: f, sortText: '2' + f })
-    for (const d of DATA_TYPES) add({ label: d, kind: K.TypeParameter, detail: 'data type', insertText: d, sortText: '3' + d })
+    for (const d of DATA_TYPES) add({ label: d, kind: K.TypeParameter, detail: tr('data type', 'kiểu dữ liệu'), insertText: d, sortText: '3' + d })
     addLocals('3')
     addObjs(cat?.objects ?? [], '4', true)
     addSchemas('4')
     addDbs('5')
-    for (const [label, detail, body] of SNIPPETS)
-      add({ label, kind: K.Snippet, detail, insertText: body, insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, sortText: '6' + label })
+    for (const [label, detail, body, vi] of SNIPPETS)
+      add({ label, kind: K.Snippet, detail: vi ? tr(detail, vi) : detail, insertText: body, insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, sortText: '6' + label })
     return { suggestions: items }
   }
 })
@@ -979,7 +987,7 @@ monaco.languages.registerSignatureHelpProvider('sql', {
 
 const code = (s: string): string => '```sql\n' + s + '\n```'
 const colLine = (c: Col): string => `${c.name} ${c.type}${c.nullable === false ? ' NOT NULL' : ''}${c.pk ? ' -- PK' : ''}${c.ref ? ` -- → ${c.ref}` : ''}`.trim()
-const listCols = (cols: Col[]): string => cols.slice(0, 40).map(colLine).join('\n') + (cols.length > 40 ? `\n-- … ${cols.length - 40} more` : '')
+const listCols = (cols: Col[]): string => cols.slice(0, 40).map(colLine).join('\n') + (cols.length > 40 ? tr(`\n-- … ${cols.length - 40} more`, `\n-- … thêm ${cols.length - 40} cột`) : '')
 
 async function describeObject(t: Target, a: Analysis, o: Obj, db: string, at: number): Promise<string> {
   const head = `(${KIND_NAME[o.type] ?? 'view'}) ${db ? `${db}.` : ''}${o.schema}.${o.name}`
@@ -1018,7 +1026,7 @@ monaco.languages.registerHoverProvider('sql', {
     const db = dbAt(t, a, at)
     const show = (md: string | null): monaco.languages.Hover | null => (md ? { range, contents: [{ value: md }] } : null)
 
-    if (name.startsWith('@@')) return show(SYS_VARS[name.toUpperCase()] ? code(name.toUpperCase()) + '\n\n' + SYS_VARS[name.toUpperCase()] : null)
+    if (name.startsWith('@@')) return show(SYS_VARS[name.toUpperCase()] ? code(name.toUpperCase()) + '\n\n' + tr(...SYS_VARS[name.toUpperCase()]) : null)
     if (name.startsWith('@')) {
       const v = varsAt(a, at).find((x) => lc(x.name) === n)
       const tv = localsAt(a, at).find((l) => lc(l.name) === n)
@@ -1116,7 +1124,7 @@ async function validate(model: monaco.editor.ITextModel): Promise<void> {
     const e = model.getPositionAt(r.end)
     markers.push({
       severity: monaco.MarkerSeverity.Error,
-      message: r.kw === 'EXEC' ? `Could not find stored procedure '${p.join('.')}'.` : `Invalid object name '${p.join('.')}'.`,
+      message: r.kw === 'EXEC' ? tr(`Could not find stored procedure '${p.join('.')}'.`, `Không tìm thấy stored procedure '${p.join('.')}'.`) : tr(`Invalid object name '${p.join('.')}'.`, `Tên đối tượng không hợp lệ '${p.join('.')}'.`),
       startLineNumber: s.lineNumber,
       startColumn: s.column,
       endLineNumber: e.lineNumber,

@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import { AGENTS, type AgentId } from '../../../shared/agents'
 import { useStore } from '../store'
 import { defaultAgent } from '../actions'
+import { useT } from '../i18n'
 
 /**
  * "+" that starts a chat right away with the default agent (picked in the status bar).
@@ -12,6 +13,7 @@ import { defaultAgent } from '../actions'
  */
 export function NewChatMenu(props: { title: string; className?: string; size?: number; disabled?: boolean; onPick: (agent: AgentId) => void }): React.JSX.Element {
   const { title, className = 'icon-btn accent', size = 16, disabled, onPick } = props
+  const t = useT()
   const agents = useStore((s) => s.agents)
   const claudeFound = useStore((s) => !!s.claude?.found)
   const [at, setAt] = useState<{ x: number; y: number } | null>(null)
@@ -81,23 +83,32 @@ export function NewChatMenu(props: { title: string; className?: string; size?: n
       {at &&
         createPortal(
           <div ref={menu} className="menu ctx-menu agent-menu" style={pos} onClick={(e) => e.stopPropagation()}>
-            <div className="menu-sep">New chat with</div>
+            <div className="menu-sep">{t('New chat with', 'Chat mới với')}</div>
             {[...AGENTS.filter((a) => found(a.id)), ...AGENTS.filter((a) => !found(a.id))].map((a) => {
               const ok = found(a.id)
               return (
                 <button
                   key={a.id}
                   className={`menu-item${ok ? '' : ' missing'}`}
-                  title={ok ? `Start a ${a.label} chat in this folder` : `${a.label} isn't installed — click to copy:\n${a.install}`}
+                  title={
+                    ok
+                      ? t(`Start a ${a.label} chat in this folder`, `Bắt đầu chat ${a.label} trong thư mục này`)
+                      : t(`${a.label} isn't installed — click to copy:\n${a.install}`, `Chưa cài ${a.label} — bấm để sao chép:\n${a.install}`)
+                  }
                   onClick={() => {
                     setAt(null)
                     if (ok) return onPick(a.id)
                     navigator.clipboard.writeText(a.install).catch(() => {})
-                    window.alert(`${a.label} isn't installed.\n\nInstall it from a terminal (copied to the clipboard):\n${a.install}\n\nSign in once by running "${a.cmd}", then reopen VIBE CODE.`)
+                    window.alert(
+                      t(
+                        `${a.label} isn't installed.\n\nInstall it from a terminal (copied to the clipboard):\n${a.install}\n\nSign in once by running "${a.cmd}", then reopen VIBE CODE.`,
+                        `Chưa cài ${a.label}.\n\nHãy cài từ terminal (lệnh đã được sao chép vào clipboard):\n${a.install}\n\nĐăng nhập một lần bằng cách chạy "${a.cmd}", rồi mở lại VIBE CODE.`
+                      )
+                    )
                   }}
                 >
                   <span className="menu-item-main">{a.label}</span>
-                  <span className="menu-item-sub">{!ok ? 'not installed' : a.id === def ? 'default' : a.cmd}</span>
+                  <span className="menu-item-sub">{!ok ? t('not installed', 'chưa cài') : a.id === def ? t('default', 'mặc định') : a.cmd}</span>
                 </button>
               )
             })}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronRight, CircleCheck, CircleX, Loader } from 'lucide-react'
 import type { ChatTask } from '../../../shared/types'
+import { useT, type T } from '../i18n'
 
 /** A chat's background tasks, reloaded as the transcript changes and every few seconds while one runs. */
 export function useChatTasks(sessionId: string | undefined): ChatTask[] {
@@ -47,39 +48,41 @@ function dur(ms: number): string {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
 }
 
-const took = (t: ChatTask): string => (t.endedAt ? dur(t.endedAt - t.startedAt) : `running ${dur(Date.now() - t.startedAt)}`)
+const took = (task: ChatTask, t: T): string =>
+  task.endedAt ? dur(task.endedAt - task.startedAt) : t(`running ${dur(Date.now() - task.startedAt)}`, `đang chạy ${dur(Date.now() - task.startedAt)}`)
 
 export function ChatTasks({ tasks }: { tasks: ChatTask[] }): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState<string | null>(null)
   // "running 4s" is computed at render: tick while something runs, or it stays frozen
   const [, tick] = useState(0)
-  const anyRunning = tasks.some((t) => t.status === 'running')
+  const anyRunning = tasks.some((task) => task.status === 'running')
   useEffect(() => {
     if (!anyRunning) return
     const i = setInterval(() => tick((n) => n + 1), 1000)
     return () => clearInterval(i)
   }, [anyRunning])
-  if (!tasks.length) return <div className="chat-tasks"><div className="chat-images-empty">No background tasks in this chat yet. When Claude runs something in the background (a build, a dev server…), it shows up here.</div></div>
+  if (!tasks.length) return <div className="chat-tasks"><div className="chat-images-empty">{t('No background tasks in this chat yet. When Claude runs something in the background (a build, a dev server…), it shows up here.', 'Chat này chưa có việc chạy nền nào. Khi Claude chạy gì đó trong nền (build, dev server…), nó sẽ hiện ở đây.')}</div></div>
   return (
     <div className="chat-tasks">
-      {tasks.map((t) => {
-        const ok = t.status === 'completed'
-        const running = t.status === 'running'
-        const expanded = open === t.id || (open === null && running)
+      {tasks.map((task) => {
+        const ok = task.status === 'completed'
+        const running = task.status === 'running'
+        const expanded = open === task.id || (open === null && running)
         return (
-          <div key={t.id} className={`task-card s-${running ? 'running' : ok ? 'ok' : 'fail'}`}>
-            <button className="task-head" onClick={() => setOpen(expanded ? '' : t.id)}>
+          <div key={task.id} className={`task-card s-${running ? 'running' : ok ? 'ok' : 'fail'}`}>
+            <button className="task-head" onClick={() => setOpen(expanded ? '' : task.id)}>
               <ChevronRight size={13} className={expanded ? 'task-chev open' : 'task-chev'} />
               {running ? <Loader size={14} className="task-spin" /> : ok ? <CircleCheck size={14} /> : <CircleX size={14} />}
-              <span className="task-title">{t.description || t.command}</span>
-              <span className="task-time">{took(t)}</span>
+              <span className="task-title">{task.description || task.command}</span>
+              <span className="task-time">{took(task, t)}</span>
             </button>
             {expanded && (
               <div className="task-body">
-                {t.description && <code className="task-cmd">{t.command}</code>}
-                <pre className="task-out">{t.output?.trim() || (running ? 'No output yet…' : 'No output.')}</pre>
+                {task.description && <code className="task-cmd">{task.command}</code>}
+                <pre className="task-out">{task.output?.trim() || (running ? t('No output yet…', 'Chưa có output…') : t('No output.', 'Không có output.'))}</pre>
                 <div className="task-meta">
-                  {t.id} · {t.status}
+                  {task.id} · {task.status}
                 </div>
               </div>
             )}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Minus, Plus, RotateCcw, Type } from 'lucide-react'
 import { useStore } from '../store'
 import type { AppSettings } from '../../../shared/types'
+import { useT } from '../i18n'
 
 const DEFAULT_FONT = 'JetBrains Mono'
 const DEFAULT_SIZE = 12
@@ -76,6 +77,7 @@ async function save(patch: Partial<AppSettings>): Promise<void> {
 
 /** "Aa" button at the end of the editor tab bar: font family, size, ligatures. */
 export function EditorFontButton(): React.JSX.Element {
+  const t = useT()
   const font = useStore((s) => s.settings?.editorFont || DEFAULT_FONT)
   const size = useStore((s) => s.settings?.editorFontSize || DEFAULT_SIZE)
   const lig = useStore((s) => s.settings?.editorLigatures ?? true)
@@ -106,15 +108,15 @@ export function EditorFontButton(): React.JSX.Element {
 
   return (
     <div className="font-pick" ref={box}>
-      <button className={`font-pick-btn${open ? ' on' : ''}`} title="Code font" onClick={() => setOpen(!open)}>
+      <button className={`font-pick-btn${open ? ' on' : ''}`} title={t('Code font', 'Phông chữ mã')} onClick={() => setOpen(!open)}>
         <Type size={14} />
         <span>{size}</span>
       </button>
       {open && (
         <div className="font-pop">
-          <div className="font-pop-head">Code font</div>
+          <div className="font-pop-head">{t('Code font', 'Phông chữ mã')}</div>
           <div className="font-size-row">
-            <button className="font-size-btn" title="Smaller" disabled={size <= MIN_SIZE} onClick={() => setSize(size - 1)}>
+            <button className="font-size-btn" title={t('Smaller', 'Nhỏ hơn')} disabled={size <= MIN_SIZE} onClick={() => setSize(size - 1)}>
               <Minus size={13} />
             </button>
             <input
@@ -125,7 +127,7 @@ export function EditorFontButton(): React.JSX.Element {
               value={size}
               onChange={(e) => setSize(Number(e.target.value))}
             />
-            <button className="font-size-btn" title="Larger" disabled={size >= MAX_SIZE} onClick={() => setSize(size + 1)}>
+            <button className="font-size-btn" title={t('Larger', 'Lớn hơn')} disabled={size >= MAX_SIZE} onClick={() => setSize(size + 1)}>
               <Plus size={13} />
             </button>
             <span className="font-size-val">{size}px</span>
@@ -144,14 +146,14 @@ export function EditorFontButton(): React.JSX.Element {
           <div className="font-pop-foot">
             <label className="font-lig">
               <input type="checkbox" checked={lig} onChange={(e) => save({ editorLigatures: e.target.checked })} />
-              Ligatures (=&gt; ≠)
+              {t('Ligatures', 'Chữ ghép')} (=&gt; ≠)
             </label>
             <button
               className="font-reset"
-              title={`Back to ${DEFAULT_FONT} ${DEFAULT_SIZE}px`}
+              title={t(`Back to ${DEFAULT_FONT} ${DEFAULT_SIZE}px`, `Về ${DEFAULT_FONT} ${DEFAULT_SIZE}px`)}
               onClick={() => save({ editorFont: DEFAULT_FONT, editorFontSize: DEFAULT_SIZE, editorLigatures: true })}
             >
-              <RotateCcw size={12} /> Default
+              <RotateCcw size={12} /> {t('Default', 'Mặc định')}
             </button>
           </div>
         </div>

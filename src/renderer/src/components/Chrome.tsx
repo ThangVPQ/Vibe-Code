@@ -38,6 +38,7 @@ import type { UsageLimit } from '../../../shared/types'
 import { revealIn } from '../scroll'
 import { giveFiles } from '../terminals'
 import { COMMANDS, type Command } from '../shortcuts'
+import { setLang, useT, type T } from '../i18n'
 
 /* ================================ Title bar ================================ */
 
@@ -58,6 +59,7 @@ export function TitleBar(): React.JSX.Element {
   const root = useStore((s) => s.root)
   const recent = useStore((s) => s.recent)
   const [menu, setMenu] = useState(false)
+  const t = useT()
 
   useEffect(() => {
     if (!menu) return
@@ -87,9 +89,9 @@ export function TitleBar(): React.JSX.Element {
                     openFolder()
                   }}
                 >
-                  <FolderOpen size={14} /> Open folder…
+                  <FolderOpen size={14} /> {t('Open folder…', 'Mở thư mục…')}
                 </button>
-                {recent.length > 1 && <div className="menu-sep">Recent</div>}
+                {recent.length > 1 && <div className="menu-sep">{t('Recent', 'Gần đây')}</div>}
                 {recent
                   .filter((r) => r !== root)
                   .map((r) => (
@@ -114,22 +116,23 @@ export function TitleBar(): React.JSX.Element {
       {root && (
         <button className="search-box" onClick={() => useStore.setState({ quickOpen: true })}>
           <Search size={13} />
-          <span>Search files in {basename(root)}</span>
+          <span>{t(`Search files in ${basename(root)}`, `Tìm tệp trong ${basename(root)}`)}</span>
           <kbd>Ctrl+P</kbd>
         </button>
       )}
       <div className="titlebar-right">
-        <button className="icon-btn" title="Toggle sidebar (Ctrl+B)" onClick={() => useStore.setState((s) => ({ sidebarOpen: !s.sidebarOpen }))}>
+        <button className="icon-btn" title={t('Toggle sidebar (Ctrl+B)', 'Bật/tắt thanh bên (Ctrl+B)')} onClick={() => useStore.setState((s) => ({ sidebarOpen: !s.sidebarOpen }))}>
           <PanelLeft size={15} />
         </button>
-        <button className="icon-btn" title="Toggle terminal (Ctrl+`)" onClick={() => toggleBottom()}>
+        <button className="icon-btn" title={t('Toggle terminal (Ctrl+`)', 'Bật/tắt terminal (Ctrl+`)')} onClick={() => toggleBottom()}>
           <PanelBottom size={15} />
         </button>
-        <button className="icon-btn" title="Open browser" onClick={() => openBrowser()}>
+        <button className="icon-btn" title={t('Open browser', 'Mở trình duyệt')} onClick={() => openBrowser()}>
           <Globe size={15} />
         </button>
         <CaptureButton />
         <ThemeToggle />
+        <LangToggle />
         <OpacityControl />
         <ModeSwitch />
       </div>
@@ -140,6 +143,7 @@ export function TitleBar(): React.JSX.Element {
 
 /** Screen capture: pick a region, mark it up, and it lands in the active chat (and the clipboard). */
 function CaptureButton(): React.JSX.Element | null {
+  const t = useT()
   useEffect(
     () =>
       window.api.app.onCaptured((path) => {
@@ -150,7 +154,7 @@ function CaptureButton(): React.JSX.Element | null {
   )
   if (window.api.platform !== 'win32') return null
   return (
-    <button className="icon-btn" title="Capture what is behind VIBE CODE: pick a region, mark it up, send it to chat (Ctrl+Alt+Z captures the screen as it is, VIBE CODE included)" onClick={() => void window.api.app.capture(true)}>
+    <button className="icon-btn" title={t('Capture what is behind VIBE CODE: pick a region, mark it up, send it to chat (Ctrl+Alt+Z captures the screen as it is, VIBE CODE included)', 'Chụp màn hình phía sau VIBE CODE: chọn vùng, đánh dấu, gửi vào chat (Ctrl+Alt+Z chụp nguyên màn hình, có cả VIBE CODE)')} onClick={() => void window.api.app.capture(true)}>
       <SquareDashedPlus size={15} />
     </button>
   )
@@ -159,9 +163,21 @@ function CaptureButton(): React.JSX.Element | null {
 /** Light ↔ dark. */
 function ThemeToggle(): React.JSX.Element {
   const light = useStore((s) => s.themeResolved === 'light')
+  const t = useT()
   return (
-    <button className="icon-btn" title={light ? 'Switch to dark theme' : 'Switch to light theme'} onClick={() => toggleTheme()}>
+    <button className="icon-btn" title={light ? t('Switch to dark theme', 'Chuyển sang giao diện tối') : t('Switch to light theme', 'Chuyển sang giao diện sáng')} onClick={() => toggleTheme()}>
       {light ? <Moon size={15} /> : <Sun size={15} />}
+    </button>
+  )
+}
+
+/** English ↔ Tiếng Việt: shows the language in use, a click switches to the other one. */
+function LangToggle(): React.JSX.Element {
+  const lang = useStore((s) => s.lang)
+  const t = useT()
+  return (
+    <button className="icon-btn lang-btn" title={t('Language: English — click for Tiếng Việt', 'Ngôn ngữ: Tiếng Việt — bấm để chuyển sang English')} onClick={() => void setLang(lang === 'vi' ? 'en' : 'vi')}>
+      {lang === 'vi' ? 'VI' : 'EN'}
     </button>
   )
 }
@@ -174,6 +190,7 @@ function OpacityControl(): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [val, setVal] = useState(saved)
   const ref = useRef<HTMLDivElement>(null)
+  const t = useT()
   // while the slider is open it shows what you drag, not a (possibly older) saved answer
   useEffect(() => {
     if (!open) setVal(saved)
@@ -196,7 +213,7 @@ function OpacityControl(): React.JSX.Element {
   }
   return (
     <div className="opacity-ctl" ref={ref}>
-      <button className={`icon-btn${open ? ' active' : ''}`} title={`Window opacity: ${Math.round(val * 100)}%`} onClick={() => setOpen(!open)}>
+      <button className={`icon-btn${open ? ' active' : ''}`} title={t(`Window opacity: ${Math.round(val * 100)}%`, `Độ mờ cửa sổ: ${Math.round(val * 100)}%`)} onClick={() => setOpen(!open)}>
         <Droplet size={15} />
       </button>
       {open && (
@@ -206,8 +223,14 @@ function OpacityControl(): React.JSX.Element {
             onClick={async () => {
               const next = !seeThrough
               const msg = next
-                ? 'See-through: the background turns transparent and text stays sharp, like a Linux overlay terminal.\n\nVIBE CODE has to restart. Open chats close; reopen them from Chats.'
-                : 'Turn off see-through? VIBE CODE has to restart. Open chats close; reopen them from Chats.'
+                ? t(
+                    'See-through: the background turns transparent and text stays sharp, like a Linux overlay terminal.\n\nVIBE CODE has to restart. Open chats close; reopen them from Chats.',
+                    'Xuyên thấu: nền trở nên trong suốt, chữ vẫn sắc nét, như terminal overlay trên Linux.\n\nVIBE CODE cần khởi động lại. Các chat đang mở sẽ đóng; mở lại chúng từ danh sách Chat.'
+                  )
+                : t(
+                    'Turn off see-through? VIBE CODE has to restart. Open chats close; reopen them from Chats.',
+                    'Tắt xuyên thấu? VIBE CODE cần khởi động lại. Các chat đang mở sẽ đóng; mở lại chúng từ danh sách Chat.'
+                  )
               if (!(await window.api.ask(msg))) return
               const settings = await window.api.app.setSettings({ seeThrough: next }).catch(() => null)
               if (settings) useStore.setState({ settings })
@@ -215,11 +238,11 @@ function OpacityControl(): React.JSX.Element {
             }}
           >
             <span className="see-through-box">{seeThrough && <Check size={11} />}</span>
-            See-through (Linux overlay)
+            {t('See-through (Linux overlay)', 'Xuyên thấu (overlay Linux)')}
           </button>
-          {pending && <div className="opacity-note">Dev mode: stop and rerun npm run dev to apply.</div>}
+          {pending && <div className="opacity-note">{t('Dev mode: stop and rerun npm run dev to apply.', 'Chế độ dev: dừng rồi chạy lại npm run dev để áp dụng.')}</div>}
           <div className="opacity-row">
-            <span>{seeThrough ? 'Background' : 'Opacity'}</span>
+            <span>{seeThrough ? t('Background', 'Nền') : t('Opacity', 'Độ mờ')}</span>
             <b>{Math.round(val * 100)}%</b>
           </div>
           <input type="range" min={seeThrough ? 5 : 20} max={100} step={1} value={Math.round(val * 100)} onChange={(e) => save(Number(e.target.value) / 100)} />
@@ -238,16 +261,17 @@ function OpacityControl(): React.JSX.Element {
 
 function ModeSwitch(): React.JSX.Element | null {
   const win = useStore((s) => s.win)
+  const t = useT()
   if (!win) return null
   const drop = win.mode === 'dropdown'
   return (
     <button
       className={`mode-switch${drop ? ' on' : ''}`}
-      title={drop ? 'Switch to a normal window' : `Drop-down mode: ${win.hotkey} slides VIBE CODE over any app`}
+      title={drop ? t('Switch to a normal window', 'Chuyển sang cửa sổ thường') : t(`Drop-down mode: ${win.hotkey} slides VIBE CODE over any app`, `Chế độ thả xuống: ${win.hotkey} trượt VIBE CODE xuống trên mọi ứng dụng`)}
       onClick={() => window.api.win.setMode(drop ? 'window' : 'dropdown')}
     >
       <ArrowDownToLine size={13} />
-      <span>{drop ? 'Drop-down' : 'Guake'}</span>
+      <span>{drop ? t('Drop-down', 'Thả xuống') : 'Guake'}</span>
       {win.hotkeyOk && <kbd>{win.hotkey}</kbd>}
     </button>
   )
@@ -255,13 +279,14 @@ function ModeSwitch(): React.JSX.Element | null {
 
 function WindowControls(): React.JSX.Element | null {
   const win = useStore((s) => s.win)
+  const t = useT()
   if (!win) return null
   // macOS draws its own traffic lights (top-left) — ours would be a second set
   if (window.api.platform === 'darwin' && win.mode !== 'dropdown') return null
   if (win.mode === 'dropdown') {
     return (
       <div className="win-controls">
-        <button className="win-btn" title={`Hide (${win.hotkey})`} onClick={() => window.api.win.hide()}>
+        <button className="win-btn" title={t(`Hide (${win.hotkey})`, `Ẩn (${win.hotkey})`)} onClick={() => window.api.win.hide()}>
           <ChevronUp size={16} />
         </button>
       </div>
@@ -269,13 +294,13 @@ function WindowControls(): React.JSX.Element | null {
   }
   return (
     <div className="win-controls">
-      <button className="win-btn" title="Minimize" onClick={() => window.api.win.minimize()}>
+      <button className="win-btn" title={t('Minimize', 'Thu nhỏ')} onClick={() => window.api.win.minimize()}>
         <Minus size={15} />
       </button>
-      <button className="win-btn" title={win.maximized ? 'Restore' : 'Maximize'} onClick={() => window.api.win.toggleMaximize()}>
+      <button className="win-btn" title={win.maximized ? t('Restore', 'Khôi phục') : t('Maximize', 'Phóng to')} onClick={() => window.api.win.toggleMaximize()}>
         {win.maximized ? <Copy size={12} style={{ transform: 'scaleX(-1)' }} /> : <Square size={12} />}
       </button>
-      <button className="win-btn close" title="Close" onClick={() => window.api.win.close()}>
+      <button className="win-btn close" title={t('Close', 'Đóng')} onClick={() => window.api.win.close()}>
         <X size={16} />
       </button>
     </div>
@@ -290,6 +315,7 @@ export function ActivityBar(): React.JSX.Element {
   const attention = useStore((s) => s.chats.filter((c) => c.attention).length)
   const working = useStore((s) => s.chats.some((c) => c.status === 'working'))
   const changes = useStore((s) => s.git.files.length)
+  const t = useT()
 
   const item = (v: SidebarView, icon: React.ReactNode, title: string, badge?: React.ReactNode): React.JSX.Element => (
     <button
@@ -308,11 +334,11 @@ export function ActivityBar(): React.JSX.Element {
       {item(
         'chats',
         <MessagesSquare size={20} strokeWidth={1.7} />,
-        'Chats',
+        t('Chats', 'Chat'),
         attention > 0 ? <span className="badge accent">{attention}</span> : working ? <span className="badge-pulse" /> : null
       )}
       {item('explorer', <Files size={20} strokeWidth={1.7} />, 'Explorer (Ctrl+Shift+E)')}
-      {item('changes', <GitCompare size={20} strokeWidth={1.7} />, 'Changes (Ctrl+Shift+G)', changes > 0 ? <span className="badge">{changes > 99 ? '99+' : changes}</span> : null)}
+      {item('changes', <GitCompare size={20} strokeWidth={1.7} />, t('Changes (Ctrl+Shift+G)', 'Thay đổi (Ctrl+Shift+G)'), changes > 0 ? <span className="badge">{changes > 99 ? '99+' : changes}</span> : null)}
     </div>
   )
 }
@@ -320,16 +346,24 @@ export function ActivityBar(): React.JSX.Element {
 /* ================================ Status bar ================================ */
 
 /** "1:00 PM" today, "Fri 3:00 AM" later in the week. */
-function resetLabel(iso: string | null): string {
+function resetLabel(iso: string | null, t: T): string {
   if (!iso) return ''
   const d = new Date(iso)
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`
+  const locale = t('en-US', 'vi-VN')
+  const time = d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
+  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString(locale, { weekday: 'short' })} ${time}`
+}
+
+/** The limit's name ("5-hour", "Weekly", "Weekly · Opus" from the backend) in the UI language. */
+function limitLabel(l: UsageLimit, t: T): string {
+  if (l.kind === 'session') return t('5-hour', '5 giờ')
+  return l.label.replace(/^Weekly/, t('Weekly', 'Tuần'))
 }
 
 /** Plan usage limits (same as Claude's "Plan usage limits" panel), refreshed every 2 minutes. */
 function UsageMeters(): React.JSX.Element | null {
   const [limits, setLimits] = useState<UsageLimit[] | null>(null)
+  const t = useT()
   useEffect(() => {
     let live = true
     const load = (): void => {
@@ -337,22 +371,22 @@ function UsageMeters(): React.JSX.Element | null {
       window.api.claude.usage?.().then((l) => live && l && setLimits(l)).catch(() => {})
     }
     load()
-    const t = setInterval(load, 120000)
+    const timer = setInterval(load, 120000)
     return () => {
       live = false
-      clearInterval(t)
+      clearInterval(timer)
     }
   }, [])
   return (
     <div className="usage-meters">
       {limits?.map((l) => (
-        <div key={l.kind + l.label} className={`usage-meter sev-${l.severity}`} title={`${l.label}: ${l.percent}% used · resets ${resetLabel(l.resetsAt)}`}>
-          <span className="usage-label">{l.label}</span>
+        <div key={l.kind + l.label} className={`usage-meter sev-${l.severity}`} title={t(`${limitLabel(l, t)}: ${l.percent}% used · resets ${resetLabel(l.resetsAt, t)}`, `${limitLabel(l, t)}: đã dùng ${l.percent}% · đặt lại lúc ${resetLabel(l.resetsAt, t)}`)}>
+          <span className="usage-label">{limitLabel(l, t)}</span>
           <span className="usage-bar">
             <span style={{ width: `${Math.min(100, l.percent)}%` }} />
           </span>
           <span className="usage-pct">{l.percent}%</span>
-          {l.resetsAt && <span className="usage-reset">↻ {resetLabel(l.resetsAt)}</span>}
+          {l.resetsAt && <span className="usage-reset">↻ {resetLabel(l.resetsAt, t)}</span>}
         </div>
       ))}
       <RamMeter />
@@ -363,16 +397,17 @@ function UsageMeters(): React.JSX.Element | null {
 /** Machine-wide RAM in use, refreshed every 5 seconds. */
 function RamMeter(): React.JSX.Element | null {
   const [mem, setMem] = useState<{ usedBytes: number; totalBytes: number } | null>(null)
+  const t = useT()
   useEffect(() => {
     let live = true
     const load = (): void => {
       window.api.claude.memory?.().then((m) => live && setMem(m)).catch(() => {})
     }
     load()
-    const t = setInterval(load, 5000)
+    const timer = setInterval(load, 5000)
     return () => {
       live = false
-      clearInterval(t)
+      clearInterval(timer)
     }
   }, [])
   if (!mem?.totalBytes) return null
@@ -380,7 +415,7 @@ function RamMeter(): React.JSX.Element | null {
   const gb = (b: number): string => (b / 1024 ** 3).toFixed(1)
   const severity = percent >= 90 ? 'critical' : percent >= 75 ? 'warning' : 'normal'
   return (
-    <div className={`usage-meter sev-${severity}`} title={`RAM: ${gb(mem.usedBytes)} GB of ${gb(mem.totalBytes)} GB in use`}>
+    <div className={`usage-meter sev-${severity}`} title={t(`RAM: ${gb(mem.usedBytes)} GB of ${gb(mem.totalBytes)} GB in use`, `RAM: đang dùng ${gb(mem.usedBytes)} GB / ${gb(mem.totalBytes)} GB`)}>
       <span className="usage-label">RAM</span>
       <span className="usage-bar">
         <span style={{ width: `${Math.min(100, percent)}%` }} />
@@ -399,6 +434,7 @@ export function StatusBar(): React.JSX.Element {
   const working = useStore((s) => s.chats.filter((c) => c.status === 'working').length)
   const total = useStore((s) => s.chats.length)
   const tab = useStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
+  const t = useT()
 
   return (
     <div className="statusbar">
@@ -406,14 +442,14 @@ export function StatusBar(): React.JSX.Element {
         {git.isRepo && (
           <button className="sb-item" onClick={() => useStore.setState({ centerView: 'code' })}>
             <GitBranch size={12} /> {git.branch}
-            {git.files.length > 0 && <span className="sb-muted">· {git.files.length} changed</span>}
+            {git.files.length > 0 && <span className="sb-muted">· {t(`${git.files.length} changed`, `${git.files.length} thay đổi`)}</span>}
           </button>
         )}
         <UpdateButton />
         {total > 0 && (
           <button className="sb-item" onClick={() => useStore.setState({ sidebarView: 'chats', sidebarOpen: true })}>
             {working > 0 ? <Loader2 size={12} className="spin" /> : <MessagesSquare size={12} />}
-            {working > 0 ? `${working} working` : `${total} chat${total > 1 ? 's' : ''}`}
+            {working > 0 ? t(`${working} working`, `${working} đang chạy`) : t(`${total} chat${total > 1 ? 's' : ''}`, `${total} chat`)}
           </button>
         )}
       </div>
@@ -435,12 +471,13 @@ function UpdateButton(): React.JSX.Element | null {
   const [update, setUpdate] = useState<{ version: string; notes: string } | null>(null)
   const [dismissed, setDismissed] = useState<string | null>(null)
   const [state, setState] = useState<'idle' | 'busy' | 'failed'>('idle')
+  const t = useT()
 
   useEffect(() => {
     const check = (): void => void window.api.app.checkUpdate().then(setUpdate, () => {})
     check()
-    const t = setInterval(check, 5 * 60 * 1000)
-    return () => clearInterval(t)
+    const timer = setInterval(check, 5 * 60 * 1000)
+    return () => clearInterval(timer)
   }, [])
 
   if (!update) return null
@@ -449,10 +486,10 @@ function UpdateButton(): React.JSX.Element | null {
     setState('busy')
     window.api.app.installUpdate().catch(() => setState('failed'))
   }
-  const label = state === 'busy' ? 'Updating…' : state === 'failed' ? 'Update failed · retry' : `Update v${version}`
+  const label = state === 'busy' ? t('Updating…', 'Đang cập nhật…') : state === 'failed' ? t('Update failed · retry', 'Cập nhật lỗi · thử lại') : t(`Update v${version}`, `Cập nhật v${version}`)
   return (
     <>
-      <button className="sb-item sb-update" onClick={() => setDismissed(null)} title={`See what's new in v${version}`}>
+      <button className="sb-item sb-update" onClick={() => setDismissed(null)} title={t(`See what's new in v${version}`, `Xem có gì mới trong v${version}`)}>
         {state === 'busy' ? <Loader2 size={12} className="spin" /> : <ArrowDownToLine size={12} />}
         {label}
       </button>
@@ -462,18 +499,18 @@ function UpdateButton(): React.JSX.Element | null {
             <div className="update-head">
               <ArrowDownToLine size={18} />
               <div>
-                <div className="update-title">Update available · v{version}</div>
-                <div className="update-sub">What's new in this version</div>
+                <div className="update-title">{t(`Update available · v${version}`, `Có bản cập nhật · v${version}`)}</div>
+                <div className="update-sub">{t("What's new in this version", 'Có gì mới trong phiên bản này')}</div>
               </div>
             </div>
-            <div className="update-notes">{notes || 'Bug fixes and improvements.'}</div>
+            <div className="update-notes">{notes || t('Bug fixes and improvements.', 'Sửa lỗi và cải tiến.')}</div>
             <div className="update-actions">
               <button className="btn" disabled={state === 'busy'} onClick={() => setDismissed(version)}>
-                Later
+                {t('Later', 'Để sau')}
               </button>
               <button className="btn btn-primary" disabled={state === 'busy'} onClick={install}>
                 {state === 'busy' && <Loader2 size={13} className="spin" />}
-                {state === 'busy' ? 'Updating…' : state === 'failed' ? 'Retry update' : 'Update now'}
+                {state === 'busy' ? t('Updating…', 'Đang cập nhật…') : state === 'failed' ? t('Retry update', 'Thử cập nhật lại') : t('Update now', 'Cập nhật ngay')}
               </button>
             </div>
           </div>
@@ -492,6 +529,7 @@ function AgentPicker(): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const list = installedAgents()
   const cur = defaultAgent()
+  const t = useT()
 
   useEffect(() => {
     if (!open) return
@@ -512,18 +550,18 @@ function AgentPicker(): React.JSX.Element {
   if (!cur)
     return (
       <span className="sb-item warn" title={claude?.path ?? ''}>
-        <CircleAlert size={12} /> No AI agent found
+        <CircleAlert size={12} /> {t('No AI agent found', 'Không tìm thấy AI agent')}
       </span>
     )
   return (
     <div className="sb-agent" ref={ref}>
-      <button className="sb-item ok" title="AI in use — New chat starts with this agent" onClick={() => setOpen((o) => !o)}>
+      <button className="sb-item ok" title={t('AI in use — New chat starts with this agent', 'AI đang dùng — Chat mới sẽ bắt đầu với agent này')} onClick={() => setOpen((o) => !o)}>
         <CircleCheck size={12} /> {agentDef(cur).label}
         {list.length > 1 && <ChevronUp size={11} />}
       </button>
       {open && list.length > 0 && (
         <div className="menu sb-agent-menu">
-          <div className="menu-sep">AI in use</div>
+          <div className="menu-sep">{t('AI in use', 'AI đang dùng')}</div>
           {list.map((id) => {
             const a = agentDef(id)
             return (
@@ -577,6 +615,7 @@ export function QuickOpen(): React.JSX.Element {
   const [sel, setSel] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
   const commandMode = q.startsWith('>')
+  const t = useT()
 
   useEffect(() => {
     if (root) window.api.fs.listFiles(root).then(setFiles)
@@ -604,11 +643,11 @@ export function QuickOpen(): React.JSX.Element {
     if (!commandMode) return []
     const needle = q.slice(1).trim().toLowerCase()
     if (!needle) return COMMANDS
-    return COMMANDS.map((c) => ({ c, s: fuzzy(needle, c.label.toLowerCase()) }))
+    return COMMANDS.map((c) => ({ c, s: fuzzy(needle, t(...c.label).toLowerCase()) }))
       .filter((x) => x.s >= 0)
       .sort((a, b) => b.s - a.s)
       .map((x) => x.c)
-  }, [commandMode, q])
+  }, [commandMode, q, t])
   const count = commandMode ? commandHits.length : fileHits.length
 
   useEffect(() => setSel(0), [q])
@@ -641,7 +680,7 @@ export function QuickOpen(): React.JSX.Element {
           <Search size={15} />
           <input
             autoFocus
-            placeholder={commandMode ? 'Type a command…' : 'Search files by name…  (> commands · @ symbol · : line)'}
+            placeholder={commandMode ? t('Type a command…', 'Nhập lệnh…') : t('Search files by name…  (> commands · @ symbol · : line)', 'Tìm tệp theo tên…  (> lệnh · @ ký hiệu · : dòng)')}
             value={q}
             onChange={(e) => {
               const v = e.target.value
@@ -669,7 +708,7 @@ export function QuickOpen(): React.JSX.Element {
           {commandMode
             ? commandHits.map((c, i) => (
                 <div key={c.id} className={`palette-row${i === sel ? ' sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => runCommand(c)}>
-                  <span className="palette-name">{c.label}</span>
+                  <span className="palette-name">{t(...c.label)}</span>
                   {c.keys && <kbd className="palette-keys">{c.keys}</kbd>}
                 </div>
               ))
@@ -684,7 +723,7 @@ export function QuickOpen(): React.JSX.Element {
                 )
               })}
           {count === 0 && (
-            <div className="palette-empty">{commandMode ? 'No matching commands' : !root ? 'Open a folder first' : files.length ? 'No matching files' : 'Indexing…'}</div>
+            <div className="palette-empty">{commandMode ? t('No matching commands', 'Không có lệnh phù hợp') : !root ? t('Open a folder first', 'Hãy mở một thư mục trước') : files.length ? t('No matching files', 'Không có tệp phù hợp') : t('Indexing…', 'Đang lập chỉ mục…')}</div>
           )}
         </div>
       </div>
@@ -699,6 +738,7 @@ export function Welcome(): React.JSX.Element {
   const projects = useStore((s) => s.projects)
   const byRecent = [...projects].sort((a, b) => b.updated - a.updated)
   const totalChats = projects.reduce((n, g) => n + g.sessions.length, 0)
+  const t = useT()
   return (
     <div className="welcome">
       <div className="welcome-bg" />
@@ -710,13 +750,22 @@ export function Welcome(): React.JSX.Element {
           <h1>
             VIBE <span className="h1-accent">CODE</span>
           </h1>
-          <p className="welcome-sub">A home for Claude Code. Parallel chats, a real editor, and every change one click away.</p>
+          <p className="welcome-sub">
+            {t(
+              'A home for Claude Code. Parallel chats, a real editor, and every change one click away.',
+              'Ngôi nhà cho Claude Code. Nhiều chat song song, một trình soạn thảo thực thụ, mọi thay đổi chỉ cách một cú bấm.'
+            )}
+          </p>
           <button className="btn btn-primary btn-lg" onClick={() => openFolder()}>
-            <FolderOpen size={17} /> Open a project folder
+            <FolderOpen size={17} /> {t('Open a project folder', 'Mở thư mục dự án')}
           </button>
           {claude && !claude.found && (
             <p className="welcome-warn">
-              <CircleAlert size={14} /> Claude Code CLI was not found on this machine. You'll get install steps after opening a folder.
+              <CircleAlert size={14} />{' '}
+              {t(
+                "Claude Code CLI was not found on this machine. You'll get install steps after opening a folder.",
+                'Không tìm thấy Claude Code CLI trên máy này. Hướng dẫn cài đặt sẽ hiện sau khi bạn mở một thư mục.'
+              )}
             </p>
           )}
         </div>
@@ -725,10 +774,10 @@ export function Welcome(): React.JSX.Element {
           <div className="claude-projects">
             <div className="cp-head">
               <span className="cp-title">
-                <Link2 size={13} /> From Claude
+                <Link2 size={13} /> {t('From Claude', 'Từ Claude')}
               </span>
               <span className="cp-sub">
-                {projects.length} projects · {totalChats} chats
+                {t(`${projects.length} projects · ${totalChats} chats`, `${projects.length} dự án · ${totalChats} chat`)}
               </span>
             </div>
             <div className="cp-list">
@@ -741,10 +790,10 @@ export function Welcome(): React.JSX.Element {
                     <span className="cp-path">{g.cwd}</span>
                   </button>
                   {g.sessions.slice(0, 2).map((s) => (
-                    <button key={s.id} className="cp-sess" onClick={() => openSession(s)} title={`Resume: ${s.title}`}>
+                    <button key={s.id} className="cp-sess" onClick={() => openSession(s)} title={t(`Resume: ${s.title}`, `Tiếp tục: ${s.title}`)}>
                       <MessagesSquare size={12} />
                       <span className="cp-sess-title">{s.title}</span>
-                      <span className="cp-sess-time">{ago(s.updated)}</span>
+                      <span className="cp-sess-time">{ago(s.updated, t)}</span>
                     </button>
                   ))}
                 </div>
@@ -757,10 +806,10 @@ export function Welcome(): React.JSX.Element {
   )
 }
 
-function ago(t: number): string {
-  const m = Math.floor((Date.now() - t) / 60000)
-  if (m < 60) return `${Math.max(1, m)}m`
+function ago(time: number, t: T): string {
+  const m = Math.floor((Date.now() - time) / 60000)
+  if (m < 60) return t(`${Math.max(1, m)}m`, `${Math.max(1, m)} phút`)
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h`
-  return `${Math.floor(h / 24)}d`
+  if (h < 24) return t(`${h}h`, `${h} giờ`)
+  return t(`${Math.floor(h / 24)}d`, `${Math.floor(h / 24)} ngày`)
 }

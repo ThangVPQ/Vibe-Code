@@ -1,3 +1,5 @@
+import type { T } from '../../i18n'
+
 /* ---------------- colors: Telegram's seven peer colors ---------------- */
 
 const PEER = ['#e17076', '#f0a35e', '#a695e7', '#7bc862', '#5fbfc2', '#65aadd', '#ee7aae']
@@ -28,16 +30,17 @@ export function initials(name: string): string {
 
 const sameDay = (a: Date, b: Date): boolean => a.toDateString() === b.toDateString()
 
-const hhmm = (ts: number): string => new Date(ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false })
+const hhmm = (ts: number, loc: string): string => new Date(ts).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', hour12: false })
 
 /** list time: 14:05 today, weekday this week, dd/mm this year, dd/mm/yy before */
-export function listTime(ts: number): string {
+export function listTime(ts: number, t: T): string {
   if (!ts) return ''
+  const loc = t('en-US', 'vi-VN')
   const d = new Date(ts)
   const now = new Date()
-  if (sameDay(d, now)) return hhmm(ts)
+  if (sameDay(d, now)) return hhmm(ts, loc)
   const days = (now.getTime() - d.getTime()) / 86_400_000
-  if (days < 6) return d.toLocaleDateString('vi-VN', { weekday: 'short' })
-  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
-  return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  if (days < 6) return d.toLocaleDateString(loc, { weekday: 'short' })
+  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(loc, { day: '2-digit', month: '2-digit' })
+  return d.toLocaleDateString(loc, { day: '2-digit', month: '2-digit', year: '2-digit' })
 }

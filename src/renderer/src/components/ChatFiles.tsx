@@ -4,6 +4,7 @@ import type { ChatFile } from '../../../shared/types'
 import { useStore } from '../store'
 import { openDiff, openFile } from '../actions'
 import { FileIcon } from './icons'
+import { useT, type T } from '../i18n'
 
 /** The files Claude created, edited or read in a chat; reloaded as the transcript grows. */
 export function useChatFiles(sessionId: string | undefined): ChatFile[] {
@@ -38,9 +39,9 @@ export function useChatFiles(sessionId: string | undefined): ChatFile[] {
 
 const norm = (p: string): string => p.replace(/\//g, '\\').toLowerCase()
 
-function ago(at: number): string {
+function ago(at: number, t: T): string {
   const s = Math.max(0, Math.round((Date.now() - at) / 1000))
-  if (s < 60) return 'now'
+  if (s < 60) return t('now', 'vừa xong')
   if (s < 3600) return `${Math.floor(s / 60)}m`
   if (s < 86400) return `${Math.floor(s / 3600)}h`
   return `${Math.floor(s / 86400)}d`
@@ -48,6 +49,7 @@ function ago(at: number): string {
 
 /** The Files tab of a chat: what Claude changed, then what it only read. Click one to open it. */
 export function ChatFiles({ files, cwd }: { files: ChatFile[]; cwd: string }): React.JSX.Element {
+  const t = useT()
   const gitFiles = useStore((s) => s.git.files)
   const activeTabId = useStore((s) => s.activeTabId)
   const changed = files.filter((f) => f.action !== 'read')
@@ -57,7 +59,7 @@ export function ChatFiles({ files, cwd }: { files: ChatFile[]; cwd: string }): R
       <div className="chat-files">
         <div className="chat-images-empty">
           <FileText size={22} />
-          <p>No files yet. Files Claude creates, edits or reads in this chat show up here.</p>
+          <p>{t('No files yet. Files Claude creates, edits or reads in this chat show up here.', 'Chưa có tệp nào. Các tệp Claude tạo, sửa hoặc đọc trong chat này sẽ hiện ở đây.')}</p>
         </div>
       </div>
     )
@@ -71,12 +73,12 @@ export function ChatFiles({ files, cwd }: { files: ChatFile[]; cwd: string }): R
     const shownDir = norm(dir + '\\').startsWith(root) ? dir.slice(root.length) : dir
     const git = gitFiles.find((g) => norm(g.abs) === norm(f.path))
     const badge = f.action === 'created' ? 'A' : f.action === 'edited' ? 'M' : ''
-    const what = f.action === 'created' ? 'Created' : f.action === 'edited' ? `Edited ${f.edits}×` : 'Read'
+    const what = f.action === 'created' ? t('Created', 'Đã tạo') : f.action === 'edited' ? t(`Edited ${f.edits}×`, `Đã sửa ${f.edits}×`) : t('Read', 'Đã đọc')
     return (
       <div
         key={f.path}
         className={`change-row${activeTabId === 'f:' + f.path.toLowerCase() ? ' active' : ''}${f.exists ? '' : ' gone'}`}
-        title={`${what} — ${f.path}${f.exists ? '' : ' (no longer on disk)'}`}
+        title={`${what} — ${f.path}${f.exists ? '' : t(' (no longer on disk)', ' (không còn trên đĩa)')}`}
         onClick={() => f.exists && openFile(f.path)}
       >
         <FileIcon name={name} />
@@ -84,12 +86,12 @@ export function ChatFiles({ files, cwd }: { files: ChatFile[]; cwd: string }): R
         <span className="change-dir">{shownDir}</span>
         <span className="change-stats">
           {f.edits > 1 && <span className="file-edits">{f.edits}×</span>}
-          <span className="file-ago">{ago(f.at)}</span>
+          <span className="file-ago">{ago(f.at, t)}</span>
         </span>
         {git && (
           <button
             className="icon-btn change-open"
-            title="Show the git diff"
+            title={t('Show the git diff', 'Xem so sánh git')}
             onClick={(e) => {
               e.stopPropagation()
               openDiff(git.abs, git.rel)
@@ -105,9 +107,9 @@ export function ChatFiles({ files, cwd }: { files: ChatFile[]; cwd: string }): R
 
   return (
     <div className="chat-files">
-      {changed.length > 0 && <div className="chat-files-head">Changed · {changed.length}</div>}
+      {changed.length > 0 && <div className="chat-files-head">{t('Changed', 'Đã thay đổi')} · {changed.length}</div>}
       {changed.map(row)}
-      {read.length > 0 && <div className="chat-files-head">Read · {read.length}</div>}
+      {read.length > 0 && <div className="chat-files-head">{t('Read', 'Đã đọc')} · {read.length}</div>}
       {read.map(row)}
     </div>
   )

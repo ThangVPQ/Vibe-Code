@@ -8,8 +8,13 @@ import type { OfficeRequest } from '../../../shared/types'
 import { newChatFromOfficeFile } from '../actions'
 import { type FSheet, csvSheet, matrix, parseCell, readText, sheetRows, toCelldata, usedSize } from '../sheetData'
 import { FileTabs, SaveStatus, type Workspace, type WorkspaceProps, errText, fileName, findOpen, isCsv, samePath, toBase64, until, useAutosave } from './officeShared'
+import { type T, tr, useT } from '../i18n'
 
-const CSV_NOTE = 'File .csv chỉ lưu giá trị của sheet đầu tiên (không có định dạng, công thức). Muốn giữ định dạng: lưu thành .xlsx.'
+const csvNote = (t: T): string =>
+  t(
+    'A .csv file only saves the values of the first sheet (no formatting, no formulas). To keep formatting, save as .xlsx.',
+    'File .csv chỉ lưu giá trị của sheet đầu tiên (không có định dạng, công thức). Muốn giữ định dạng: lưu thành .xlsx.'
+  )
 
 type OpenFile = { path: string; sheets: Sheet[]; dirty: boolean }
 
@@ -23,7 +28,7 @@ async function loadFile(path: string): Promise<Sheet[]> {
   const bytes = await window.api.office.readFile(path)
   let sheets: Sheet[] = []
   await transformExcelToFortune(new File([bytes], fileName(path)), (s: Sheet[]) => (sheets = s), () => {}, { current: null })
-  if (!sheets.length) throw new Error(`Không đọc được ${fileName(path)}`)
+  if (!sheets.length) throw new Error(tr(`Could not read ${fileName(path)}`, `Không đọc được ${fileName(path)}`))
   return sheets
 }
 
@@ -126,7 +131,7 @@ export const SheetsWorkspace = forwardRef<Workspace, WorkspaceProps>(function Sh
       if (mounted.current === path && wb.current) return wb.current
       await new Promise((r) => setTimeout(r, 25))
     }
-    throw new Error('Bảng tính chưa hiện lên được')
+    throw new Error(tr('The spreadsheet could not be shown', 'Bảng tính chưa hiện lên được'))
   }
 
   const openPath = async (path: string, create = false): Promise<void> => {
@@ -171,7 +176,7 @@ export const SheetsWorkspace = forwardRef<Workspace, WorkspaceProps>(function Sh
       try {
         await auto.saveNow(path)
       } catch (err) {
-        if (!(await window.api.ask(`Không lưu được "${fileName(path)}":\n${errText(err)}\n\nVẫn đóng và bỏ các thay đổi chưa lưu?`))) return
+        if (!(await window.api.ask(tr(`Could not save "${fileName(path)}":\n${errText(err)}\n\nClose anyway and discard the unsaved changes?`, `Không lưu được "${fileName(path)}":\n${errText(err)}\n\nVẫn đóng và bỏ các thay đổi chưa lưu?`)))) return
       }
       drop()
     })
@@ -269,6 +274,7 @@ export const SheetsWorkspace = forwardRef<Workspace, WorkspaceProps>(function Sh
     return () => el.removeEventListener('wheel', wheel, { capture: true })
   }, [file !== null])
 
+  const t = useT()
   if (!file) return null
   return (
     <div
@@ -281,18 +287,18 @@ export const SheetsWorkspace = forwardRef<Workspace, WorkspaceProps>(function Sh
         }
       }}
     >
-      <FileTabs files={files} active={active} icon={<FileSpreadsheet size={13} className="of-ic-sheet" />} onShow={(p) => run(() => show(p))} onClose={close} onAdd={onAdd} addTitle="Mở bảng tính khác / tạo mới">
+      <FileTabs files={files} active={active} icon={<FileSpreadsheet size={13} className="of-ic-sheet" />} onShow={(p) => run(() => show(p))} onClose={close} onAdd={onAdd} addTitle={t('Open another spreadsheet / create new', 'Mở bảng tính khác / tạo mới')}>
         {busy && <Loader2 size={15} className="of-spin of-dim" />}
-        <SaveStatus dirty={file.dirty} s={auto.saveState[file.path]} note={isCsv(file.path) ? CSV_NOTE : undefined} />
-        <button className="of-tool" title={isCsv(file.path) ? `Lưu (Ctrl+S). ${CSV_NOTE}` : 'Lưu (Ctrl+S)'} disabled={!file.dirty || busy} onClick={() => run(() => auto.saveNow(file.path))}>
-          <Save size={15} /> Lưu
+        <SaveStatus dirty={file.dirty} s={auto.saveState[file.path]} note={isCsv(file.path) ? csvNote(t) : undefined} />
+        <button className="of-tool" title={isCsv(file.path) ? `${t('Save', 'Lưu')} (Ctrl+S). ${csvNote(t)}` : `${t('Save', 'Lưu')} (Ctrl+S)`} disabled={!file.dirty || busy} onClick={() => run(() => auto.saveNow(file.path))}>
+          <Save size={15} /> {t('Save', 'Lưu')}
         </button>
-        <button className="of-tool of-ai" title="Mở chat Claude làm việc với bảng tính này" onClick={() => void newChatFromOfficeFile(file.path)}>
-          <Bot size={15} /> Giao cho AI
+        <button className="of-tool of-ai" title={t('Open a Claude chat that works on this spreadsheet', 'Mở chat Claude làm việc với bảng tính này')} onClick={() => void newChatFromOfficeFile(file.path)}>
+          <Bot size={15} /> {t('Hand to AI', 'Giao cho AI')}
         </button>
       </FileTabs>
       {error && (
-        <p className="of-error of-pad" onClick={() => setError('')} title="Bấm để ẩn">
+        <p className="of-error of-pad" onClick={() => setError('')} title={t('Click to hide', 'Bấm để ẩn')}>
           {error}
         </p>
       )}

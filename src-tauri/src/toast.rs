@@ -56,7 +56,7 @@ fn register_protocol() -> bool {
             .register_uri_scheme_protocol("toast", |_ctx, _req| {
                 tauri::http::Response::builder()
                     .header("Content-Type", "text/html; charset=utf-8")
-                    .body(PAGE.as_bytes().to_vec())
+                    .body(PAGE.replacen("__CLOSE__", crate::settings::tr("Close", "Đóng"), 1).into_bytes())
                     .expect("static response")
             })
             .build();
@@ -211,7 +211,7 @@ function push(c) {
     '<div class="av">' + (c.avatar ? '<img src="' + esc(c.avatar) + '" onerror="this.parentNode.textContent=\'' + init + '\'">' : init) + '</div>' +
     '<div class="main"><div class="name">' + esc(c.title) + (c.meta ? ' <span>· ' + esc(c.meta) + '</span>' : '') + '</div>' +
     '<div class="body">' + (c.tag ? '<span class="tag" style="color:' + esc(c.tag.color) + '">' + esc(c.tag.text) + ':</span> ' : '') + esc(c.body) + '</div></div>' +
-    '<button class="x" title="Đóng">✕</button><i class="bar"></i>'
+    '<button class="x" title="__CLOSE__">✕</button><i class="bar"></i>'
   el.addEventListener('click', (e) => {
     if (e.target.closest('.x')) { remove(el); return }
     invoke('toast_click', { id: c.id })

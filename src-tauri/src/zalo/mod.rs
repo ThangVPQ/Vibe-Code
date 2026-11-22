@@ -35,6 +35,7 @@ pub use tools::{INSTRUCTIONS, call_tool, tools};
 pub use types::*;
 
 use crate::core::{self, Res, emit};
+use crate::settings::{self, tr};
 use api::{Api, Credentials, QrEvent, ThreadType};
 use listen::{Action, Event, Listener, Msg};
 use proto::{jnum, jstr, now_ms, truthy};
@@ -113,7 +114,13 @@ fn need() -> anyhow::Result<Arc<Api>> {
     let a = api_any();
     match a {
         Some(a) if store().state.status == "online" => Ok(a),
-        _ => anyhow::bail!("Zalo chưa đăng nhập. Mở tab Zalo trong VIBE CODE và quét QR (hoặc bấm Kết nối lại)."),
+        _ => anyhow::bail!(
+            "{}",
+            tr(
+                "Not signed in to Zalo. Open the Zalo tab in VIBE CODE and scan the QR code (or click Reconnect).",
+                "Zalo chưa đăng nhập. Mở tab Zalo trong VIBE CODE và quét QR (hoặc bấm Kết nối lại)."
+            )
+        ),
     }
 }
 
@@ -809,7 +816,10 @@ fn on_closed(id: u64, code: u16) {
     if code == 3000 {
         return set_state(|s| {
             s.status = "error";
-            s.error = Some("Zalo Web đang mở ở nơi khác nên phiên này bị ngắt. Bấm Kết nối lại.".into());
+            s.error = Some(
+                tr("Zalo Web was opened somewhere else, so this session was cut off. Click Reconnect.", "Zalo Web đang mở ở nơi khác nên phiên này bị ngắt. Bấm Kết nối lại.")
+                    .into(),
+            );
         });
     }
     let retries = {
@@ -822,7 +832,7 @@ fn on_closed(id: u64, code: u16) {
     let Some(retries) = retries else {
         return set_state(|s| {
             s.status = "error";
-            s.error = Some(format!("Mất kết nối Zalo ({code})."));
+            s.error = Some(format!("{} ({code}).", tr("Lost the connection to Zalo", "Mất kết nối Zalo")));
         });
     };
     set_state(|s| {
@@ -961,7 +971,11 @@ pub async fn reconnect(auto: bool) -> ZaloState {
             Ok(a) => after_login(a),
             Err(e) => set_state(|s| {
                 s.status = "error";
-                s.error = Some(format!("Không đăng nhập lại được: {e}. Hãy đăng nhập lại bằng QR."));
+                s.error = Some(if settings::vi() {
+                    format!("Không đăng nhập lại được: {e}. Hãy đăng nhập lại bằng QR.")
+                } else {
+                    format!("Could not sign in again: {e}. Sign in again with the QR code.")
+                });
             }),
         }
     }
@@ -981,13 +995,13 @@ fn on_qr_event(generation: u64, ev: QrEvent) {
         QrEvent::Expired => set_state(|s| {
             s.status = "qr";
             s.qr = None;
-            s.error = Some("Mã QR đã hết hạn.".into());
+            s.error = Some(tr("The QR code has expired.", "Mã QR đã hết hạn.").into());
         }),
         QrEvent::Scanned { display_name } => set_state(|s| s.scanned = Some(display_name)),
         QrEvent::Declined => set_state(|s| {
             s.status = "off";
             s.qr = None;
-            s.error = Some("Đã từ chối đăng nhập trên điện thoại.".into());
+            s.error = Some(tr("The sign-in was declined on the phone.", "Đã từ chối đăng nhập trên điện thoại.").into());
         }),
         QrEvent::GotLoginInfo(c) => spawn(save_creds(c)),
     }

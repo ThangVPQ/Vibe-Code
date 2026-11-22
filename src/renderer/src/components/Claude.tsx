@@ -33,6 +33,8 @@ import { AttachmentTray } from './AttachmentTray'
 import { pickAttachments } from '../attachments'
 import { NewChatMenu } from './AgentMenu'
 import { AGENTS, agentDef } from '../../../shared/agents'
+import { useT } from '../i18n'
+import type { T } from '../i18n'
 
 export function TerminalView({ id, autoFocus = true }: { id: string; autoFocus?: boolean }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
@@ -69,26 +71,48 @@ export function TerminalView({ id, autoFocus = true }: { id: string; autoFocus?:
 /* ================================ Claude panel ================================ */
 
 /** One click: Claude commits everything and pushes, following our commit-message rules. */
-const COMMIT_PUSH =
-  'Commit all current changes and push to the remote. Commit message rules: English, one short subject line only ' +
-  '(no body or description), and no Co-Authored-By or any other author/attribution trailer.'
+const COMMIT_PUSH = (t: T): string =>
+  t(
+    'Commit all current changes and push to the remote. Commit message rules: English, one short subject line only ' +
+      '(no body or description), and no Co-Authored-By or any other author/attribution trailer.',
+    'Commit toàn bộ thay đổi hiện tại và push lên remote. Quy tắc commit message: tiếng Anh, chỉ một dòng tiêu đề ngắn ' +
+      '(không có body hay mô tả), và không có Co-Authored-By hay bất kỳ dòng ghi tác giả/attribution nào khác.'
+  )
 
-const PULL =
-  'Pull the latest code from the remote for the current branch (git pull). If there are local changes or conflicts, ' +
-  'keep my work safe and tell me what happened.'
+const PULL = (t: T): string =>
+  t(
+    'Pull the latest code from the remote for the current branch (git pull). If there are local changes or conflicts, ' +
+      'keep my work safe and tell me what happened.',
+    'Pull code mới nhất từ remote cho branch hiện tại (git pull). Nếu có thay đổi local hoặc conflict, ' +
+      'giữ an toàn cho phần việc của tôi và cho tôi biết chuyện gì đã xảy ra.'
+  )
 
-const RUN_APP =
-  "Run this project's app the usual way for this project (backend and frontend if both are needed). Keep it running in the background, check that it responds, and give me the local URL."
+const RUN_APP = (t: T): string =>
+  t(
+    "Run this project's app the usual way for this project (backend and frontend if both are needed). Keep it running in the background, check that it responds, and give me the local URL.",
+    'Chạy app của project này theo cách thường dùng của project (cả backend và frontend nếu cần). Để nó chạy nền, kiểm tra xem nó có phản hồi không, và cho tôi URL local.'
+  )
 
-const RUN_TESTS = "Run this project's tests (if it has none, its build or type check) and tell me what fails and why. Don't change any files."
+const RUN_TESTS = (t: T): string =>
+  t(
+    "Run this project's tests (if it has none, its build or type check) and tell me what fails and why. Don't change any files.",
+    'Chạy test của project này (nếu không có test thì chạy build hoặc type check) và cho tôi biết cái gì lỗi và vì sao. Không sửa file nào.'
+  )
 
-const REVIEW =
-  "Review the uncommitted changes in this project for bugs, missed cases and leftovers. List what you find with file:line, most serious first. Don't change any files."
+const REVIEW = (t: T): string =>
+  t(
+    "Review the uncommitted changes in this project for bugs, missed cases and leftovers. List what you find with file:line, most serious first. Don't change any files.",
+    'Review các thay đổi chưa commit trong project này để tìm bug, trường hợp bị bỏ sót và phần còn sót lại. Liệt kê những gì tìm được kèm file:line, nghiêm trọng nhất trước. Không sửa file nào.'
+  )
 
-const PUBLISH =
-  "Publish this project's backend: build it in Release and publish it the way this project is set up to (publish profile or script). Tell me where the output went and whether anything failed."
+const PUBLISH = (t: T): string =>
+  t(
+    "Publish this project's backend: build it in Release and publish it the way this project is set up to (publish profile or script). Tell me where the output went and whether anything failed.",
+    'Publish backend của project này: build ở chế độ Release và publish theo cách project đã thiết lập (publish profile hoặc script). Cho tôi biết output nằm ở đâu và có gì lỗi không.'
+  )
 
 export function ClaudePanel(): React.JSX.Element {
+  const t = useT()
   // only the open chat: other chats' status / title changes don't re-render this panel
   const active = useStore((s) => s.chats.find((c) => c.id === s.activeChatId) ?? null)
   const activeId = active?.id ?? null
@@ -169,12 +193,15 @@ export function ClaudePanel(): React.JSX.Element {
             <div className="chat-titlebar-actions">
               {active.status === 'exited' && (
                 <button className="btn btn-ghost btn-sm" onClick={() => restartChat(active.id)}>
-                  <RefreshCw size={13} /> Restart
+                  <RefreshCw size={13} /> {t('Restart', 'Khởi động lại')}
                 </button>
               )}
               {agentDef(active.agent).id === 'claude' && <BypassProjectButton chat={active} />}
-              <NewChatMenu title="New chat with the default agent (Ctrl+Shift+N) — right-click to pick another AI" onPick={newChatWith} />
-              <button className="icon-btn" title="Close chat (it stays in the sidebar history)" onClick={() => closeChat(active.id)}>
+              <NewChatMenu
+                title={t('New chat with the default agent (Ctrl+Shift+N) — right-click to pick another AI', 'Chat mới với agent mặc định (Ctrl+Shift+N) — chuột phải để chọn AI khác')}
+                onPick={newChatWith}
+              />
+              <button className="icon-btn" title={t('Close chat (it stays in the sidebar history)', 'Đóng chat (vẫn còn trong lịch sử ở thanh bên)')} onClick={() => closeChat(active.id)}>
                 <X size={15} />
               </button>
             </div>
@@ -182,23 +209,23 @@ export function ClaudePanel(): React.JSX.Element {
           <div className="code-side-switch chat-tabs">
             <SlidePill />
             {hasChatView && (
-              <button className={tab === 'chat' ? 'on' : ''} title="The conversation, with tool calls folded up" onClick={() => leaveTerminal('chat')}>
+              <button className={tab === 'chat' ? 'on' : ''} title={t('The conversation, with tool calls folded up', 'Cuộc trò chuyện, với các lệnh gọi tool được thu gọn')} onClick={() => leaveTerminal('chat')}>
                 <MessageSquare size={13} /> Chat
               </button>
             )}
-            <button className={tab === 'terminal' ? 'on' : ''} title="Claude Code's own screen" onClick={showTerminal}>
+            <button className={tab === 'terminal' ? 'on' : ''} title={t("Claude Code's own screen", 'Màn hình gốc của Claude Code')} onClick={showTerminal}>
               <SquareTerminal size={13} /> Terminal
             </button>
             <button className={tab === 'images' ? 'on' : ''} onClick={() => leaveTerminal('images')}>
-              <ImageIcon size={13} /> Images
+              <ImageIcon size={13} /> {t('Images', 'Ảnh')}
               {images.length > 0 && <span className="center-count">{images.length}</span>}
             </button>
-            <button className={tab === 'files' ? 'on' : ''} title="Files Claude created, edited or read in this chat" onClick={() => leaveTerminal('files')}>
-              <FileText size={13} /> Files
+            <button className={tab === 'files' ? 'on' : ''} title={t('Files Claude created, edited or read in this chat', 'Các tệp Claude đã tạo, sửa hoặc đọc trong chat này')} onClick={() => leaveTerminal('files')}>
+              <FileText size={13} /> {t('Files', 'Tệp')}
               {changedFiles > 0 && <span className="center-count">{changedFiles}</span>}
             </button>
-            <button className={tab === 'tasks' ? 'on' : ''} title="Background tasks Claude started in this chat" onClick={() => leaveTerminal('tasks')}>
-              <ListChecks size={13} /> Tasks
+            <button className={tab === 'tasks' ? 'on' : ''} title={t('Background tasks Claude started in this chat', 'Các việc chạy nền Claude đã bắt đầu trong chat này')} onClick={() => leaveTerminal('tasks')}>
+              <ListChecks size={13} /> {t('Tasks', 'Việc')}
               {runningTasks > 0 ? <span className="center-count running">{runningTasks}</span> : tasks.length > 0 && <span className="center-count">{tasks.length}</span>}
             </button>
           </div>
@@ -232,19 +259,22 @@ export function ClaudePanel(): React.JSX.Element {
             {active.status === 'working' && (
               <button
                 className="chip chip-stop"
-                title="Stop what the AI is doing (Esc)"
+                title={t('Stop what the AI is doing (Esc)', 'Dừng việc AI đang làm (Esc)')}
                 onClick={() => {
                   writeToTerm(active.id, '\x1b')
                   backToView()
                 }}
               >
                 <Square size={10} fill="currentColor" />
-                Stop
+                {t('Stop', 'Dừng')}
               </button>
             )}
             <button
               className="chip"
-              title="Attach files — they go with your next message (you can also paste pictures or drag files onto the chat)"
+              title={t(
+                'Attach files — they go with your next message (you can also paste pictures or drag files onto the chat)',
+                'Đính kèm tệp — gửi kèm tin nhắn tiếp theo (cũng có thể dán ảnh hoặc kéo tệp vào chat)'
+              )}
               disabled={active.status === 'exited'}
               onClick={async () => {
                 await pickAttachments(active.id, active.cwd)
@@ -252,7 +282,7 @@ export function ClaudePanel(): React.JSX.Element {
               }}
             >
               <Paperclip size={12} />
-              <span className="chip-label">Attach files</span>
+              <span className="chip-label">{t('Attach files', 'Đính kèm tệp')}</span>
             </button>
             <MoreMenu chat={active} onDone={backToView} />
             <ChatPickers chat={active} />
@@ -295,6 +325,7 @@ function StartSkeleton({ show }: { show: boolean }): React.JSX.Element | null {
 
 /** One click: Claude never asks for permission anywhere in this chat's project. */
 function BypassProjectButton({ chat }: { chat: Chat }): React.JSX.Element {
+  const t = useT()
   const on = useStore((s) => !!s.projectBypass[folderKey(chat.cwd)])
   useEffect(() => {
     loadProjectBypass(chat.cwd)
@@ -302,11 +333,15 @@ function BypassProjectButton({ chat }: { chat: Chat }): React.JSX.Element {
   return (
     <button
       className={`btn btn-sm bypass-btn${on ? ' on' : ''}`}
-      title={on ? `Bypass is on for ${chat.cwd} — click to turn off` : `Bypass permissions for the whole project ${chat.cwd}`}
+      title={
+        on
+          ? t(`Bypass is on for ${chat.cwd} — click to turn off`, `Bypass đang bật cho ${chat.cwd} — bấm để tắt`)
+          : t(`Bypass permissions for the whole project ${chat.cwd}`, `Không hỏi quyền trong toàn bộ project ${chat.cwd}`)
+      }
       onClick={() => toggleProjectBypass(chat.id)}
     >
       {on ? <ShieldOff size={13} /> : <Shield size={13} />}
-      <span className="bypass-label">{on ? 'Project bypassed' : 'Bypass project'}</span>
+      <span className="bypass-label">{on ? t('Project bypassed', 'Đã bypass project') : t('Bypass project', 'Bypass project')}</span>
     </button>
   )
 }
@@ -316,6 +351,7 @@ const CORE_TOOLS = new Set(['Bash', 'PowerShell', 'Read', 'Edit', 'Write', 'Glob
 
 /** Pick tools to take out of Claude chats: their definitions stop filling the context. Opened from More. */
 function TokenMenu({ chat, at, onClose }: { chat: Chat; at: { left: number; bottom: number }; onClose: () => void }): React.JSX.Element {
+  const tl = useT()
   const saved = disabledTools()
   const [tools, setTools] = useState<{ name: string; tokens: number }[]>([])
   const [off, setOff] = useState<Set<string>>(() => new Set(saved))
@@ -356,20 +392,26 @@ function TokenMenu({ chat, at, onClose }: { chat: Chat; at: { left: number; bott
 
   return (
     <div className="tok-menu" ref={ref} style={{ left: at.left, bottom: at.bottom }} role="menu">
-      <div className="sb-menu-title">Tick the tools to turn off (all Claude chats)</div>
+      <div className="sb-menu-title">{tl('Tick the tools to turn off (all Claude chats)', 'Đánh dấu các tool muốn tắt (mọi chat Claude)')}</div>
       <div className="tok-list">
-        {rows.length === 0 && <div className="tok-empty">{chat.sessionId ? 'Loading…' : 'Send a message first to see the tools.'}</div>}
+        {rows.length === 0 && (
+          <div className="tok-empty">{chat.sessionId ? tl('Loading…', 'Đang tải…') : tl('Send a message first to see the tools.', 'Gửi một tin nhắn trước để xem các tool.')}</div>
+        )}
         {rows.map((t) => (
           <label key={t.name} className={`tok-row${off.has(t.name) ? ' on' : ''}`}>
             <input type="checkbox" checked={off.has(t.name)} onChange={() => toggle(t.name)} />
             <span className="tok-name">{t.name}</span>
-            {CORE_TOOLS.has(t.name) && <span className="tok-core" title="Claude relies on this tool for everyday work">core</span>}
-            <span className="tok-size">{t.tokens ? fmt(t.tokens) : 'off'}</span>
+            {CORE_TOOLS.has(t.name) && (
+              <span className="tok-core" title={tl('Claude relies on this tool for everyday work', 'Claude cần tool này cho công việc hằng ngày')}>
+                {tl('core', 'lõi')}
+              </span>
+            )}
+            <span className="tok-size">{t.tokens ? fmt(t.tokens) : tl('off', 'tắt')}</span>
           </label>
         ))}
       </div>
       <div className="tok-foot">
-        <span>{saving > 0 ? `Saves ~${fmt(saving)} tokens` : ''}</span>
+        <span>{saving > 0 ? tl(`Saves ~${fmt(saving)} tokens`, `Tiết kiệm ~${fmt(saving)} token`) : ''}</span>
         <button
           className="btn btn-primary btn-sm"
           disabled={!changed}
@@ -378,7 +420,7 @@ function TokenMenu({ chat, at, onClose }: { chat: Chat; at: { left: number; bott
             setDisabledTools(chat.id, [...off])
           }}
         >
-          Apply & restart chat
+          {tl('Apply & restart chat', 'Áp dụng & khởi động lại chat')}
         </button>
       </div>
     </div>
@@ -411,6 +453,7 @@ async function lastReply(sessionId: string | undefined): Promise<string> {
 
 /** "…": the one-click prompts and chat switches, each with what it does, out of the conversation's way. */
 function MoreMenu({ chat, onDone }: { chat: Chat; onDone: () => void }): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [tokensAt, setTokensAt] = useState<{ left: number; bottom: number } | null>(null)
   const [copied, setCopied] = useState('')
@@ -445,53 +488,77 @@ function MoreMenu({ chat, onDone }: { chat: Chat; onDone: () => void }): React.J
     }
   const sections: { title: string; items: (MoreItem | false)[] }[] = [
     {
-      title: 'Ask the AI',
+      title: t('Ask the AI', 'Hỏi AI'),
       items: [
-        { key: 'continue', icon: <FastForward size={14} />, label: 'Continue', hint: 'Pick up where it stopped', run: ask('continue') },
-        { key: 'run', icon: <Play size={14} />, label: 'Run app', hint: 'Start the project and give the local URL', run: ask(RUN_APP) },
-        { key: 'test', icon: <FlaskConical size={14} />, label: 'Run tests', hint: 'Tests (or build) and what fails, no edits', run: ask(RUN_TESTS) },
-        { key: 'review', icon: <ScanSearch size={14} />, label: 'Review changes', hint: 'Look over uncommitted code for bugs, no edits', run: ask(REVIEW) },
+        { key: 'continue', icon: <FastForward size={14} />, label: t('Continue', 'Tiếp tục'), hint: t('Pick up where it stopped', 'Làm tiếp từ chỗ đã dừng'), run: ask(t('continue', 'tiếp tục')) },
+        { key: 'run', icon: <Play size={14} />, label: t('Run app', 'Chạy app'), hint: t('Start the project and give the local URL', 'Khởi động project và cho URL local'), run: ask(RUN_APP(t)) },
+        {
+          key: 'test',
+          icon: <FlaskConical size={14} />,
+          label: t('Run tests', 'Chạy test'),
+          hint: t('Tests (or build) and what fails, no edits', 'Test (hoặc build) và chỗ lỗi, không sửa gì'),
+          run: ask(RUN_TESTS(t))
+        },
+        {
+          key: 'review',
+          icon: <ScanSearch size={14} />,
+          label: t('Review changes', 'Review thay đổi'),
+          hint: t('Look over uncommitted code for bugs, no edits', 'Soát code chưa commit để tìm bug, không sửa gì'),
+          run: ask(REVIEW(t))
+        },
         {
           key: 'publish',
           icon: <Upload size={14} />,
-          label: 'Publish backend',
-          hint: 'Release build, published the way the project is set up',
-          run: ask(PUBLISH, 'Ask the AI to publish the backend of this project now?')
+          label: t('Publish backend', 'Publish backend'),
+          hint: t('Release build, published the way the project is set up', 'Build Release, publish theo cách project đã thiết lập'),
+          run: ask(PUBLISH(t), t('Ask the AI to publish the backend of this project now?', 'Nhờ AI publish backend của project này ngay bây giờ?'))
         }
       ]
     },
     {
       title: 'Git',
       items: [
-        { key: 'commit', icon: <GitCommitHorizontal size={14} />, label: 'Commit + push', hint: 'One English subject line, no co-author', run: ask(COMMIT_PUSH) },
-        { key: 'pull', icon: <Download size={14} />, label: 'Pull', hint: 'Get the latest code, keep local work safe', run: ask(PULL) }
+        {
+          key: 'commit',
+          icon: <GitCommitHorizontal size={14} />,
+          label: 'Commit + push',
+          hint: t('One English subject line, no co-author', 'Một dòng tiêu đề tiếng Anh, không co-author'),
+          run: ask(COMMIT_PUSH(t))
+        },
+        { key: 'pull', icon: <Download size={14} />, label: 'Pull', hint: t('Get the latest code, keep local work safe', 'Lấy code mới nhất, giữ an toàn thay đổi local'), run: ask(PULL(t)) }
       ]
     },
     {
-      title: 'This chat',
+      title: t('This chat', 'Chat này'),
       items: [
         isClaude && {
           key: 'copy',
           icon: <Copy size={14} />,
-          label: 'Copy last reply',
-          hint: copied || "Claude's last answer, as markdown",
+          label: t('Copy last reply', 'Sao chép câu trả lời cuối'),
+          hint: copied || t("Claude's last answer, as markdown", 'Câu trả lời cuối của Claude, dạng markdown'),
           run: async () => {
             const text = await lastReply(chat.sessionId)
             if (text) await navigator.clipboard.writeText(text)
-            setCopied(text ? 'Copied' : 'No reply yet')
+            setCopied(text ? t('Copied', 'Đã sao chép') : t('No reply yet', 'Chưa có câu trả lời'))
             setTimeout(() => {
               setCopied('')
               setOpen(false)
             }, 700)
           }
         },
-        isClaude && { key: 'compact', icon: <Shrink size={14} />, label: 'Compact context', hint: 'Summarise the chat to free up context (/compact)', run: ask('/compact') },
+        isClaude && {
+          key: 'compact',
+          icon: <Shrink size={14} />,
+          label: t('Compact context', 'Thu gọn ngữ cảnh'),
+          hint: t('Summarise the chat to free up context (/compact)', 'Tóm tắt chat để giải phóng ngữ cảnh (/compact)'),
+          run: ask('/compact')
+        },
         isClaude && {
           key: 'tokens',
           icon: <Gauge size={14} />,
-          label: 'Optimize tokens',
-          hint: "Turn off tools you don't use",
-          badge: off ? `${off} off` : undefined,
+          label: t('Optimize tokens', 'Tối ưu token'),
+          hint: t("Turn off tools you don't use", 'Tắt các tool bạn không dùng'),
+          badge: off ? t(`${off} off`, `${off} tắt`) : undefined,
           run: () => {
             const r = btn.current!.getBoundingClientRect()
             setOpen(false)
@@ -502,8 +569,8 @@ function MoreMenu({ chat, onDone }: { chat: Chat; onDone: () => void }): React.J
           window.api.platform === 'win32' && {
             key: 'desktop',
             icon: <Monitor size={14} />,
-            label: 'Desktop control',
-            hint: 'See and use your other apps (restarts the chat)',
+            label: t('Desktop control', 'Điều khiển desktop'),
+            hint: t('See and use your other apps (restarts the chat)', 'Xem và dùng các app khác của bạn (khởi động lại chat)'),
             on: !!chat.desktop,
             run: () => {
               setOpen(false)
@@ -516,7 +583,7 @@ function MoreMenu({ chat, onDone }: { chat: Chat; onDone: () => void }): React.J
 
   return (
     <div className="more-wrap" ref={ref}>
-      <button ref={btn} className={`chip more-btn${open ? ' open' : ''}`} title="More: quick prompts, Git, tokens, desktop control" onClick={() => setOpen(!open)}>
+      <button ref={btn} className={`chip more-btn${open ? ' open' : ''}`} title={t('More: quick prompts, Git, tokens, desktop control', 'Thêm: prompt nhanh, Git, token, điều khiển desktop')}onClick={() => setOpen(!open)}>
         <Ellipsis size={14} />
         {(chat.desktop || off > 0) && <i className="more-dot" />}
       </button>

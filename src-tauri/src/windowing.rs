@@ -370,7 +370,8 @@ fn build_tray_menu() {
     let Some(tray) = STATE.lock().tray.clone() else { return };
     let s = settings::get();
     let hk = HOTKEY_OK.load(Ordering::Relaxed);
-    let _ = tray.set_tooltip(Some(format!("VIBE CODE — {} to show/hide", if hk { s.hotkey.as_str() } else { "no hotkey" })));
+    let key = if hk { s.hotkey.as_str() } else { settings::tr("no hotkey", "không có phím tắt") };
+    let _ = tray.set_tooltip(Some(if settings::vi() { format!("VIBE CODE — {key} để hiện/ẩn") } else { format!("VIBE CODE — {key} to show/hide") }));
     if let Ok(menu) = tray_menu(&s, hk) {
         let _ = tray.set_menu(Some(menu));
     }
@@ -381,6 +382,7 @@ fn menu_refs(v: &[CheckMenuItem<tauri::Wry>]) -> Vec<&dyn IsMenuItem<tauri::Wry>
 }
 
 fn tray_menu(s: &settings::AppSettings, hk: bool) -> tauri::Result<Menu<tauri::Wry>> {
+    let tr = settings::tr;
     let a = app();
     let drop = dropdown();
     let heights: Vec<CheckMenuItem<_>> = HEIGHTS
@@ -393,25 +395,29 @@ fn tray_menu(s: &settings::AppSettings, hk: bool) -> tauri::Result<Menu<tauri::W
         .collect::<Result<_, _>>()?;
     let packaged = !cfg!(debug_assertions);
     Menu::with_items(a, &[
-        &MenuItem::with_id(a, "toggle", "Show / Hide", true, hk.then_some(s.hotkey.as_str()))?,
+        &MenuItem::with_id(a, "toggle", tr("Show / Hide", "Hiện / Ẩn"), true, hk.then_some(s.hotkey.as_str()))?,
         &PredefinedMenuItem::separator(a)?,
-        &CheckMenuItem::with_id(a, "mode:dropdown", "Drop-down (Guake)", true, drop, None::<&str>)?,
-        &CheckMenuItem::with_id(a, "mode:window", "Normal window", true, !drop, None::<&str>)?,
+        &CheckMenuItem::with_id(a, "mode:dropdown", tr("Drop-down (Guake)", "Thả xuống (Guake)"), true, drop, None::<&str>)?,
+        &CheckMenuItem::with_id(a, "mode:window", tr("Normal window", "Cửa sổ thường"), true, !drop, None::<&str>)?,
         &PredefinedMenuItem::separator(a)?,
-        &Submenu::with_items(a, "Drop-down height", true, &menu_refs(&heights))?,
-        &Submenu::with_items(a, "Window opacity", true, &menu_refs(&opacities))?,
-        &CheckMenuItem::with_id(a, "blur", "Hide when focus is lost", true, s.hide_on_blur, None::<&str>)?,
+        &Submenu::with_items(a, tr("Drop-down height", "Chiều cao khi thả xuống"), true, &menu_refs(&heights))?,
+        &Submenu::with_items(a, tr("Window opacity", "Độ mờ cửa sổ"), true, &menu_refs(&opacities))?,
+        &CheckMenuItem::with_id(a, "blur", tr("Hide when focus is lost", "Ẩn khi mất focus"), true, s.hide_on_blur, None::<&str>)?,
         &PredefinedMenuItem::separator(a)?,
         &CheckMenuItem::with_id(
             a,
             "login",
-            if packaged { "Start with Windows" } else { "Start with Windows (installed app only)" },
+            if packaged {
+                tr("Start with Windows", "Khởi động cùng Windows")
+            } else {
+                tr("Start with Windows (installed app only)", "Khởi động cùng Windows (chỉ bản cài đặt)")
+            },
             packaged,
             packaged && open_at_login(),
             None::<&str>,
         )?,
         &PredefinedMenuItem::separator(a)?,
-        &MenuItem::with_id(a, "quit", "Quit VIBE CODE", true, None::<&str>)?,
+        &MenuItem::with_id(a, "quit", tr("Quit VIBE CODE", "Thoát VIBE CODE"), true, None::<&str>)?,
     ])
 }
 

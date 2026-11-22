@@ -19,6 +19,7 @@ use tokio::{io::AsyncWriteExt, task::AbortHandle};
 
 use crate::{
     core::{self, Res, emit, main_window},
+    settings::tr,
     toast::{self, ToastCard, ToastTag},
     zalo::{self, WorkThread, fmt_time},
 };
@@ -240,9 +241,9 @@ pub fn on_ingest(ids: Vec<String>) {
 
 fn status_tag(status: &str) -> ToastTag {
     let (text, color) = match status {
-        "doing" => ("Đang xử lý", "#d9922e"),
-        "done" => ("Hoàn thành", "#2f9e63"),
-        _ => ("Cần làm", "#e5484d"),
+        "doing" => (tr("In progress", "Đang xử lý"), "#d9922e"),
+        "done" => (tr("Done", "Hoàn thành"), "#2f9e63"),
+        _ => (tr("To do", "Cần làm"), "#e5484d"),
     };
     ToastTag { text: text.into(), color: color.into() }
 }
@@ -271,7 +272,7 @@ fn announce(created: &[ZaloTask], updated: &[ZaloTask]) {
         name: x.from.clone(),
         avatar: uid_of(x).and_then(|u| zalo::avatar_of(&u)),
         title: x.from.clone(),
-        tag: Some(if new { ToastTag { text: "Việc mới".into(), color: "#3b82f6".into() } } else { status_tag(&x.status) }),
+        tag: Some(if new { ToastTag { text: tr("New task", "Việc mới").into(), color: "#3b82f6".into() } } else { status_tag(&x.status) }),
         body: x.title.clone(),
         meta: x.group.then(|| x.thread_name.clone()),
     };
@@ -392,7 +393,7 @@ pub struct TaskContext {
 /// Everything a coding chat needs about a task: the conversation around it written to a Markdown
 /// file, with photos and files sent in that chat downloaded next to it.
 pub async fn task_context(id: &str) -> Result<TaskContext> {
-    let t = tasks().tasks.iter().find(|x| x.id == id).cloned().ok_or_else(|| anyhow!("Không tìm thấy việc này"))?;
+    let t = tasks().tasks.iter().find(|x| x.id == id).cloned().ok_or_else(|| anyhow!(tr("Task not found", "Không tìm thấy việc này").to_owned()))?;
     let all: Vec<zalo::ZaloMessage> = zalo::get_messages(&t.thread_id, 400, None).into_iter().filter(|m| m.recalled != Some(true)).collect();
     let mut start = t.msg_id.as_ref().and_then(|mid| all.iter().position(|m| &m.id == mid));
     if start.is_none() {
@@ -468,7 +469,7 @@ pub async fn task_context(id: &str) -> Result<TaskContext> {
 /* ------------------------------ Claude ------------------------------ */
 
 async fn run_claude(prompt: &str) -> Result<String> {
-    let mut path = crate::pty::claude_path().await.ok_or_else(|| anyhow!("Không tìm thấy Claude Code trên máy"))?;
+    let mut path = crate::pty::claude_path().await.ok_or_else(|| anyhow!(tr("Claude Code is not installed on this computer", "Không tìm thấy Claude Code trên máy").to_owned()))?;
     // npm's extensionless sh shim: Windows needs the .cmd next to it
     if cfg!(windows) && path.extension().is_none() {
         let cmd = PathBuf::from(format!("{}.cmd", path.display()));
@@ -487,25 +488,25 @@ async fn run_claude(prompt: &str) -> Result<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("không chạy được claude")?;
+        .context(tr("could not run claude", "không chạy được claude"))?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(prompt.as_bytes()).await?;
         drop(stdin);
     }
-    let out = tokio::time::timeout(Duration::from_secs(300), child.wait_with_output()).await.map_err(|_| anyhow!("Claude phản hồi quá lâu"))??;
+    let out = tokio::time::timeout(Duration::from_secs(300), child.wait_with_output()).await.map_err(|_| anyhow!(tr("Claude took too long to answer", "Claude phản hồi quá lâu").to_owned()))??;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     match serde_json::from_str::<Value>(&stdout) {
         Ok(j) => {
             if zalo_truthy(j.get("is_error")) {
-                let msg = j.get("result").filter(|r| zalo_truthy(Some(r))).map(value_text).unwrap_or_else(|| "Claude báo lỗi".into());
+                let msg = j.get("result").filter(|r| zalo_truthy(Some(r))).map(value_text).unwrap_or_else(|| tr("Claude reported an error", "Claude báo lỗi").into());
                 bail!("{msg}");
             }
             Ok(j.get("result").map(value_text).unwrap_or_default())
         }
         Err(_) => {
             let code = out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "null".into());
-            let text = if !stderr.is_empty() { stderr.into_owned() } else if !stdout.is_empty() { stdout.into_owned() } else { format!("claude thoát với mã {code}") };
+            let text = if !stderr.is_empty() { stderr.into_owned() } else if !stdout.is_empty() { stdout.into_owned() } else { format!("{} {code}", tr("claude exited with code", "claude thoát với mã")) };
             bail!("{}", text.trim().chars().take(300).collect::<String>())
         }
     }
@@ -584,9 +585,10 @@ struct RawTask {
 }
 
 fn parse(text: &str) -> Result<Vec<RawTask>> {
-    let (Some(a), Some(b)) = (text.find('{'), text.rfind('}')) else { bail!("Claude không trả về JSON") };
+    let no_json = || anyhow!(tr("Claude did not return JSON", "Claude không trả về JSON").to_owned());
+    let (Some(a), Some(b)) = (text.find('{'), text.rfind('}')) else { return Err(no_json()) };
     if b <= a {
-        bail!("Claude không trả về JSON");
+        return Err(no_json());
     }
     let j: Value = serde_json::from_str(&text[a..=b])?;
     Ok(j["tasks"].as_array().into_iter().flatten().filter_map(|t| serde_json::from_value(t.clone()).ok()).collect())
@@ -608,7 +610,7 @@ pub async fn analyze() -> ZaloTasksState {
             }
         }
         if zalo::state().status != "online" && zalo::self_id().is_none() {
-            tasks().error = Some("Zalo chưa đăng nhập".into());
+            tasks().error = Some(tr("Not signed in to Zalo", "Zalo chưa đăng nhập").into());
             broadcast();
             return get_tasks();
         }

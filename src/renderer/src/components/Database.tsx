@@ -32,6 +32,7 @@ import { useStore } from '../store'
 import { editorOptions, monaco } from '../monaco'
 import { useEditorFont } from './EditorFont'
 import { forgetSqlSchema, refreshSqlSchema, setSqlTarget } from '../sqlComplete'
+import { useT, type T } from '../i18n'
 
 /* ---------------- small helpers ---------------- */
 
@@ -102,6 +103,7 @@ interface ObjNode {
 }
 
 export function DatabasePane(): React.JSX.Element {
+  const t = useT()
   const [conns, setConns] = useState<DbConnection[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => LS.get('vibe.db.active'))
   const [database, setDatabase] = useState<string>(() => LS.get('vibe.db.database') ?? '')
@@ -273,7 +275,7 @@ export function DatabasePane(): React.JSX.Element {
   }
 
   const remove = async (c: DbConnection): Promise<void> => {
-    if (!(await window.api.ask(`Remove the connection "${c.name}"?`))) return
+    if (!(await window.api.ask(t(`Remove the connection "${c.name}"?`, `Xoá kết nối "${c.name}"?`)))) return
     const list = await window.api.db.remove(c.id)
     setConns(list)
     if (activeId === c.id) setActiveId(list[0]?.id ?? null)
@@ -284,11 +286,11 @@ export function DatabasePane(): React.JSX.Element {
     <Group orientation="horizontal" className="db-pane" defaultLayout={sideLayout.defaultLayout} onLayoutChanged={sideLayout.onLayoutChanged}>
       <Panel id="side" defaultSize="30%" minSize="16%" maxSize="60%" className="db-side">
         <div className="db-side-head">
-          <span>Connections</span>
-          <button className="icon-btn" title="Import from SSMS or project files" onClick={() => setImporting(true)}>
+          <span>{t('Connections', 'Kết nối')}</span>
+          <button className="icon-btn" title={t('Import from SSMS or project files', 'Nhập từ SSMS hoặc tệp dự án')} onClick={() => setImporting(true)}>
             <Download size={14} />
           </button>
-          <button className="icon-btn accent" title="New connection" onClick={() => setEditing('new')}>
+          <button className="icon-btn accent" title={t('New connection', 'Kết nối mới')} onClick={() => setEditing('new')}>
             <Plus size={15} />
           </button>
         </div>
@@ -296,12 +298,12 @@ export function DatabasePane(): React.JSX.Element {
           {conns.length === 0 && (
             <div className="db-empty-side">
               <DbIcon size={22} />
-              <p>No connections yet.</p>
+              <p>{t('No connections yet.', 'Chưa có kết nối nào.')}</p>
               <button className="btn btn-primary btn-sm" onClick={() => setImporting(true)}>
-                <Download size={13} /> Import from SSMS / project
+                <Download size={13} /> {t('Import from SSMS / project', 'Nhập từ SSMS / dự án')}
               </button>
               <button className="btn btn-ghost btn-sm" onClick={() => setEditing('new')}>
-                <Plus size={13} /> New connection
+                <Plus size={13} /> {t('New connection', 'Kết nối mới')}
               </button>
             </div>
           )}
@@ -344,13 +346,13 @@ export function DatabasePane(): React.JSX.Element {
           <div className="db-placeholder">
             <Server size={28} />
             <h3>SQL Server</h3>
-            <p>Connect to a database to browse tables and run queries. Claude can query the same connections from any chat.</p>
+            <p>{t('Connect to a database to browse tables and run queries. Claude can query the same connections from any chat.', 'Kết nối tới cơ sở dữ liệu để duyệt bảng và chạy truy vấn. Claude có thể truy vấn chính các kết nối này từ bất kỳ cuộc trò chuyện nào.')}</p>
             <div className="db-placeholder-actions">
               <button className="btn btn-primary" onClick={() => setImporting(true)}>
-                <Download size={14} /> Import from SSMS / project
+                <Download size={14} /> {t('Import from SSMS / project', 'Nhập từ SSMS / dự án')}
               </button>
               <button className="btn btn-ghost" onClick={() => setEditing('new')}>
-                <Plus size={14} /> New connection
+                <Plus size={14} /> {t('New connection', 'Kết nối mới')}
               </button>
             </div>
           </div>
@@ -360,8 +362,8 @@ export function DatabasePane(): React.JSX.Element {
               <span className="db-conn-pill" title={`${active.server}${active.user ? ` · ${active.user}` : ''}`}>
                 <DbIcon size={13} /> {active.name}
               </span>
-              <select className="db-select" value={database} onChange={(e) => setDatabase(e.target.value)} title="Database">
-                <option value="">{active.database ? `${active.database} (default)` : '(default database)'}</option>
+              <select className="db-select" value={database} onChange={(e) => setDatabase(e.target.value)} title={t('Database', 'Cơ sở dữ liệu')}>
+                <option value="">{active.database ? t(`${active.database} (default)`, `${active.database} (mặc định)`) : t('(default database)', '(cơ sở dữ liệu mặc định)')}</option>
                 {(dbs[active.id]?.databases ?? []).filter((d) => d !== active.database).map((d) => (
                   <option key={d} value={d}>
                     {d}
@@ -370,27 +372,27 @@ export function DatabasePane(): React.JSX.Element {
               </select>
               {running ? (
                 <button className="btn btn-sm db-stop" onClick={() => window.api.db.cancel()}>
-                  <Square size={12} /> Stop
+                  <Square size={12} /> {t('Stop', 'Dừng')}
                 </button>
               ) : (
-                <button className="btn btn-primary btn-sm" onClick={() => run()} title="Run the selection, or everything (Ctrl+Enter / F5)">
-                  <Play size={12} /> Run <kbd className="db-wide">Ctrl+Enter</kbd>
+                <button className="btn btn-primary btn-sm" onClick={() => run()} title={t('Run the selection, or everything (Ctrl+Enter / F5)', 'Chạy phần đang chọn, hoặc toàn bộ (Ctrl+Enter / F5)')}>
+                  <Play size={12} /> {t('Run', 'Chạy')} <kbd className="db-wide">Ctrl+Enter</kbd>
                 </button>
               )}
               <div className="db-toolbar-fill" />
-              <label className="db-maxrows" title="Rows to keep per result set">
-                <span className="db-wide">Max rows</span>
+              <label className="db-maxrows" title={t('Rows to keep per result set', 'Số hàng giữ lại cho mỗi tập kết quả')}>
+                <span className="db-wide">{t('Max rows', 'Số hàng tối đa')}</span>
                 <select value={maxRows} onChange={(e) => setMaxRows(Number(e.target.value))}>
                   {[100, 1000, 5000, 20000].map((n) => (
                     <option key={n} value={n}>
-                      {n.toLocaleString()}
+                      {n.toLocaleString(t('en-US', 'vi-VN'))}
                     </option>
                   ))}
                 </select>
               </label>
               {active.claudeReadOnly && (
-                <span className="db-ro" title="Claude's queries on this connection are always rolled back">
-                  <ShieldCheck size={13} /> <span className="db-wide">Claude: read-only</span>
+                <span className="db-ro" title={t("Claude's queries on this connection are always rolled back", 'Truy vấn của Claude trên kết nối này luôn được rollback')}>
+                  <ShieldCheck size={13} /> <span className="db-wide">{t('Claude: read-only', 'Claude: chỉ đọc')}</span>
                 </span>
               )}
             </div>
@@ -449,11 +451,11 @@ export function DatabasePane(): React.JSX.Element {
 
 /* ---------------- tree ---------------- */
 
-const GROUPS: { types: DbObject['type'][]; label: string; icon: React.JSX.Element }[] = [
-  { types: ['U'], label: 'Tables', icon: <Table2 size={13} /> },
-  { types: ['V'], label: 'Views', icon: <Eye size={13} /> },
-  { types: ['P'], label: 'Procedures', icon: <Zap size={13} /> },
-  { types: ['FN', 'IF', 'TF'], label: 'Functions', icon: <Sigma size={13} /> }
+const GROUPS: { types: DbObject['type'][]; id: string; label: (t: T) => string; icon: React.JSX.Element }[] = [
+  { types: ['U'], id: 'Tables', label: (t) => t('Tables', 'Bảng'), icon: <Table2 size={13} /> },
+  { types: ['V'], id: 'Views', label: () => 'Views', icon: <Eye size={13} /> },
+  { types: ['P'], id: 'Procedures', label: () => 'Procedures', icon: <Zap size={13} /> },
+  { types: ['FN', 'IF', 'TF'], id: 'Functions', label: (t) => t('Functions', 'Hàm'), icon: <Sigma size={13} /> }
 ]
 
 function ConnNode(props: {
@@ -473,9 +475,10 @@ function ConnNode(props: {
   onRemove: () => void
 }): React.JSX.Element {
   const { conn: c, node } = props
+  const t = useT()
   return (
     <div className="db-node">
-      <div className={`db-row db-conn${props.active ? ' active' : ''}`} onClick={props.onToggle} title={`${c.server}${c.user ? ` · ${c.user}` : ' · Windows auth'}`}>
+      <div className={`db-row db-conn${props.active ? ' active' : ''}`} onClick={props.onToggle} title={`${c.server}${c.user ? ` · ${c.user}` : t(' · Windows auth', ' · Xác thực Windows')}`}>
         {props.open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         <Server size={14} className="db-conn-icon" />
         <span className="db-row-text">
@@ -483,20 +486,20 @@ function ConnNode(props: {
           <span className="db-row-sub">{c.server}</span>
         </span>
         <span className="db-row-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="icon-btn" title="Refresh" onClick={props.onRefresh}>
+          <button className="icon-btn" title={t('Refresh', 'Tải lại')} onClick={props.onRefresh}>
             <RefreshCw size={12} />
           </button>
-          <button className="icon-btn" title="Edit" onClick={props.onEdit}>
+          <button className="icon-btn" title={t('Edit', 'Sửa')} onClick={props.onEdit}>
             <Pencil size={12} />
           </button>
-          <button className="icon-btn" title="Remove" onClick={props.onRemove}>
+          <button className="icon-btn" title={t('Remove', 'Xoá')} onClick={props.onRemove}>
             <Trash2 size={12} />
           </button>
         </span>
       </div>
       {props.open && (
         <div className="db-children">
-          {node?.loading && <div className="db-note"><Loader2 size={12} className="spin" /> Connecting…</div>}
+          {node?.loading && <div className="db-note"><Loader2 size={12} className="spin" /> {t('Connecting…', 'Đang kết nối…')}</div>}
           {node?.error && <div className="db-note error">{node.error}</div>}
           {node?.databases?.map((db) => (
             <DbNodeView
@@ -520,6 +523,7 @@ function ConnNode(props: {
 }
 
 function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node?: ObjNode; onToggle: () => void; onRefresh: () => void; onOpen: (o: DbObject) => void }): React.JSX.Element {
+  const t = useT()
   const [filter, setFilter] = useState('')
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({ Tables: true })
   const [cols, setCols] = useState<Record<string, DbColumn[] | string | null>>({})
@@ -553,19 +557,19 @@ function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node
         <DbIcon size={13} className="db-db-icon" />
         <span className="db-row-name">{props.db}</span>
         <span className="db-row-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="icon-btn" title="Refresh" onClick={props.onRefresh}>
+          <button className="icon-btn" title={t('Refresh', 'Tải lại')} onClick={props.onRefresh}>
             <RefreshCw size={12} />
           </button>
         </span>
       </div>
       {props.open && (
         <div className="db-children">
-          {props.node?.loading && <div className="db-note"><Loader2 size={12} className="spin" /> Loading…</div>}
+          {props.node?.loading && <div className="db-note"><Loader2 size={12} className="spin" /> {t('Loading…', 'Đang tải…')}</div>}
           {props.node?.error && <div className="db-note error">{props.node.error}</div>}
           {list.length > 12 && (
             <div className="db-filter">
               <Search size={12} />
-              <input placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+              <input placeholder={t('Filter…', 'Lọc…')} value={filter} onChange={(e) => setFilter(e.target.value)} />
               {filter && (
                 <button className="icon-btn" onClick={() => setFilter('')}>
                   <X size={11} />
@@ -573,16 +577,16 @@ function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node
               )}
             </div>
           )}
-          {props.node?.objects && !list.length && <div className="db-note">No tables.</div>}
+          {props.node?.objects && !list.length && <div className="db-note">{t('No tables.', 'Không có bảng nào.')}</div>}
           {GROUPS.map((g) => {
             const items = shown.filter((o) => g.types.includes(o.type))
             if (!items.length) return null
-            const isOpen = !!f || !!groupOpen[g.label]
+            const isOpen = !!f || !!groupOpen[g.id]
             return (
-              <div key={g.label} className="db-node">
-                <div className="db-row db-group" onClick={() => setGroupOpen((s) => ({ ...s, [g.label]: !s[g.label] }))}>
+              <div key={g.id} className="db-node">
+                <div className="db-row db-group" onClick={() => setGroupOpen((s) => ({ ...s, [g.id]: !s[g.id] }))}>
                   {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  <span className="db-row-name">{g.label}</span>
+                  <span className="db-row-name">{g.label(t)}</span>
                   <span className="db-count">{items.length}</span>
                 </div>
                 {isOpen && (
@@ -593,7 +597,7 @@ function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node
                       const hasCols = o.type === 'U' || o.type === 'V'
                       return (
                         <div key={k} className="db-node">
-                          <div className="db-row db-obj" title={o.type === 'U' || o.type === 'V' ? `Show the first 100 rows of ${k}` : k} onClick={() => props.onOpen(o)}>
+                          <div className="db-row db-obj" title={o.type === 'U' || o.type === 'V' ? t(`Show the first 100 rows of ${k}`, `Hiện 100 hàng đầu tiên của ${k}`) : k} onClick={() => props.onOpen(o)}>
                             {hasCols ? (
                               <span
                                 className="db-twisty"
@@ -648,6 +652,7 @@ function DbNodeView(props: { conn: DbConnection; db: string; open: boolean; node
 
 /** Keyed per result by the pane, so a new result starts on its own first tab with nothing selected. */
 const Results = memo(function Results({ result, running }: { result: DbQueryResult | null; running: boolean }): React.JSX.Element {
+  const t = useT()
   const [tab, setTab] = useState(() => (result && !result.ok && !result.results.length ? -1 : 0))
   const [copied, setCopied] = useState('')
   const [sel, setSel] = useState<[number, number] | null>(null)
@@ -666,10 +671,10 @@ const Results = memo(function Results({ result, running }: { result: DbQueryResu
       <div className="db-results db-results-empty">
         {running ? (
           <>
-            <Loader2 size={18} className="spin" /> Running…
+            <Loader2 size={18} className="spin" /> {t('Running…', 'Đang chạy…')}
           </>
         ) : (
-          <>Results show here. Click a table on the left, or write SQL and press Ctrl+Enter.</>
+          <>{t('Results show here. Click a table on the left, or write SQL and press Ctrl+Enter.', 'Kết quả hiện ở đây. Bấm vào một bảng bên trái, hoặc viết SQL rồi nhấn Ctrl+Enter.')}</>
         )}
       </div>
     )
@@ -683,25 +688,25 @@ const Results = memo(function Results({ result, running }: { result: DbQueryResu
       <div className="db-results-bar">
         {sets.map((r, i) => (
           <button key={i} className={`db-rtab${tab === i ? ' on' : ''}`} onClick={() => (setTab(i), setSel(null))}>
-            Result {sets.length > 1 ? i + 1 : ''}
+            {t('Result', 'Kết quả')} {sets.length > 1 ? i + 1 : ''}
             <span className="db-rtab-count">
-              {r.rows.length.toLocaleString()}
+              {r.rows.length.toLocaleString(t('en-US', 'vi-VN'))}
               {r.truncated ? '+' : ''}
             </span>
           </button>
         ))}
         {hasMessages && (
           <button className={`db-rtab${tab === -1 ? ' on' : ''}${result.ok ? '' : ' error'}`} onClick={() => (setTab(-1), setSel(null))}>
-            Messages
+            {t('Messages', 'Thông báo')}
           </button>
         )}
         <div className="db-toolbar-fill" />
         {cur && (
           <>
-            <button className="chip" onClick={() => copy('csv', toCsv(cur))} title="Copy this result as CSV">
+            <button className="chip" onClick={() => copy('csv', toCsv(cur))} title={t('Copy this result as CSV', 'Sao chép kết quả này dưới dạng CSV')}>
               {copied === 'csv' ? <Check size={12} /> : <Copy size={12} />} CSV
             </button>
-            <button className="chip" onClick={() => copy('json', toJson(cur))} title="Copy this result as JSON">
+            <button className="chip" onClick={() => copy('json', toJson(cur))} title={t('Copy this result as JSON', 'Sao chép kết quả này dưới dạng JSON')}>
               {copied === 'json' ? <Check size={12} /> : <Copy size={12} />} JSON
             </button>
           </>
@@ -709,18 +714,18 @@ const Results = memo(function Results({ result, running }: { result: DbQueryResu
         <span className={`db-status${result.ok ? '' : ' error'}`}>
           {running ? (
             <>
-              <Loader2 size={12} className="spin" /> Running…
+              <Loader2 size={12} className="spin" /> {t('Running…', 'Đang chạy…')}
             </>
           ) : result.ok ? (
             <>
               <Check size={12} />
-              {cur ? `${cur.rows.length.toLocaleString()} row${cur.rows.length === 1 ? '' : 's'}${cur.truncated ? ' (limit reached)' : ''}` : result.affected >= 0 ? `${result.affected} affected` : 'Done'}
+              {cur ? t(`${cur.rows.length.toLocaleString('en-US')} row${cur.rows.length === 1 ? '' : 's'}${cur.truncated ? ' (limit reached)' : ''}`, `${cur.rows.length.toLocaleString('vi-VN')} hàng${cur.truncated ? ' (đã đạt giới hạn)' : ''}`) : result.affected >= 0 ? t(`${result.affected} affected`, `${result.affected} hàng bị ảnh hưởng`) : t('Done', 'Xong')}
               {' · '}
               {result.ms} ms
             </>
           ) : (
             <>
-              <X size={12} /> Error · {result.ms} ms
+              <X size={12} /> {t('Error', 'Lỗi')} · {result.ms} ms
             </>
           )}
         </span>
@@ -731,8 +736,8 @@ const Results = memo(function Results({ result, running }: { result: DbQueryResu
           {result.messages.map((m, i) => (
             <pre key={i}>{m}</pre>
           ))}
-          {result.affected >= 0 && <pre>({result.affected} row{result.affected === 1 ? '' : 's'} affected)</pre>}
-          {result.ok && !result.messages.length && result.affected < 0 && !sets.length && <pre>Commands completed successfully.</pre>}
+          {result.affected >= 0 && <pre>{t(`(${result.affected} row${result.affected === 1 ? '' : 's'} affected)`, `(${result.affected} hàng bị ảnh hưởng)`)}</pre>}
+          {result.ok && !result.messages.length && result.affected < 0 && !sets.length && <pre>{t('Commands completed successfully.', 'Lệnh đã thực hiện thành công.')}</pre>}
         </div>
       ) : (
         <Grid
@@ -768,6 +773,7 @@ function columnWidths(set: DbResultSet): number[] {
 }
 
 function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number, number] | null; onSel: (s: [number, number] | null) => void; onCopyCell: (v: string) => void }): React.JSX.Element {
+  const t = useT()
   const numeric = useMemo(() => set.columns.map((c) => NUMERIC.test(c.type)), [set])
   const n = set.rows.length
   // Big results render only the rows in view (plus a margin): 20k rows × every column used to be
@@ -838,7 +844,7 @@ function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number,
             <th className="db-rn">#</th>
             {set.columns.map((c, i) => (
               <th key={i} title={c.type}>
-                {c.name || <i>(no name)</i>}
+                {c.name || <i>{t('(no name)', '(không tên)')}</i>}
                 <span className="db-th-type">{c.type}</span>
               </th>
             ))}
@@ -853,7 +859,7 @@ function Grid({ set, sel, onSel, onCopyCell }: { set: DbResultSet; sel: [number,
           {spacer((n - to) * rowH)}
         </tbody>
       </table>
-      {set.rows.length === 0 && <div className="db-grid-empty">No rows.</div>}
+      {set.rows.length === 0 && <div className="db-grid-empty">{t('No rows.', 'Không có hàng nào.')}</div>}
     </div>
   )
 }
@@ -892,6 +898,7 @@ const GridRow = memo(function GridRow(props: {
 /* ---------------- add / edit connection ---------------- */
 
 function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | null; onClose: () => void; onSaved: (list: DbConnection[], id?: string) => void }): React.JSX.Element {
+  const t = useT()
   const [name, setName] = useState(conn?.name ?? '')
   const [mode, setMode] = useState<'fields' | 'string'>('fields')
   const [server, setServer] = useState('')
@@ -972,48 +979,48 @@ function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | nul
       <div className="db-dialog" onMouseDown={(e) => e.stopPropagation()}>
         <div className="db-dialog-head">
           <Server size={16} />
-          <span>{conn ? 'Edit connection' : 'New SQL Server connection'}</span>
+          <span>{conn ? t('Edit connection', 'Sửa kết nối') : t('New SQL Server connection', 'Kết nối SQL Server mới')}</span>
           <button className="icon-btn" onClick={onClose}>
             <X size={15} />
           </button>
         </div>
         <div className="db-dialog-body">
           <label className="db-field">
-            <span>Name</span>
-            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. TMS dev" />
+            <span>{t('Name', 'Tên')}</span>
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t('e.g. TMS dev', 'vd. TMS dev')} />
           </label>
           <div className="seg db-mode">
             <button className={mode === 'fields' ? 'on' : ''} onClick={() => switchMode('fields')}>
-              Connection properties
+              {t('Connection properties', 'Thuộc tính kết nối')}
             </button>
             <button className={mode === 'string' ? 'on' : ''} onClick={() => switchMode('string')}>
-              Connection string
+              {t('Connection string', 'Chuỗi kết nối')}
             </button>
           </div>
           {mode === 'fields' ? (
             <>
               <label className="db-field">
-                <span>Server name</span>
-                <input value={server} onChange={(e) => setServer(e.target.value)} placeholder="host,port   or   (localdb)\MSSQLLocalDB" spellCheck={false} />
+                <span>{t('Server name', 'Tên máy chủ')}</span>
+                <input value={server} onChange={(e) => setServer(e.target.value)} placeholder={t('host,port   or   (localdb)\\MSSQLLocalDB', 'host,port   hoặc   (localdb)\\MSSQLLocalDB')} spellCheck={false} />
               </label>
               <label className="db-field">
-                <span>Authentication</span>
+                <span>{t('Authentication', 'Xác thực')}</span>
                 <select value={windowsAuth ? 'win' : 'sql'} onChange={(e) => setWindowsAuth(e.target.value === 'win')}>
-                  <option value="sql">SQL Server Authentication</option>
-                  <option value="win">Windows Authentication</option>
+                  <option value="sql">{t('SQL Server Authentication', 'Xác thực SQL Server')}</option>
+                  <option value="win">{t('Windows Authentication', 'Xác thực Windows')}</option>
                 </select>
               </label>
               {!windowsAuth && (
                 <>
                   <label className="db-field">
-                    <span>User name</span>
+                    <span>{t('User name', 'Tên đăng nhập')}</span>
                     <input value={user} onChange={(e) => setUser(e.target.value)} spellCheck={false} autoComplete="off" />
                   </label>
                   <label className="db-field">
-                    <span>Password</span>
+                    <span>{t('Password', 'Mật khẩu')}</span>
                     <span className="db-pwd">
                       <input type={showPwd ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
-                      <button className="icon-btn" type="button" title={showPwd ? 'Hide' : 'Show'} onClick={() => setShowPwd(!showPwd)}>
+                      <button className="icon-btn" type="button" title={showPwd ? t('Hide', 'Ẩn') : t('Show', 'Hiện')} onClick={() => setShowPwd(!showPwd)}>
                         {showPwd ? <EyeOff size={13} /> : <Eye size={13} />}
                       </button>
                     </span>
@@ -1021,21 +1028,21 @@ function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | nul
                 </>
               )}
               <label className="db-field">
-                <span>Database</span>
-                <input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="<default>" spellCheck={false} />
+                <span>{t('Database', 'Cơ sở dữ liệu')}</span>
+                <input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder={t('<default>', '<mặc định>')} spellCheck={false} />
               </label>
               <div className="db-checks">
                 <label>
-                  <input type="checkbox" checked={trustCert} onChange={(e) => setTrustCert(e.target.checked)} /> Trust server certificate
+                  <input type="checkbox" checked={trustCert} onChange={(e) => setTrustCert(e.target.checked)} /> {t('Trust server certificate', 'Tin cậy chứng chỉ máy chủ')}
                 </label>
                 <label>
-                  <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} /> Encrypt
+                  <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} /> {t('Encrypt', 'Mã hoá')}
                 </label>
               </div>
             </>
           ) : (
             <label className="db-field">
-              <span>Connection string</span>
+              <span>{t('Connection string', 'Chuỗi kết nối')}</span>
               <textarea
                 value={connStr}
                 onChange={(e) => setConnStr(e.target.value)}
@@ -1048,27 +1055,27 @@ function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | nul
           <label className="db-claude-ro">
             <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} />
             <span>
-              <b>Claude: read-only</b>
-              <small>Claude's queries run inside a transaction that is always rolled back. Your own queries here are not affected.</small>
+              <b>{t('Claude: read-only', 'Claude: chỉ đọc')}</b>
+              <small>{t("Claude's queries run inside a transaction that is always rolled back. Your own queries here are not affected.", 'Truy vấn của Claude chạy trong một transaction luôn được rollback. Truy vấn của chính bạn ở đây không bị ảnh hưởng.')}</small>
             </span>
           </label>
           {(test.busy || test.text) && (
             <div className={`db-test${test.busy ? '' : test.ok ? ' ok' : ' error'}`}>
               {test.busy ? <Loader2 size={13} className="spin" /> : test.ok ? <Check size={13} /> : <X size={13} />}
-              <span>{test.busy ? 'Connecting…' : test.text}</span>
+              <span>{test.busy ? t('Connecting…', 'Đang kết nối…') : test.text}</span>
             </div>
           )}
         </div>
         <div className="db-dialog-foot">
           <button className="btn btn-ghost btn-sm" onClick={doTest} disabled={test.busy}>
-            Test connection
+            {t('Test connection', 'Kiểm tra kết nối')}
           </button>
           <div className="db-toolbar-fill" />
           <button className="btn btn-ghost btn-sm" onClick={onClose}>
-            Cancel
+            {t('Cancel', 'Huỷ')}
           </button>
           <button className="btn btn-primary btn-sm" onClick={save} disabled={saving || (mode === 'fields' ? !server.trim() : !connStr.trim())}>
-            {conn ? 'Save' : 'Add connection'}
+            {conn ? t('Save', 'Lưu') : t('Add connection', 'Thêm kết nối')}
           </button>
         </div>
       </div>
@@ -1079,6 +1086,7 @@ function ConnectionDialog({ conn, onClose, onSaved }: { conn: DbConnection | nul
 /* ---------------- import from SSMS / project ---------------- */
 
 function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[]; onClose: () => void; onDone: (list: DbConnection[]) => void }): React.JSX.Element {
+  const t = useT()
   const folder = useStore((s) => s.chats.find((c) => c.id === s.activeChatId)?.cwd ?? s.root ?? '')
   const [source, setSource] = useState<'ssms' | 'project'>('ssms')
   const [found, setFound] = useState<Record<string, { busy?: boolean; error?: string; items?: DbFound[] }>>({})
@@ -1127,7 +1135,7 @@ function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[];
       <div className="db-dialog db-import" onMouseDown={(e) => e.stopPropagation()}>
         <div className="db-dialog-head">
           <Download size={16} />
-          <span>Import connections</span>
+          <span>{t('Import connections', 'Nhập kết nối')}</span>
           <button className="icon-btn" onClick={onClose}>
             <X size={15} />
           </button>
@@ -1138,17 +1146,17 @@ function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[];
               SQL Server Management Studio
             </button>
             <button className={source === 'project' ? 'on' : ''} onClick={() => setSource('project')}>
-              Project files
+              {t('Project files', 'Tệp dự án')}
             </button>
           </div>
           <p className="db-import-hint">
             {source === 'ssms'
-              ? 'Recent connections saved in SSMS, with the passwords SSMS remembered (from Windows Credential Manager).'
-              : `Connection strings in appsettings*.json, *.config and .env files under ${folder || '(no folder open)'}.`}
+              ? t('Recent connections saved in SSMS, with the passwords SSMS remembered (from Windows Credential Manager).', 'Các kết nối gần đây lưu trong SSMS, kèm mật khẩu SSMS đã nhớ (từ Windows Credential Manager).')
+              : t(`Connection strings in appsettings*.json, *.config and .env files under ${folder || '(no folder open)'}.`, `Chuỗi kết nối trong các tệp appsettings*.json, *.config và .env dưới ${folder || '(chưa mở thư mục)'}.`)}
           </p>
           <div className="db-filter db-import-filter">
             <Search size={12} />
-            <input placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <input placeholder={t('Filter…', 'Lọc…')} value={filter} onChange={(e) => setFilter(e.target.value)} />
             {addable.length > 0 && (
               <button
                 className="db-link"
@@ -1161,14 +1169,14 @@ function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[];
                   })
                 }
               >
-                {addable.every((f) => picked.has(id(f))) ? 'Select none' : 'Select all'}
+                {addable.every((f) => picked.has(id(f))) ? t('Select none', 'Bỏ chọn tất cả') : t('Select all', 'Chọn tất cả')}
               </button>
             )}
           </div>
           <div className="db-import-list">
-            {cur?.busy && <div className="db-note"><Loader2 size={13} className="spin" /> Looking…</div>}
+            {cur?.busy && <div className="db-note"><Loader2 size={13} className="spin" /> {t('Looking…', 'Đang tìm…')}</div>}
             {cur?.error && <div className="db-note error">{cur.error}</div>}
-            {cur?.items && !items.length && <div className="db-note">Nothing found.</div>}
+            {cur?.items && !items.length && <div className="db-note">{t('Nothing found.', 'Không tìm thấy gì.')}</div>}
             {items.map((f) => {
               const s = connSummary(f.conn)
               const added = have.has(keyOf(f))
@@ -1193,12 +1201,12 @@ function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[];
                     <span className="db-row-sub">
                       {s.server}
                       {s.database ? ` / ${s.database}` : ''}
-                      {s.user ? ` · ${s.user}` : /integrated security|trusted_connection/i.test(f.conn) ? ' · Windows auth' : ''}
+                      {s.user ? ` · ${s.user}` : /integrated security|trusted_connection/i.test(f.conn) ? t(' · Windows auth', ' · Xác thực Windows') : ''}
                     </span>
                   </span>
                   <span className="db-import-tags">
-                    {added && <span className="db-tag">added</span>}
-                    {f.needsPassword && <span className="db-tag warn" title="SSMS has no saved password for this login — edit the connection after importing">no password</span>}
+                    {added && <span className="db-tag">{t('added', 'đã thêm')}</span>}
+                    {f.needsPassword && <span className="db-tag warn" title={t('SSMS has no saved password for this login — edit the connection after importing', 'SSMS không lưu mật khẩu cho tài khoản này — hãy sửa kết nối sau khi nhập')}>{t('no password', 'không có mật khẩu')}</span>}
                     <span className="db-tag dim" title={f.file}>{f.file.length > 28 ? '…' + f.file.slice(-27) : f.file}</span>
                   </span>
                 </label>
@@ -1208,14 +1216,14 @@ function ImportDialog({ existing, onClose, onDone }: { existing: DbConnection[];
         </div>
         <div className="db-dialog-foot">
           <span className="db-import-note">
-            <ShieldCheck size={13} /> Imported as read-only for Claude · passwords stored encrypted (Windows DPAPI)
+            <ShieldCheck size={13} /> {t('Imported as read-only for Claude · passwords stored encrypted (Windows DPAPI)', 'Nhập ở chế độ chỉ đọc cho Claude · mật khẩu được lưu mã hoá (Windows DPAPI)')}
           </span>
           <div className="db-toolbar-fill" />
           <button className="btn btn-ghost btn-sm" onClick={onClose}>
-            Cancel
+            {t('Cancel', 'Huỷ')}
           </button>
           <button className="btn btn-primary btn-sm" onClick={add} disabled={!picked.size || saving}>
-            Add {picked.size || ''} connection{picked.size === 1 ? '' : 's'}
+            {t(`Add ${picked.size || ''} connection${picked.size === 1 ? '' : 's'}`, `Thêm ${picked.size || ''} kết nối`)}
           </button>
         </div>
       </div>

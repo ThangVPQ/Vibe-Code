@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderOpen, Loader, Plus, Puzzle, Settings2, Trash2 } from 'lucide-react'
 import type { WebExtension } from '../../../shared/types'
+import { useT } from '../i18n'
 
 /**
  * The puzzle button of the Web tab: the extensions in the tabs (the ad blocker first, built in),
@@ -14,6 +15,7 @@ export function ExtensionsButton(props: {
   onChanged: () => void
 }): React.JSX.Element {
   const { adBlock, onToggleAdBlock, onOpen, onChanged } = props
+  const t = useT()
   const [at, setAt] = useState<{ left: number; top: number } | null>(null)
   const [list, setList] = useState<WebExtension[] | null>(null)
   const [source, setSource] = useState('')
@@ -72,7 +74,7 @@ export function ExtensionsButton(props: {
     <div className="ext-wrap" ref={ref}>
       <button
         className={`icon-btn${at ? ' on' : ''}`}
-        title="Extensions"
+        title={t('Extensions', 'Tiện ích')}
         onClick={(e) => {
           if (at) return setAt(null)
           const r = e.currentTarget.getBoundingClientRect()
@@ -86,8 +88,8 @@ export function ExtensionsButton(props: {
       {at &&
         createPortal(
           <div className="ext-menu" ref={menu} style={at}>
-            <div className="sb-menu-title">Extensions in the Web tabs</div>
-            {list === null && <div className="ext-empty">Loading…</div>}
+            <div className="sb-menu-title">{t('Extensions in the Web tabs', 'Tiện ích trong các tab Web')}</div>
+            {list === null && <div className="ext-empty">{t('Loading…', 'Đang tải…')}</div>}
             {list?.map((x) => {
               const on = x.builtin ? adBlock : x.enabled
               return (
@@ -95,12 +97,12 @@ export function ExtensionsButton(props: {
                   <Puzzle size={14} className="ext-icon" />
                   <span className="ext-name" title={x.id}>
                     {x.name}
-                    {x.builtin && <span className="ext-tag">built-in</span>}
+                    {x.builtin && <span className="ext-tag">{t('built-in', 'tích hợp sẵn')}</span>}
                   </span>
                   {x.options && (
                     <button
                       className="icon-btn"
-                      title="Settings (opens in a new tab)"
+                      title={t('Settings (opens in a new tab)', 'Cài đặt (mở trong tab mới)')}
                       onClick={() => {
                         setAt(null)
                         onOpen(x.options!)
@@ -112,10 +114,10 @@ export function ExtensionsButton(props: {
                   {!x.builtin && (
                     <button
                       className="icon-btn"
-                      title="Remove"
+                      title={t('Remove', 'Xoá')}
                       disabled={!!busy}
                       onClick={async () => {
-                        if (await window.api.ask(`Remove ${x.name} from the Web tabs?`)) void run(x.id, () => window.api.browser.removeExtension(x.id))
+                        if (await window.api.ask(t(`Remove ${x.name} from the Web tabs?`, `Xoá ${x.name} khỏi các tab Web?`))) void run(x.id, () => window.api.browser.removeExtension(x.id))
                       }}
                     >
                       <Trash2 size={13} />
@@ -123,7 +125,7 @@ export function ExtensionsButton(props: {
                   )}
                   <button
                     className={`more-switch${on ? ' on' : ''}`}
-                    title={on ? 'On — click to turn off' : 'Off — click to turn on'}
+                    title={on ? t('On — click to turn off', 'Đang bật — bấm để tắt') : t('Off — click to turn on', 'Đang tắt — bấm để bật')}
                     disabled={!!busy}
                     onClick={() => (x.builtin ? onToggleAdBlock() : void run(x.id, () => window.api.browser.enableExtension(x.id, !x.enabled)))}
                   />
@@ -137,9 +139,9 @@ export function ExtensionsButton(props: {
                 if (source.trim()) void add(source)
               }}
             >
-              <input value={source} placeholder="Chrome Web Store link or extension id" spellCheck={false} onChange={(e) => setSource(e.target.value)} />
+              <input value={source} placeholder={t('Chrome Web Store link or extension id', 'Liên kết Chrome Web Store hoặc id tiện ích')} spellCheck={false} onChange={(e) => setSource(e.target.value)} />
               <button className="btn btn-primary btn-sm" disabled={!source.trim() || !!busy}>
-                {busy === 'add' ? <Loader size={13} className="task-spin" /> : <Plus size={13} />} Add
+                {busy === 'add' ? <Loader size={13} className="task-spin" /> : <Plus size={13} />} {t('Add', 'Thêm')}
               </button>
             </form>
             <button
@@ -150,10 +152,10 @@ export function ExtensionsButton(props: {
                 if (dir) void add(dir)
               }}
             >
-              <FolderOpen size={13} /> Add an unpacked folder…
+              <FolderOpen size={13} /> {t('Add an unpacked folder…', 'Thêm thư mục chưa đóng gói…')}
             </button>
             {error && <div className="ext-error">{error}</div>}
-            <div className="ext-note">Extensions work inside the pages. There is no toolbar for their buttons, so use the settings icon to open their settings in a tab.</div>
+            <div className="ext-note">{t('Extensions work inside the pages. There is no toolbar for their buttons, so use the settings icon to open their settings in a tab.', 'Tiện ích chạy bên trong trang. Không có thanh công cụ cho các nút của chúng, nên hãy dùng biểu tượng cài đặt để mở phần cài đặt của chúng trong một tab.')}</div>
           </div>,
           document.body
         )}

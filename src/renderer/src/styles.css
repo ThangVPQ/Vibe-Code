@@ -505,6 +505,11 @@ kbd {
 .icon-btn.accent {
   color: var(--accent-2);
 }
+.icon-btn.lang-btn {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
 .icon-btn.accent:hover:not(:disabled) {
   background: var(--accent-soft);
   color: #fff;
@@ -4865,6 +4870,7 @@ button.sb-item.sb-update:hover {
   font: 600 13px var(--sans);
   pointer-events: none;
 }
+html:lang(vi) .xterm-host.drop-hover::after { content: 'Thả vào để đính kèm'; }
 
 /* ---- editor tab bar + code font picker ---- */
 .tab-row {

@@ -38,6 +38,7 @@ import { openMenu } from './ContextMenu'
 import { FileIcon, FolderIcon } from './icons'
 import { RenameInput, startRename, useRenaming } from './InlineRename'
 import { SourceSwitch } from './SourceSwitch'
+import { tr, useT, type T } from '../i18n'
 import './explorer.css'
 
 /* ================================ paths ================================ */
@@ -79,54 +80,59 @@ const TEXT_RE =
 const TEXT_NAMES = /^(dockerfile|makefile|license|licence|readme|changelog|authors|contributing|procfile|gemfile|rakefile|\.env.*|\.[\w-]+rc)$/i
 const isText = (name: string): boolean => TEXT_RE.test(name) || TEXT_NAMES.test(name)
 
-const TYPE_NAMES: Record<string, string> = {
-  docx: 'Word document',
-  doc: 'Word 97-2003 document',
-  xlsx: 'Excel worksheet',
-  xls: 'Excel 97-2003 worksheet',
-  pptx: 'PowerPoint presentation',
-  pdf: 'PDF document',
-  csv: 'CSV file',
-  txt: 'Text document',
+const typeNames = (t: T): Record<string, string> => ({
+  docx: t('Word document', 'Tài liệu Word'),
+  doc: t('Word 97-2003 document', 'Tài liệu Word 97-2003'),
+  xlsx: t('Excel worksheet', 'Trang tính Excel'),
+  xls: t('Excel 97-2003 worksheet', 'Trang tính Excel 97-2003'),
+  pptx: t('PowerPoint presentation', 'Bản trình bày PowerPoint'),
+  pdf: t('PDF document', 'Tài liệu PDF'),
+  csv: t('CSV file', 'Tệp CSV'),
+  txt: t('Text document', 'Tài liệu văn bản'),
   md: 'Markdown',
-  png: 'PNG image',
-  jpg: 'JPEG image',
-  jpeg: 'JPEG image',
-  gif: 'GIF image',
-  webp: 'WEBP image',
-  svg: 'SVG image',
-  ico: 'Icon',
-  zip: 'Compressed (zipped) folder',
-  rar: 'RAR archive',
-  '7z': '7-Zip archive',
-  exe: 'Application',
-  msi: 'Windows Installer package',
-  lnk: 'Shortcut',
-  url: 'Internet shortcut',
-  dll: 'Application extension',
-  mp4: 'MP4 video',
-  mp3: 'MP3 audio',
-  json: 'JSON file',
-  html: 'HTML document',
-  js: 'JavaScript file',
-  ts: 'TypeScript file',
-  tsx: 'TypeScript JSX file',
-  css: 'CSS file',
-  py: 'Python file',
-  cs: 'C# file',
-  sql: 'SQL file',
-  bat: 'Windows batch file',
-  ps1: 'PowerShell script',
-  log: 'Log file'
-}
-function typeName(e: ExEntry): string {
-  if (e.isDir) return 'File folder'
+  png: t('PNG image', 'Ảnh PNG'),
+  jpg: t('JPEG image', 'Ảnh JPEG'),
+  jpeg: t('JPEG image', 'Ảnh JPEG'),
+  gif: t('GIF image', 'Ảnh GIF'),
+  webp: t('WEBP image', 'Ảnh WEBP'),
+  svg: t('SVG image', 'Ảnh SVG'),
+  ico: t('Icon', 'Biểu tượng'),
+  zip: t('Compressed (zipped) folder', 'Thư mục nén (zip)'),
+  rar: t('RAR archive', 'Tệp nén RAR'),
+  '7z': t('7-Zip archive', 'Tệp nén 7-Zip'),
+  exe: t('Application', 'Ứng dụng'),
+  msi: t('Windows Installer package', 'Gói Windows Installer'),
+  lnk: t('Shortcut', 'Lối tắt'),
+  url: t('Internet shortcut', 'Lối tắt Internet'),
+  dll: t('Application extension', 'Phần mở rộng ứng dụng'),
+  mp4: t('MP4 video', 'Video MP4'),
+  mp3: t('MP3 audio', 'Âm thanh MP3'),
+  json: t('JSON file', 'Tệp JSON'),
+  html: t('HTML document', 'Tài liệu HTML'),
+  js: t('JavaScript file', 'Tệp JavaScript'),
+  ts: t('TypeScript file', 'Tệp TypeScript'),
+  tsx: t('TypeScript JSX file', 'Tệp TypeScript JSX'),
+  css: t('CSS file', 'Tệp CSS'),
+  py: t('Python file', 'Tệp Python'),
+  cs: t('C# file', 'Tệp C#'),
+  sql: t('SQL file', 'Tệp SQL'),
+  bat: t('Windows batch file', 'Tệp batch Windows'),
+  ps1: t('PowerShell script', 'Script PowerShell'),
+  log: t('Log file', 'Tệp nhật ký')
+})
+/** one table per language (`t` is one of two fixed functions) */
+const TYPE_NAMES = new Map<T, Record<string, string>>()
+function typeName(e: ExEntry, t: T): string {
+  if (e.isDir) return t('File folder', 'Thư mục tệp')
   const ext = extOf(e.name)
-  return TYPE_NAMES[ext] ?? (ext ? `${ext.toUpperCase()} file` : 'File')
+  let names = TYPE_NAMES.get(t)
+  if (!names) TYPE_NAMES.set(t, (names = typeNames(t)))
+  return names[ext] ?? (ext ? t(`${ext.toUpperCase()} file`, `Tệp ${ext.toUpperCase()}`) : t('File', 'Tệp'))
 }
 
-const DATE = new Intl.DateTimeFormat(undefined, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-const dateText = (ms: number): string => (ms ? DATE.format(ms) : '')
+const DATE: Record<string, Intl.DateTimeFormat> = {}
+const dateText = (ms: number, locale: string): string =>
+  ms ? (DATE[locale] ??= new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })).format(ms) : ''
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 function sizeText(n: number): string {
@@ -180,11 +186,11 @@ function remember(dir: string, list: ExEntry[]): void {
 type SortKey = 'name' | 'modified' | 'type' | 'size'
 type Sort = { key: SortKey; dir: 1 | -1 }
 
-function sortRows(list: ExEntry[], s: Sort): ExEntry[] {
+function sortRows(list: ExEntry[], s: Sort, t: T): ExEntry[] {
   const by: Record<SortKey, (a: ExEntry, b: ExEntry) => number> = {
     name: (a, b) => COLLATOR.compare(a.name, b.name),
     modified: (a, b) => a.modified - b.modified,
-    type: (a, b) => COLLATOR.compare(typeName(a), typeName(b)),
+    type: (a, b) => COLLATOR.compare(typeName(a, t), typeName(b, t)),
     size: (a, b) => a.size - b.size
   }
   const f = by[s.key]
@@ -207,6 +213,7 @@ interface RowApi {
  * Office files open in the Office tab, code and text in Source code, the rest in their Windows app.
  */
 export function FileExplorerPane(): React.JSX.Element {
+  const t = useT()
   const onScreen = useStore((s) => s.centerView === 'files')
   const sourceFolded = useStore((s) => s.sourceFolded)
   const projectRoot = useStore((s) => s.root)
@@ -380,11 +387,11 @@ export function FileExplorerPane(): React.JSX.Element {
 
   /* ---------- rows ---------- */
   const rows = useMemo((): ExEntry[] => {
-    if (searching) return byRank ? (found?.hits ?? []) : sortRows(found?.hits ?? [], sort)
+    if (searching) return byRank ? (found?.hits ?? []) : sortRows(found?.hits ?? [], sort, t)
     let list = entries ?? []
     if (!showHidden) list = list.filter((e) => !e.hidden)
-    return sortRows(list, sort)
-  }, [entries, showHidden, searching, found, byRank, sort])
+    return sortRows(list, sort, t)
+  }, [entries, showHidden, searching, found, byRank, sort, t])
   const index = useMemo(() => new Map(rows.map((e, i) => [keyOf(e.path), i])), [rows])
 
   // select / rename what a navigation or a change asked for, once it's listed
@@ -454,7 +461,7 @@ export function FileExplorerPane(): React.JSX.Element {
   const noteTimer = useRef(0)
 
   const openExternally = (p: string): void =>
-    void window.api.fs.openPath(p).then((err) => err && flash(`Couldn't open ${nameOf(p)}: ${err}`))
+    void window.api.fs.openPath(p).then((err) => err && flash(tr(`Couldn't open ${nameOf(p)}: ${err}`, `Không mở được ${nameOf(p)}: ${err}`)))
   const openEntry = (e: ExEntry): void => {
     if (e.isDir) return go(e.path)
     if (OFFICE_RE.test(e.name)) return openInOffice(e.path)
@@ -472,17 +479,20 @@ export function FileExplorerPane(): React.JSX.Element {
   const selected = (): ExEntry[] => rows.filter((e) => sel.has(e.path))
   const remove = async (list: ExEntry[]): Promise<void> => {
     if (!list.length) return
-    const what = list.length === 1 ? `"${list[0].name}"` : `these ${list.length} items`
-    if (!(await window.api.ask(`Move ${what} to the Recycle Bin?`))) return
+    const ask =
+      list.length === 1
+        ? tr(`Move "${list[0].name}" to the Recycle Bin?`, `Chuyển "${list[0].name}" vào Thùng rác?`)
+        : tr(`Move these ${list.length} items to the Recycle Bin?`, `Chuyển ${list.length} mục này vào Thùng rác?`)
+    if (!(await window.api.ask(ask))) return
     for (const e of list) {
-      await window.api.fs.trash(e.path).catch((err: unknown) => flash(`Couldn't delete ${e.name}: ${String(err)}`))
+      await window.api.fs.trash(e.path).catch((err: unknown) => flash(tr(`Couldn't delete ${e.name}: ${String(err)}`, `Không xoá được ${e.name}: ${String(err)}`)))
     }
     refresh()
   }
   const create = async (dir: boolean): Promise<void> => {
     if (path === THIS_PC) return
     const taken = new Set((entries ?? []).map((e) => e.name.toLowerCase()))
-    const base = dir ? 'New folder' : 'New text document'
+    const base = dir ? tr('New folder', 'Thư mục mới') : tr('New text document', 'Tài liệu văn bản mới')
     const ext = dir ? '' : '.txt'
     let name = base + ext
     for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (${n})${ext}`
@@ -496,7 +506,7 @@ export function FileExplorerPane(): React.JSX.Element {
     }
   }
   const rename = async (e: ExEntry, next: string): Promise<void> => {
-    if (/[\\/:*?"<>|]/.test(next)) return flash('A name can\'t contain any of these characters: \\ / : * ? " < > |')
+    if (/[\\/:*?"<>|]/.test(next)) return flash(tr('A name can\'t contain any of these characters: \\ / : * ? " < > |', 'Tên không được chứa các ký tự sau: \\ / : * ? " < > |'))
     const to = join(parentOf(e.path), next)
     try {
       await window.api.fs.rename(e.path, to)
@@ -506,14 +516,18 @@ export function FileExplorerPane(): React.JSX.Element {
       flash(String(err))
     }
   }
-  const copyText = (text: string, what: string): void => {
+  const copyText = (text: string, done: string): void => {
     void navigator.clipboard.writeText(text)
-    flash(`${what} copied`)
+    flash(done)
   }
   const attach = (paths: string[]): void => {
     if (!activeChatId) return
     void attachPaths(activeChatId, paths)
-    flash(paths.length === 1 ? `${nameOf(paths[0])} will go with your next message` : `${paths.length} files will go with your next message`)
+    flash(
+      paths.length === 1
+        ? tr(`${nameOf(paths[0])} will go with your next message`, `${nameOf(paths[0])} sẽ được gửi kèm tin nhắn tiếp theo`)
+        : tr(`${paths.length} files will go with your next message`, `${paths.length} tệp sẽ được gửi kèm tin nhắn tiếp theo`)
+    )
   }
 
   /* ---------- mouse ---------- */
@@ -527,33 +541,33 @@ export function FileExplorerPane(): React.JSX.Element {
     }
     const many = list.length > 1
     openMenu(ev, [
-      !many && { label: e.isDir ? 'Open' : 'Open', icon: <FolderOpen size={14} />, hint: 'Enter', action: () => openEntry(e) },
-      !many && !e.isDir && OFFICE_RE.test(e.name) && { label: 'Open in Office tab', icon: <FileSpreadsheet size={14} />, action: () => openInOffice(e.path) },
-      !many && !e.isDir && { label: 'Open in Source code', icon: <FileCode2 size={14} />, action: () => openFile(e.path) },
-      !many && { label: 'Open with Windows app', icon: <ExternalLink size={14} />, action: () => openExternally(e.path) },
-      !many && { label: 'Show in Windows Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(e.path) },
+      !many && { label: tr('Open', 'Mở'), icon: <FolderOpen size={14} />, hint: 'Enter', action: () => openEntry(e) },
+      !many && !e.isDir && OFFICE_RE.test(e.name) && { label: tr('Open in Office tab', 'Mở trong tab Office'), icon: <FileSpreadsheet size={14} />, action: () => openInOffice(e.path) },
+      !many && !e.isDir && { label: tr('Open in Source code', 'Mở trong Mã nguồn'), icon: <FileCode2 size={14} />, action: () => openFile(e.path) },
+      !many && { label: tr('Open with Windows app', 'Mở bằng ứng dụng Windows'), icon: <ExternalLink size={14} />, action: () => openExternally(e.path) },
+      !many && { label: tr('Show in Windows Explorer', 'Hiện trong Windows Explorer'), icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(e.path) },
       'sep',
-      !!activeChatId && { label: many ? `Attach ${list.length} items to chat` : 'Attach to chat', icon: <Paperclip size={14} />, action: () => attach(list.map((x) => x.path)) },
-      { label: many ? 'Copy paths' : 'Copy path', icon: <Copy size={14} />, hint: 'Ctrl+C', action: () => copyText(list.map((x) => x.path).join('\n'), many ? 'Paths' : 'Path') },
-      !many && { label: 'Copy name', action: () => copyText(e.name, 'Name') },
+      !!activeChatId && { label: many ? tr(`Attach ${list.length} items to chat`, `Đính kèm ${list.length} mục vào chat`) : tr('Attach to chat', 'Đính kèm vào chat'), icon: <Paperclip size={14} />, action: () => attach(list.map((x) => x.path)) },
+      { label: many ? tr('Copy paths', 'Sao chép các đường dẫn') : tr('Copy path', 'Sao chép đường dẫn'), icon: <Copy size={14} />, hint: 'Ctrl+C', action: () => copyText(list.map((x) => x.path).join('\n'), many ? tr('Paths copied', 'Đã sao chép các đường dẫn') : tr('Path copied', 'Đã sao chép đường dẫn')) },
+      !many && { label: tr('Copy name', 'Sao chép tên'), action: () => copyText(e.name, tr('Name copied', 'Đã sao chép tên')) },
       'sep',
-      !many && { label: 'Rename', icon: <Pencil size={14} />, hint: 'F2', action: () => startRename('fx:' + e.path) },
-      { label: 'Delete', icon: <Trash2 size={14} />, hint: 'Del', action: () => void remove(list) }
+      !many && { label: tr('Rename', 'Đổi tên'), icon: <Pencil size={14} />, hint: 'F2', action: () => startRename('fx:' + e.path) },
+      { label: tr('Delete', 'Xoá'), icon: <Trash2 size={14} />, hint: 'Del', action: () => void remove(list) }
     ])
   }
   const backgroundMenu = (ev: React.MouseEvent): void => {
     if (path === THIS_PC) return
     setSel(new Set())
     openMenu(ev, [
-      { label: 'New folder', icon: <FolderPlus size={14} />, action: () => void create(true) },
-      { label: 'New text document', icon: <FilePlus2 size={14} />, action: () => void create(false) },
+      { label: tr('New folder', 'Thư mục mới'), icon: <FolderPlus size={14} />, action: () => void create(true) },
+      { label: tr('New text document', 'Tài liệu văn bản mới'), icon: <FilePlus2 size={14} />, action: () => void create(false) },
       'sep',
-      { label: 'Refresh', icon: <RotateCw size={14} />, hint: 'F5', action: refresh },
-      { label: showHidden ? 'Hide hidden items' : 'Show hidden items', icon: showHidden ? <EyeOff size={14} /> : <Eye size={14} />, action: () => toggleHidden() },
+      { label: tr('Refresh', 'Tải lại'), icon: <RotateCw size={14} />, hint: 'F5', action: refresh },
+      { label: showHidden ? tr('Hide hidden items', 'Ẩn các mục ẩn') : tr('Show hidden items', 'Hiện các mục ẩn'), icon: showHidden ? <EyeOff size={14} /> : <Eye size={14} />, action: () => toggleHidden() },
       'sep',
-      { label: 'Copy folder path', icon: <Copy size={14} />, action: () => copyText(path, 'Path') },
-      { label: 'Open in Windows Explorer', icon: <ExternalLink size={14} />, action: () => openExternally(path) },
-      !!activeChatId && { label: 'Attach this folder to chat', icon: <Paperclip size={14} />, action: () => attach([path]) }
+      { label: tr('Copy folder path', 'Sao chép đường dẫn thư mục'), icon: <Copy size={14} />, action: () => copyText(path, tr('Path copied', 'Đã sao chép đường dẫn')) },
+      { label: tr('Open in Windows Explorer', 'Mở trong Windows Explorer'), icon: <ExternalLink size={14} />, action: () => openExternally(path) },
+      !!activeChatId && { label: tr('Attach this folder to chat', 'Đính kèm thư mục này vào chat'), icon: <Paperclip size={14} />, action: () => attach([path]) }
     ])
   }
 
@@ -682,7 +696,7 @@ export function FileExplorerPane(): React.JSX.Element {
     // (Ctrl+Shift+C / Ctrl+Shift+N are the app's own shortcuts: plain Ctrl+C copies the paths here)
     if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'c' && sel.size) {
       handled()
-      copyText(selected().map((x) => x.path).join('\n'), sel.size > 1 ? 'Paths' : 'Path')
+      copyText(selected().map((x) => x.path).join('\n'), sel.size > 1 ? tr('Paths copied', 'Đã sao chép các đường dẫn') : tr('Path copied', 'Đã sao chép đường dẫn'))
       return
     }
     // typing a name jumps to it, like Windows
@@ -738,12 +752,12 @@ export function FileExplorerPane(): React.JSX.Element {
     if (projectRoot) t = t.replace(/^\$project(?=$|[\\/])/i, projectRoot)
     // relative to the folder on screen
     if (!/^([A-Za-z]:|\\\\|[\\/])/.test(t)) {
-      if (path === THIS_PC) return `Windows can't find "${raw.trim()}". Type a full path, like C:\\Users`
+      if (path === THIS_PC) return tr(`Windows can't find "${raw.trim()}". Type a full path, like C:\\Users`, `Windows không tìm thấy "${raw.trim()}". Hãy nhập đường dẫn đầy đủ, ví dụ C:\\Users`)
       t = join(path, t)
     }
     const p = norm(t)
     const [info] = await window.api.app.fileInfo([p]).catch(() => [undefined])
-    if (!info || (info.size < 0 && !info.dir)) return `Windows can't find "${raw.trim()}". Check the spelling and try again.`
+    if (!info || (info.size < 0 && !info.dir)) return tr(`Windows can't find "${raw.trim()}". Check the spelling and try again.`, `Windows không tìm thấy "${raw.trim()}". Hãy kiểm tra chính tả rồi thử lại.`)
     if (info.dir) go(p)
     else go(parentOf(p), p)
     return null
@@ -778,10 +792,10 @@ export function FileExplorerPane(): React.JSX.Element {
             <button className={`fx-place${keyOf(path) === keyOf(projectRoot) ? ' on' : ''}`} title={projectRoot} onClick={() => go(projectRoot)}>
               <FolderIcon open={false} size={15} />
               <span>{nameOf(projectRoot)}</span>
-              <span className="fx-place-tag">project</span>
+              <span className="fx-place-tag">{t('project', 'dự án')}</span>
             </button>
           )}
-          <div className="fx-nav-head">Quick access</div>
+          <div className="fx-nav-head">{t('Quick access', 'Truy cập nhanh')}</div>
           {places
             .filter((p) => p.kind !== 'drive')
             .map((p) => (
@@ -790,11 +804,11 @@ export function FileExplorerPane(): React.JSX.Element {
                 <span>{p.name}</span>
               </button>
             ))}
-          <div className="fx-nav-head">Drives</div>
+          <div className="fx-nav-head">{t('Drives', 'Ổ đĩa')}</div>
           {places
             .filter((p) => p.kind === 'drive')
             .map((p) => (
-              <button key={p.path} className={`fx-place${keyOf(path) === keyOf(p.path) ? ' on' : ''}`} title={p.total ? `${sizeText(p.free)} free of ${sizeText(p.total)}` : p.path} onClick={() => go(p.path)}>
+              <button key={p.path} className={`fx-place${keyOf(path) === keyOf(p.path) ? ' on' : ''}`} title={p.total ? t(`${sizeText(p.free)} free of ${sizeText(p.total)}`, `Còn trống ${sizeText(p.free)} / ${sizeText(p.total)}`) : p.path} onClick={() => go(p.path)}>
                 {placeIcon(p.kind)}
                 <span>{p.name}</span>
               </button>
@@ -804,16 +818,16 @@ export function FileExplorerPane(): React.JSX.Element {
 
       <div className="fx-right">
       <div className="fx-bar">
-        <button className="icon-btn" title="Back (Alt+Left)" disabled={!canBack} onClick={() => step(-1)}>
+        <button className="icon-btn" title={t('Back (Alt+Left)', 'Quay lại (Alt+Left)')} disabled={!canBack} onClick={() => step(-1)}>
           <ArrowLeft size={15} />
         </button>
-        <button className="icon-btn" title="Forward (Alt+Right)" disabled={!canFwd} onClick={() => step(1)}>
+        <button className="icon-btn" title={t('Forward (Alt+Right)', 'Tiến tới (Alt+Right)')} disabled={!canFwd} onClick={() => step(1)}>
           <ArrowRight size={15} />
         </button>
-        <button className="icon-btn" title="Up to the parent folder (Alt+Up)" disabled={path === THIS_PC} onClick={up}>
+        <button className="icon-btn" title={t('Up to the parent folder (Alt+Up)', 'Lên thư mục cha (Alt+Up)')} disabled={path === THIS_PC} onClick={up}>
           <ArrowUp size={15} />
         </button>
-        <button className="icon-btn" title="Refresh (F5)" onClick={refresh}>
+        <button className="icon-btn" title={t('Refresh (F5)', 'Tải lại (F5)')} onClick={refresh}>
           <RotateCw size={14} className={loading ? 'fx-spin' : ''} />
         </button>
         <AddressBar
@@ -830,8 +844,11 @@ export function FileExplorerPane(): React.JSX.Element {
             ref={searchRef}
             value={query}
             spellCheck={false}
-            placeholder={path === THIS_PC ? 'Search This PC' : `Search ${nameOf(path)}`}
-            title="Searches every folder below this one. Accents and case don't matter; fe finds FileExplorer, *.pdf finds PDFs, a second word can be a folder name."
+            placeholder={path === THIS_PC ? t('Search This PC', 'Tìm trong This PC') : t(`Search ${nameOf(path)}`, `Tìm trong ${nameOf(path)}`)}
+            title={t(
+              "Searches every folder below this one. Accents and case don't matter; fe finds FileExplorer, *.pdf finds PDFs, a second word can be a folder name.",
+              'Tìm trong mọi thư mục bên dưới thư mục này. Không phân biệt dấu và chữ hoa/thường; fe tìm ra FileExplorer, *.pdf tìm các tệp PDF, từ thứ hai có thể là tên thư mục.'
+            )}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
@@ -846,15 +863,15 @@ export function FileExplorerPane(): React.JSX.Element {
             }}
           />
           {query && (
-            <button className="fx-search-x" title="Clear" onClick={() => setQuery('')}>
+            <button className="fx-search-x" title={t('Clear', 'Xoá')} onClick={() => setQuery('')}>
               <X size={12} />
             </button>
           )}
         </div>
-        <button className={`icon-btn${showHidden ? ' on' : ''}`} title={showHidden ? 'Hide hidden items' : 'Show hidden items'} onClick={toggleHidden}>
+        <button className={`icon-btn${showHidden ? ' on' : ''}`} title={showHidden ? t('Hide hidden items', 'Ẩn các mục ẩn') : t('Show hidden items', 'Hiện các mục ẩn')} onClick={toggleHidden}>
           {showHidden ? <Eye size={15} /> : <EyeOff size={15} />}
         </button>
-        <button className={`icon-btn${showPreview ? ' on' : ''}`} title={showPreview ? 'Hide the preview pane' : 'Show the preview pane'} onClick={togglePreview}>
+        <button className={`icon-btn${showPreview ? ' on' : ''}`} title={showPreview ? t('Hide the preview pane', 'Ẩn khung xem trước') : t('Show the preview pane', 'Hiện khung xem trước')} onClick={togglePreview}>
           <PanelRight size={15} />
         </button>
       </div>
@@ -868,10 +885,10 @@ export function FileExplorerPane(): React.JSX.Element {
               <div className="fx-head">
                 {(
                   [
-                    ['name', 'Name'],
-                    ['modified', 'Date modified'],
-                    ['type', 'Type'],
-                    ['size', 'Size']
+                    ['name', t('Name', 'Tên')],
+                    ['modified', t('Date modified', 'Ngày sửa đổi')],
+                    ['type', t('Type', 'Loại')],
+                    ['size', t('Size', 'Kích thước')]
                   ] as [SortKey, string][]
                 ).map(([k, label]) => (
                   <button key={k} className={`fx-col fx-col-${k}${sort.key === k ? ' on' : ''}`} onClick={() => setSort(k)}>
@@ -909,17 +926,17 @@ export function FileExplorerPane(): React.JSX.Element {
                 {!rows.length && (searching ? found : !loading && entries) && (
                   <div className="fx-empty">
                     {searching ? (
-                      <span>{found?.done ? `No items match "${q}"` : 'Searching…'}</span>
+                      <span>{found?.done ? t(`No items match "${q}"`, `Không có mục nào khớp với "${q}"`) : t('Searching…', 'Đang tìm…')}</span>
                     ) : error ? (
                       <>
-                        <b>Can't open this folder</b>
+                        <b>{t("Can't open this folder", 'Không mở được thư mục này')}</b>
                         <span>{error}</span>
                         <button className="btn btn-sm btn-ghost" onClick={up}>
-                          <ArrowUp size={13} /> Go up
+                          <ArrowUp size={13} /> {t('Go up', 'Lên trên')}
                         </button>
                       </>
                     ) : (
-                      <span>This folder is empty.</span>
+                      <span>{t('This folder is empty.', 'Thư mục này trống.')}</span>
                     )}
                   </div>
                 )}
@@ -935,30 +952,35 @@ export function FileExplorerPane(): React.JSX.Element {
           )}
           <div className="fx-status">
             {path === THIS_PC && !searching ? (
-              <span>{places.length} items</span>
+              <span>{t(`${places.length} ${places.length === 1 ? 'item' : 'items'}`, `${places.length} mục`)}</span>
             ) : (
               <>
                 {searching ? (
                   <span>
-                    {found ? `${found.total.toLocaleString()} ${found.total === 1 ? 'result' : 'results'}` : 'Searching…'}
-                    {found && found.total > found.hits.length ? ` · best ${found.hits.length.toLocaleString()} shown` : ''}
+                    {found
+                      ? t(`${found.total.toLocaleString('en-US')} ${found.total === 1 ? 'result' : 'results'}`, `${found.total.toLocaleString('vi-VN')} kết quả`)
+                      : t('Searching…', 'Đang tìm…')}
+                    {found && found.total > found.hits.length
+                      ? t(` · best ${found.hits.length.toLocaleString('en-US')} shown`, ` · hiện ${found.hits.length.toLocaleString('vi-VN')} kết quả tốt nhất`)
+                      : ''}
                   </span>
                 ) : (
                   <span>
-                    {rows.length.toLocaleString()} {rows.length === 1 ? 'item' : 'items'}
+                    {t(`${rows.length.toLocaleString('en-US')} ${rows.length === 1 ? 'item' : 'items'}`, `${rows.length.toLocaleString('vi-VN')} mục`)}
                   </span>
                 )}
                 {searching && found && !found.done && (
                   <span className="fx-status-dim">
-                    <RotateCw size={11} className="fx-spin" /> looking through {found.indexed.toLocaleString()} items…
+                    <RotateCw size={11} className="fx-spin" /> {t(`looking through ${found.indexed.toLocaleString('en-US')} items…`, `đang duyệt ${found.indexed.toLocaleString('vi-VN')} mục…`)}
                   </span>
                 )}
                 {sel.size > 0 && (
                   <span>
-                    {sel.size.toLocaleString()} selected{selSize > 0 ? ` · ${sizeText(selSize)}` : ''}
+                    {t(`${sel.size.toLocaleString('en-US')} selected`, `Đã chọn ${sel.size.toLocaleString('vi-VN')}`)}
+                    {selSize > 0 ? ` · ${sizeText(selSize)}` : ''}
                   </span>
                 )}
-                {!searching && !showHidden && entries && entries.some((e) => e.hidden) && <span className="fx-status-dim">hidden items not shown</span>}
+                {!searching && !showHidden && entries && entries.some((e) => e.hidden) && <span className="fx-status-dim">{t('hidden items not shown', 'không hiện các mục ẩn')}</span>}
               </>
             )}
             {note && <span className="fx-note">{note}</span>}
@@ -975,7 +997,7 @@ export function FileExplorerPane(): React.JSX.Element {
             onOpen={openEntry}
             onExternal={openExternally}
             onAttach={(p) => attach([p])}
-            onCopy={(p) => copyText(p, 'Path')}
+            onCopy={(p) => copyText(p, tr('Path copied', 'Đã sao chép đường dẫn'))}
           />
         )}
       </div>
@@ -1001,6 +1023,7 @@ const Row = memo(function Row({
   renaming: boolean
   api: RowApi
 }): React.JSX.Element {
+  const t = useT()
   return (
     <div
       className={`fx-row${selected ? ' sel' : ''}${focused ? ' focus' : ''}${e.hidden ? ' hidden' : ''}`}
@@ -1025,8 +1048,8 @@ const Row = memo(function Row({
           <span className="fx-name">{e.name}</span>
         )}
       </span>
-      <span className="fx-col-modified">{dateText(e.modified)}</span>
-      <span className="fx-col-type">{typeName(e)}</span>
+      <span className="fx-col-modified">{dateText(e.modified, t('en-US', 'vi-VN'))}</span>
+      <span className="fx-col-type">{typeName(e, t)}</span>
       <span className="fx-col-size">{e.isDir ? '' : sizeText(e.size)}</span>
     </div>
   )
@@ -1071,6 +1094,7 @@ function AddressBar({
   onNavigate: (p: string) => void
   onSubmit: (text: string) => Promise<string | null>
 }): React.JSX.Element {
+  const t = useT()
   const [text, setText] = useState('')
   const [sugg, setSugg] = useState<Sugg[]>([])
   const [pick, setPick] = useState(-1)
@@ -1178,7 +1202,7 @@ function AddressBar({
           ref={input}
           value={text}
           spellCheck={false}
-          placeholder="Type a path (C:\Users…), a folder name, or a web address"
+          placeholder={t('Type a path (C:\\Users…), a folder name, or a web address', 'Nhập đường dẫn (C:\\Users…), tên thư mục hoặc địa chỉ web')}
           onChange={(e) => {
             setText(e.target.value)
             setErr('')
@@ -1229,7 +1253,7 @@ function AddressBar({
   }
 
   return (
-    <div className="fx-address" title="Click to type a path" onMouseDown={(e) => e.target === e.currentTarget && (e.preventDefault(), setEditing(true))}>
+    <div className="fx-address" title={t('Click to type a path', 'Bấm để nhập đường dẫn')} onMouseDown={(e) => e.target === e.currentTarget && (e.preventDefault(), setEditing(true))}>
       <div className="fx-crumbs" ref={crumbsRef} onMouseDown={(e) => e.target === e.currentTarget && (e.preventDefault(), setEditing(true))}>
         <button className="fx-crumb" onClick={() => onNavigate(THIS_PC)}>
           <Monitor size={13} />
@@ -1252,11 +1276,12 @@ function AddressBar({
 /* ================================ This PC ================================ */
 
 function ThisPc({ places, onOpen }: { places: ExPlace[]; onOpen: (p: string) => void }): React.JSX.Element {
+  const t = useT()
   const folders = places.filter((p) => p.kind !== 'drive')
   const drives = places.filter((p) => p.kind === 'drive')
   return (
     <div className="fx-pc">
-      <div className="fx-pc-head">Folders</div>
+      <div className="fx-pc-head">{t('Folders', 'Thư mục')}</div>
       <div className="fx-pc-grid">
         {folders.map((p) => (
           <button key={p.path} className="fx-card" title={p.path} onClick={() => onOpen(p.path)}>
@@ -1268,7 +1293,7 @@ function ThisPc({ places, onOpen }: { places: ExPlace[]; onOpen: (p: string) => 
           </button>
         ))}
       </div>
-      <div className="fx-pc-head">Devices and drives</div>
+      <div className="fx-pc-head">{t('Devices and drives', 'Thiết bị và ổ đĩa')}</div>
       <div className="fx-pc-grid">
         {drives.map((p) => {
           const used = p.total ? 1 - p.free / p.total : 0
@@ -1283,7 +1308,7 @@ function ThisPc({ places, onOpen }: { places: ExPlace[]; onOpen: (p: string) => 
                       <span className={used > 0.9 ? 'full' : ''} style={{ width: `${Math.round(used * 100)}%` }} />
                     </span>
                     <span>
-                      {sizeText(p.free)} free of {sizeText(p.total)}
+                      {t(`${sizeText(p.free)} free of ${sizeText(p.total)}`, `Còn trống ${sizeText(p.free)} / ${sizeText(p.total)}`)}
                     </span>
                   </>
                 )}
@@ -1329,6 +1354,7 @@ function Preview({
   onAttach: (p: string) => void
   onCopy: (p: string) => void
 }): React.JSX.Element {
+  const tt = useT()
   const [shown, setShown] = useState<Shown>({ kind: 'none' })
   const [dims, setDims] = useState('')
   const key = entry ? `${entry.path}|${entry.modified}|${entry.size}` : ''
@@ -1369,8 +1395,12 @@ function Preview({
       <aside className="fx-preview">
         <div className="fx-preview-empty">
           <FolderOpen size={34} strokeWidth={1.4} />
-          <b>{many ? `${count.toLocaleString()} items selected` : (folder ?? 'This PC')}</b>
-          <span>{many ? 'Right-click for what you can do with them.' : 'Select a file to read it here. Double-click opens it.'}</span>
+          <b>{many ? tt(`${count.toLocaleString('en-US')} items selected`, `Đã chọn ${count.toLocaleString('vi-VN')} mục`) : (folder ?? 'This PC')}</b>
+          <span>
+            {many
+              ? tt('Right-click for what you can do with them.', 'Bấm chuột phải để xem những việc có thể làm với chúng.')
+              : tt('Select a file to read it here. Double-click opens it.', 'Chọn một tệp để đọc ở đây. Bấm đúp để mở.')}
+          </span>
         </div>
       </aside>
     )
@@ -1384,27 +1414,29 @@ function Preview({
         <div className="fx-preview-title">
           <b title={entry.name}>{entry.name}</b>
           <span>
-            {typeName(entry)}
+            {typeName(entry, tt)}
             {!entry.isDir && ` · ${sizeText(entry.size)}`}
             {dims && ` · ${dims}`}
           </span>
-          <span>Modified {dateText(entry.modified)}</span>
+          <span>
+            {tt('Modified', 'Sửa đổi')} {dateText(entry.modified, tt('en-US', 'vi-VN'))}
+          </span>
         </div>
       </div>
       <div className="fx-preview-actions">
         <button className="btn btn-sm btn-primary" onClick={() => onOpen(entry)}>
-          {entry.isDir ? 'Open folder' : office ? 'Open in Office' : 'Open'}
+          {entry.isDir ? tt('Open folder', 'Mở thư mục') : office ? tt('Open in Office', 'Mở trong Office') : tt('Open', 'Mở')}
         </button>
         {!entry.isDir && (
-          <button className="icon-btn" title="Open with its Windows app" onClick={() => onExternal(entry.path)}>
+          <button className="icon-btn" title={tt('Open with its Windows app', 'Mở bằng ứng dụng Windows của nó')} onClick={() => onExternal(entry.path)}>
             <ExternalLink size={14} />
           </button>
         )}
-        <button className="icon-btn" title="Copy path" onClick={() => onCopy(entry.path)}>
+        <button className="icon-btn" title={tt('Copy path', 'Sao chép đường dẫn')} onClick={() => onCopy(entry.path)}>
           <Copy size={14} />
         </button>
         {canAttach && (
-          <button className="icon-btn" title="Attach to chat" onClick={() => onAttach(entry.path)}>
+          <button className="icon-btn" title={tt('Attach to chat', 'Đính kèm vào chat')} onClick={() => onAttach(entry.path)}>
             <Paperclip size={14} />
           </button>
         )}
@@ -1418,18 +1450,21 @@ function Preview({
         )}
         {shown.kind === 'text' && (
           <pre className="fx-preview-text">
-            {shown.text || <span className="fx-dim">(empty file)</span>}
-            {shown.cut && <span className="fx-dim">{'\n\n'}… open it to read the rest</span>}
+            {shown.text || <span className="fx-dim">{tt('(empty file)', '(tệp trống)')}</span>}
+            {shown.cut && <span className="fx-dim">
+                {'\n\n'}
+                {tt('… open it to read the rest', '… mở tệp để đọc phần còn lại')}
+              </span>}
           </pre>
         )}
         {(shown.kind === 'binary' || shown.kind === 'big' || (shown.kind === 'none' && !entry.isDir)) && (
           <div className="fx-preview-none">
             {office ? (
-              <span>Opens in the Office tab, where you can read and edit it.</span>
+              <span>{tt('Opens in the Office tab, where you can read and edit it.', 'Mở trong tab Office, nơi bạn có thể đọc và sửa tệp.')}</span>
             ) : shown.kind === 'big' ? (
-              <span>Too large to preview here.</span>
+              <span>{tt('Too large to preview here.', 'Quá lớn để xem trước ở đây.')}</span>
             ) : (
-              <span>No preview for this kind of file.</span>
+              <span>{tt('No preview for this kind of file.', 'Không có bản xem trước cho loại tệp này.')}</span>
             )}
           </div>
         )}
