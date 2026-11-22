@@ -1,6 +1,6 @@
 [package]
 name = "vibe-code"
-version = "0.2.16"
+version = "0.2.17"
 description = "A desktop workspace for Claude Code: multi-chat, editor, diffs, terminal."
 authors = ["TINJS"]
 license = ""
