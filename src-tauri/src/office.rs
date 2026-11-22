@@ -1,6 +1,5 @@
-//! Office tab: Docs (.docx), Sheets (.xlsx / .csv) and PDF. The page holds the open files (FortuneSheet
-//! for sheets, a rich-text editor for docs, pdf.js for PDFs) and turns them into file bytes and back.
-//! This side only:
+//! Office tab: Word, Excel, PowerPoint and PDF, each open file in an ONLYOFFICE editor (onlyoffice.rs)
+//! that the page drives and that turns the file into its bytes and back. This side only:
 //!   - reads and writes the files, with the file dialog, and keeps the "recent files" list;
 //!   - relays Claude's vibe-office tool calls to the page, which runs them on what the user sees:
 //!     `office:request` goes out (also kept in a queue until the tab is mounted and picks it up),
@@ -31,57 +30,47 @@ fn cant_read(path: &str) -> String {
     if settings::vi() { format!("không đọc được {path}") } else { format!("could not read {path}") }
 }
 
-fn read_csv(path: &str) -> Result<Vec<Vec<String>>> {
-    let bytes = std::fs::read(path).with_context(|| cant_read(path))?;
-    let text = String::from_utf8_lossy(bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes)).into_owned();
-    let mut rdr = csv::ReaderBuilder::new().has_headers(false).flexible(true).from_reader(text.as_bytes());
-    Ok(rdr.records().map(|r| r.map(|r| r.iter().map(str::to_owned).collect())).collect::<Result<_, _>>()?)
-}
-
-/// UTF-8 with a BOM, so Excel shows Vietnamese right.
-fn write_csv(path: &str, rows: &[Vec<String>]) -> Result<()> {
-    let mut w = csv::WriterBuilder::new().flexible(true).from_writer(b"\xEF\xBB\xBF".to_vec());
-    for row in rows {
-        w.write_record(row)?;
-    }
-    let bytes = w.into_inner().map_err(|e| anyhow!("{e}"))?;
-    std::fs::write(path, bytes).with_context(|| {
-        if settings::vi() { format!("không lưu được {path} (file đang mở trong Excel?)") } else { format!("could not save {path} (is it open in Excel?)") }
-    })
-}
-
-/// What the ONLYOFFICE editor opens (onlyoffice.rs).
-const OO_EXTS: [&str; 11] = ["docx", "xlsx", "pptx", "csv", "doc", "xls", "ppt", "odt", "ods", "odp", "rtf"];
+/// What each workspace of the Office tab opens; the first one is what it creates.
+const DOC_EXTS: [&str; 4] = ["docx", "doc", "odt", "rtf"];
+const SHEET_EXTS: [&str; 4] = ["xlsx", "xls", "ods", "csv"];
+const SLIDE_EXTS: [&str; 3] = ["pptx", "ppt", "odp"];
 
 /// File dialog: pick a file to open, or (`save`) name a new one. `kind` narrows the file types:
-/// "doc", "sheet", "pdf" or "oo" (ONLYOFFICE; anything else: every kind the Office tab opens).
+/// "doc", "sheet", "slide" or "pdf" (anything else: every kind the Office tab opens).
 #[tauri::command]
 pub async fn office_pick(save: bool, kind: Option<String>) -> Res<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     let mut d = app().dialog().file();
+    // a new file is made in its workspace's own format
+    let n = |exts: &'static [&'static str]| if save { &exts[..1] } else { exts };
+    let (doc, sheet, slide) = (n(&DOC_EXTS), n(&SHEET_EXTS), n(&SLIDE_EXTS));
     d = match kind.as_deref() {
-        Some("doc") => d.add_filter(tr("Word document", "Tài liệu Word"), &["docx"]),
-        Some("sheet") => d.add_filter(tr("Spreadsheet", "Bảng tính"), &["xlsx", "csv"]),
+        Some("doc") => d.add_filter(tr("Word document", "Tài liệu Word"), doc),
+        Some("sheet") => d.add_filter(tr("Spreadsheet", "Bảng tính"), sheet),
+        Some("slide") => d.add_filter(tr("Presentation", "Bản trình chiếu"), slide),
         Some("pdf") => d.add_filter("PDF", &["pdf"]),
-        Some("oo") => d.add_filter("Word, Excel, PowerPoint", &OO_EXTS),
-        _ => d.add_filter(tr("Documents, spreadsheets, presentations, PDF", "Tài liệu, bảng tính, trình chiếu, PDF"), &[&OO_EXTS[..], &["pdf"]].concat()),
+        _ => d.add_filter(tr("Documents, spreadsheets, presentations, PDF", "Tài liệu, bảng tính, trình chiếu, PDF"), &[doc, sheet, slide, &["pdf"]].concat()),
     };
     if let Some(w) = crate::core::main_window() {
         d = d.set_parent(&w);
     }
-    let name = if kind.as_deref() == Some("doc") { tr("Document.docx", "Tai lieu.docx") } else { tr("Spreadsheet.xlsx", "Bang tinh.xlsx") };
+    let name = match kind.as_deref() {
+        Some("doc") => tr("Document.docx", "Tai lieu.docx"),
+        Some("slide") => tr("Presentation.pptx", "Trinh chieu.pptx"),
+        _ => tr("Spreadsheet.xlsx", "Bang tinh.xlsx"),
+    };
     let picked = tokio::task::spawn_blocking(move || if save { d.set_file_name(name).blocking_save_file() } else { d.blocking_pick_file() }).await?;
     Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
 }
 
-/// A file's bytes (an ArrayBuffer on the page): .xlsx, .docx, .pdf.
+/// A file's bytes (an ArrayBuffer on the page).
 #[tauri::command]
 pub async fn office_read_file(path: String) -> Res<tauri::ipc::Response> {
     let bytes = tokio::fs::read(&path).await.with_context(|| cant_read(&path))?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Writes a file the page built (base64).
+/// Writes a file the editor exported (base64).
 #[tauri::command]
 pub async fn office_write_file(path: String, data: String) -> Res<()> {
     let bytes = B64.decode(data)?;
@@ -181,16 +170,6 @@ pub async fn office_recent_add(path: String, remove: Option<bool>) -> Res<()> {
     Ok(())
 }
 
-#[tauri::command]
-pub async fn office_read_csv(path: String) -> Res<Vec<Vec<String>>> {
-    Ok(tokio::task::spawn_blocking(move || read_csv(&path)).await??)
-}
-
-#[tauri::command]
-pub async fn office_write_csv(path: String, rows: Vec<Vec<String>>) -> Res<()> {
-    Ok(tokio::task::spawn_blocking(move || write_csv(&path, &rows)).await??)
-}
-
 /* ---------------- Claude's tools, run by the page ---------------- */
 
 #[derive(Serialize, Clone)]
@@ -220,25 +199,22 @@ pub async fn office_reply(id: u64, ok: bool, text: String) -> Res<()> {
     Ok(())
 }
 
-pub const INSTRUCTIONS: &str = "Work with the files open in VIBE CODE's Office tab — the user sees them there: Docs (.docx, a Word-like editor), Sheets (.xlsx/.csv, an Excel-like grid) and PDF (a viewer). \
+pub const INSTRUCTIONS: &str = "Read the files open in VIBE CODE's Office tab — the user sees them there, each in ONLYOFFICE: Word (.docx, .doc, .odt, .rtf), Excel (.xlsx, .xls, .ods, .csv), PowerPoint (.pptx, .ppt, .odp) and PDF. \
 Several files can be open, one tab each; tools act on the one on screen of their kind unless `file` names another (its path or file name). \
-Use these tools when the user mentions 'tab Office', 'the document/sheet/PDF', 'tài liệu', 'bảng tính', 'file Word/Excel/PDF', or what is in them. Start with office_status. \
-Edits show up live and the tab saves the file by itself about a second later. \
-Sheets: a value starting with '=' is an Excel formula; the grid calculates it, and formatting in the file is kept on save. \
-Docs: content is HTML (headings, paragraphs, bold/italic/underline, colors, lists, tables, images); saving to .docx keeps that, but not page headers/footers, sections or text boxes. \
-PDFs are read-only.";
+Use these tools when the user mentions 'tab Office', 'the document/sheet/slides/PDF', 'tài liệu', 'bảng tính', 'trình chiếu', 'file Word/Excel/PowerPoint/PDF', or what is in them. Start with office_status. \
+The tools only read: they see what the editor holds now, unsaved edits included. They cannot change a file; the user edits it in the editor, which saves it by itself.";
 
 pub fn tools() -> Value {
     let file = json!({ "type": "string", "description": "path or file name of an open file (default: the one on screen)" });
     json!([
         {
             "name": "office_status",
-            "description": "The files open in the Office tab (docs, sheets, PDFs; the one on screen is marked): path, unsaved changes, and per kind sheets with their used size, PDF page count.",
+            "description": "The files open in the Office tab (by kind: Word, Excel, PowerPoint, PDF; the one on screen is marked): path, unsaved changes, read-only.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
             "name": "office_open",
-            "description": "Open a .docx, .xlsx, .csv or .pdf file in its own tab of the Office tab and show it (or just show it when it is open already). `create: true` makes a new empty .docx/.xlsx/.csv at `path`.",
+            "description": "Open a Word, Excel, PowerPoint or PDF file in its own tab of the Office tab and show it (or just show it when it is open already). `create: true` makes a new empty .docx / .xlsx / .pptx at `path`.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "path": { "type": "string", "description": "absolute path" }, "create": { "type": "boolean" } },
@@ -246,45 +222,22 @@ pub fn tools() -> Value {
             }
         },
         {
+            "name": "doc_read",
+            "description": "Text of an open Word document: one line per paragraph, table rows as cells joined by \" | \".",
+            "inputSchema": { "type": "object", "properties": { "file": file } }
+        },
+        {
             "name": "sheet_read",
-            "description": "Cells of one sheet as tab-separated rows, each starting with its row number; the first line names the columns. Cells show their displayed value; formula cells add ` [=FORMULA]`. Default: the first 200 rows of the sheet on screen. At most 1000 rows per call.",
+            "description": "Cells of one sheet as tab-separated rows, each starting with its row number; the first lines list the workbook's sheets and name the columns. Values are as stored (no number formats: dates are serial numbers); formula cells add ` [=FORMULA]`. Default: the first 200 rows of the sheet on screen. At most 1000 rows per call.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "file": file, "sheet": { "type": "string", "description": "sheet name (default: the one on screen)" }, "range": { "type": "string", "description": "e.g. \"A1:F100\" or \"A200:Z400\"" } }
             }
         },
         {
-            "name": "sheet_write",
-            "description": "Write a block of cells starting at `cell` (top-left), row by row. Strings starting with '=' are formulas, \"\" clears a cell, null leaves it as it is. A sheet name that does not exist yet is added (xlsx only). The file is saved automatically about a second later.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "file": file,
-                    "sheet": { "type": "string", "description": "sheet name (default: the one on screen)" },
-                    "cell": { "type": "string", "description": "top-left cell, e.g. \"A1\"" },
-                    "values": { "type": "array", "items": { "type": "array", "items": { "type": ["string", "number", "boolean", "null"] } } }
-                },
-                "required": ["cell", "values"]
-            }
-        },
-        {
-            "name": "sheet_save",
-            "description": "Save a spreadsheet to its file now (edits are also saved automatically a second after they stop).",
-            "inputSchema": { "type": "object", "properties": { "file": file } }
-        },
-        {
-            "name": "doc_read",
-            "description": "The content of an open document as HTML (p, h1-h3, strong/em/u/s, span style color/font-size, mark, ul/ol/li, table, img, text-align).",
-            "inputSchema": { "type": "object", "properties": { "file": file } }
-        },
-        {
-            "name": "doc_write",
-            "description": "Change an open document: `mode` \"replace\" puts `html` in place of the whole content, \"append\" adds it at the end (default). Use the same HTML as doc_read returns. Saved automatically about a second later.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "file": file, "html": { "type": "string" }, "mode": { "type": "string", "enum": ["append", "replace"] } },
-                "required": ["html"]
-            }
+            "name": "slide_read",
+            "description": "Text of an open presentation, slide by slide. `slides`: e.g. \"1-5\" or \"3\" (default: the first 20 slides).",
+            "inputSchema": { "type": "object", "properties": { "file": file, "slides": { "type": "string" } } }
         },
         {
             "name": "pdf_read",
@@ -294,7 +247,7 @@ pub fn tools() -> Value {
     ])
 }
 
-const TOOLS: [&str; 8] = ["office_status", "office_open", "sheet_read", "sheet_write", "sheet_save", "doc_read", "doc_write", "pdf_read"];
+const TOOLS: [&str; 6] = ["office_status", "office_open", "doc_read", "sheet_read", "slide_read", "pdf_read"];
 
 /// Hands one call to the page (opening the Office tab if needed) and waits for its answer.
 pub async fn call_tool(name: &str, args: Value) -> Result<String> {
@@ -332,16 +285,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn csv_round_trip() {
-        let path = std::env::temp_dir().join(format!("vibe-office-test-{}.csv", std::process::id())).to_string_lossy().into_owned();
-        let rows = vec![vec!["a,b".to_owned(), "Việt".to_owned()], vec!["x\"y".to_owned(), String::new()]];
-        write_csv(&path, &rows).unwrap();
-        let back = read_csv(&path).unwrap();
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(back, rows);
-    }
-
-    #[test]
     fn recent_list_moves_a_file_to_the_top_once() {
         let l = bump(vec![r"C:\a.xlsx".into(), r"C:\b.docx".into()], "c:/B.docx");
         assert_eq!(l, ["c:/B.docx", r"C:\a.xlsx"]);
@@ -370,18 +313,19 @@ mod tests {
 
     #[tokio::test]
     async fn tool_calls_wait_for_the_page() {
-        let (req, rx) = enqueue("sheet_write", json!({ "cell": "A1" })).unwrap();
+        let (req, rx) = enqueue("sheet_read", json!({ "range": "A1:B2" })).unwrap();
         let id = req.id;
         let call = tokio::spawn(wait(req, rx));
         // the page (mounted late) picks it up from the queue, then answers
         let picked = office_pending().await.unwrap();
-        assert!(picked.iter().any(|r| r.id == id && r.tool == "sheet_write" && r.args["cell"] == "A1"));
+        assert!(picked.iter().any(|r| r.id == id && r.tool == "sheet_read" && r.args["range"] == "A1:B2"));
         office_reply(id, true, "ok from page".into()).await.unwrap();
         assert_eq!(call.await.unwrap().unwrap(), "ok from page");
 
-        let (req, rx) = enqueue("sheet_save", json!({})).unwrap();
-        office_reply(req.id, false, "locked by Excel".into()).await.unwrap();
-        assert_eq!(wait(req, rx).await.unwrap_err().to_string(), "locked by Excel");
+        let (req, rx) = enqueue("pdf_read", json!({})).unwrap();
+        office_reply(req.id, false, "still opening".into()).await.unwrap();
+        assert_eq!(wait(req, rx).await.unwrap_err().to_string(), "still opening");
+        assert!(enqueue("sheet_write", json!({})).is_err());
         assert!(enqueue("rm_rf", json!({})).is_err());
     }
 }

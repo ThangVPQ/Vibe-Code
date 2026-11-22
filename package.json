@@ -14,21 +14,7 @@
     "release": "node scripts/release.cjs"
   },
   "dependencies": {
-    "@corbe30/fortune-excel": "^2.3.5",
-    "@fortune-sheet/react": "^1.0.4",
-    "@tauri-apps/api": "2.12.5",
-    "@tiptap/core": "^3.35.0",
-    "@tiptap/extension-highlight": "^3.35.0",
-    "@tiptap/extension-image": "^3.35.0",
-    "@tiptap/extension-table": "^3.35.0",
-    "@tiptap/extension-text-align": "^3.35.0",
-    "@tiptap/extension-text-style": "^3.35.0",
-    "@tiptap/pm": "^3.35.0",
-    "@tiptap/react": "^3.35.0",
-    "@tiptap/starter-kit": "^3.35.0",
-    "docx": "^9.16.0",
-    "jszip": "^3.10.2",
-    "pdfjs-dist": "^6.5.438"
+    "@tauri-apps/api": "2.12.5"
   },
   "devDependencies": {
     "@babel/core": "8.1.2",

@@ -203,8 +203,8 @@ export const api = {
   },
   office: {
     /** file dialog: pick a file to open, or (save) name a new one; `kind` narrows the file types */
-    pick: (save: boolean, kind?: 'doc' | 'sheet' | 'pdf' | 'oo'): Promise<string | null> => invoke('office_pick', { save, kind }),
-    /** a .xlsx / .docx / .pdf file's bytes */
+    pick: (save: boolean, kind?: 'doc' | 'sheet' | 'slide' | 'pdf'): Promise<string | null> => invoke('office_pick', { save, kind }),
+    /** a file's bytes (.docx, .xlsx, .pptx, .pdf…) */
     readFile: (path: string): Promise<ArrayBuffer> => invoke('office_read_file', { path }),
     /** `data`: the file's bytes, base64 */
     writeFile: (path: string, data: string): Promise<void> => invoke('office_write_file', { path, data }),
@@ -214,8 +214,6 @@ export const api = {
     recentAdd: (path: string, remove?: boolean): Promise<void> => invoke('office_recent_add', { path, remove }),
     /** copy a file to the app's backup folder before it is first overwritten; the copy's path */
     backup: (path: string): Promise<string> => invoke('office_backup', { path }),
-    readCsv: (path: string): Promise<string[][]> => invoke('office_read_csv', { path }),
-    writeCsv: (path: string, rows: string[][]): Promise<void> => invoke('office_write_csv', { path, rows }),
     /** Claude's tool calls not picked up yet (sent before the tab was mounted) */
     pending: (): Promise<OfficeRequest[]> => invoke('office_pending'),
     reply: (id: number, ok: boolean, text: string): Promise<void> => invoke('office_reply', { id, ok, text }),

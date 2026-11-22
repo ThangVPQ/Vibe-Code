@@ -1,34 +1,32 @@
 /**
- * What the Office tab's workspaces (Docs, Sheets, PDF) share: path helpers, the file tab strip,
- * autosave with its status label, and the handle the Office shell drives them through.
+ * What the Office tab's workspaces (Word, Excel, PowerPoint, PDF: one ONLYOFFICE workspace each)
+ * share: path helpers, the file tab strip, autosave with its status label, and the handle the
+ * Office shell drives them through.
  */
 import { useEffect, useRef, useState } from 'react'
 import { CloudAlert, CloudCheck, Loader2, Plus, X } from 'lucide-react'
 import type { OfficeRequest } from '../../../shared/types'
 import { useT } from '../i18n'
 
-/** `oo`: the ONLYOFFICE editor (OnlyOffice.tsx) */
-export type Kind = 'doc' | 'sheet' | 'pdf' | 'oo'
+export type Kind = 'doc' | 'sheet' | 'slide' | 'pdf'
 
-/** what only ONLYOFFICE opens */
-const OO_ONLY = ['pptx', 'doc', 'xls', 'ppt', 'odt', 'ods', 'odp', 'rtf']
+/** what each workspace opens; the first one is what it creates */
+export const EXTS: Record<Kind, string[]> = {
+  doc: ['docx', 'doc', 'odt', 'rtf'],
+  sheet: ['xlsx', 'xls', 'ods', 'csv'],
+  slide: ['pptx', 'ppt', 'odp'],
+  pdf: ['pdf']
+}
 
 export const fileName = (p: string): string => p.split(/[\\/]/).pop() ?? p
 export const folderOf = (p: string): string => p.slice(0, Math.max(0, p.length - fileName(p).length - 1))
 export const samePath = (a: string, b: string): boolean => a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase()
-export const isCsv = (p: string): boolean => p.toLowerCase().endsWith('.csv')
+export const extOf = (p: string): string => (fileName(p).includes('.') ? (p.split('.').pop()?.toLowerCase() ?? '') : '')
 
 export function kindOf(path: string): Kind | null {
-  const ext = path.split('.').pop()?.toLowerCase()
-  if (ext === 'docx') return 'doc'
-  if (ext === 'xlsx' || ext === 'csv') return 'sheet'
-  if (ext === 'pdf') return 'pdf'
-  if (ext && OO_ONLY.includes(ext)) return 'oo'
-  return null
+  const ext = extOf(path)
+  return (Object.keys(EXTS) as Kind[]).find((k) => EXTS[k].includes(ext)) ?? null
 }
-
-/** ONLYOFFICE opens every kind but PDF */
-export const ooOpens = (path: string): boolean => ![null, 'pdf'].includes(kindOf(path))
 
 export function toBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf)

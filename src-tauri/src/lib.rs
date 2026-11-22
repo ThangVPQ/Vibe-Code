@@ -115,8 +115,6 @@ pub fn run() {
             office::office_recent,
             office::office_recent_add,
             office::office_backup,
-            office::office_read_csv,
-            office::office_write_csv,
             office::office_pending,
             office::office_reply,
             onlyoffice::onlyoffice_origin,

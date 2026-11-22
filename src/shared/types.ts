@@ -245,7 +245,7 @@ export interface MailBody {
 /** one of Claude's vibe-office tool calls, for the Office tab to run on what it shows */
 export interface OfficeRequest {
   id: number
-  tool: 'office_status' | 'office_open' | 'sheet_read' | 'sheet_write' | 'sheet_save' | 'doc_read' | 'doc_write' | 'pdf_read'
+  tool: 'office_status' | 'office_open' | 'doc_read' | 'sheet_read' | 'slide_read' | 'pdf_read'
   args: Record<string, unknown>
 }
 

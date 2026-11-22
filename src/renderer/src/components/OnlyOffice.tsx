@@ -1,13 +1,28 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { FileOutput, FileStack, Loader2, RefreshCw } from 'lucide-react'
-import { FileTabs, SaveStatus, type Workspace, type WorkspaceProps, errText, fileName, samePath, toBase64, useAutosave } from './officeShared'
+import { Bot, FileOutput, FileSpreadsheet, FileText, FileType2, Loader2, Presentation, RefreshCw } from 'lucide-react'
+import type { OfficeRequest } from '../../../shared/types'
+import { FileTabs, SaveStatus, type Kind, type Workspace, type WorkspaceProps, EXTS, errText, extOf, fileName, findOpen, samePath, toBase64, until, useAutosave } from './officeShared'
+import { docText, pageList, pdfPages, sheetText, slideTexts, unzip } from '../ooxmlText'
+import { newChatFromOfficeFile } from '../actions'
 import { type T, tr, useT } from '../i18n'
 
 /** Old binary formats: x2t reads them but writes only their OOXML sibling, so they open read-only. */
 const LEGACY: Record<string, string> = { doc: 'docx', xls: 'xlsx', ppt: 'pptx' }
-const legacyTarget = (path: string): string | undefined => LEGACY[path.split('.').pop()?.toLowerCase() ?? '']
+const legacyTarget = (path: string): string | undefined => LEGACY[extOf(path)]
+/** PDFs open read-only too: they are viewed, not rewritten */
+const readonlyOf = (path: string): boolean => !!legacyTarget(path) || extOf(path) === 'pdf'
 const note = (t: T): string =>
   t('Opened with ONLYOFFICE: keeps full Word / Excel / PowerPoint formatting. Saves itself a few seconds after each edit.', 'Mở bằng ONLYOFFICE: giữ đầy đủ định dạng Word / Excel / PowerPoint. Tự lưu vài giây sau khi sửa.')
+
+export const KIND_ICON: Record<Kind, (size: number) => React.ReactNode> = {
+  doc: (s) => <FileText size={s} className="of-ic-doc" />,
+  sheet: (s) => <FileSpreadsheet size={s} className="of-ic-sheet" />,
+  slide: (s) => <Presentation size={s} className="of-ic-slide" />,
+  pdf: (s) => <FileType2 size={s} className="of-ic-pdf" />
+}
+/** what Claude's read tools get the file as: the editor's own OOXML export (a PDF's as .docx) */
+const READ_AS: Record<Kind, string> = { doc: 'DOCX', sheet: 'XLSX', slide: 'PPTX', pdf: 'DOCX' }
+const WHAT: Record<Kind, string> = { doc: 'document', sheet: 'spreadsheet', slide: 'presentation', pdf: 'PDF' }
 
 type OpenFile = {
   path: string
@@ -18,19 +33,22 @@ type OpenFile = {
   gen: number
   /** the editor's UI language, fixed when the file opens (changing it would reload the editor) */
   locale: string
+  /** made here: the editor starts empty, and the file is written once it is up */
+  create?: boolean
 }
 type Waiting = { resolve: (payload: Record<string, unknown>) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
 
 let seq = 0
 
 /**
- * Office tab → ONLYOFFICE: the full Word, Excel and PowerPoint editors (onlyoffice.rs downloads them
- * once and serves them from this machine). Each open file has its own editor iframe, driven through
- * the editor's embed API: the file's bytes go in with `document:open-buffer`; once edits stop,
- * `document:save` hands back the new file, written over the original (which is first copied to the
- * backup folder, as in Docs and Sheets).
+ * One workspace of the Office tab (Word, Excel, PowerPoint or PDF): the ONLYOFFICE editors
+ * (onlyoffice.rs downloads them once and serves them from this machine). Each open file has its
+ * own editor iframe, driven through the editor's embed API: the file's bytes go in with
+ * `document:open-buffer` (no bytes: a new, empty file); once edits stop, `document:save` hands back
+ * the new file, written over the original (which is first copied to the backup folder).
+ * Claude's read tools get the editor's current content the same way, as OOXML (ooxmlText.ts).
  */
-export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(function OnlyOfficeWorkspace({ shown, onFiles, onAdd }, ref) {
+export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps & { kind: Kind }>(function OnlyOfficeWorkspace({ kind, shown, onFiles, onAdd }, ref) {
   const [files, setFiles] = useState<OpenFile[]>([])
   const [active, setActive] = useState<string | null>(null)
   const [origin, setOrigin] = useState<string | null>(null)
@@ -67,22 +85,49 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
 
   /** the editor of `path` is up: give it the file */
   const load = async (path: string): Promise<void> => {
+    const create = filesRef.current.find((f) => f.path === path)?.create
     try {
-      const bytes = await window.api.office.readFile(path)
-      await call(path, 'document:open-buffer', { fileName: fileName(path), buffer: bytes, readonly: !!legacyTarget(path) }, 180_000, [bytes])
-      patch(path, { state: 'ready', error: undefined })
+      const bytes = create ? new ArrayBuffer(0) : await window.api.office.readFile(path)
+      await call(path, 'document:open-buffer', { fileName: fileName(path), buffer: bytes, readonly: readonlyOf(path) }, 180_000, [bytes])
+      patch(path, { state: 'ready', error: undefined, create: undefined })
+      if (create) {
+        auto.created(path)
+        void auto.saveNow(path).catch(() => {})
+      }
     } catch (err) {
       patch(path, { state: 'error', error: tr(`Could not open ${fileName(path)}: ${errText(err)}`, `Không mở được ${fileName(path)}: ${errText(err)}`) })
     }
   }
 
-  /** the file as the editor has it now, in `targetExt` (default: its own format) */
-  const exportFile = async (path: string, targetExt?: string): Promise<{ data: string; dirty: boolean }> => {
-    const p = await call(path, 'document:save', targetExt ? { targetExt } : {}, 300_000)
-    const out = p.file
-    if (!(out instanceof Blob) || out.size === 0) throw new Error(tr('ONLYOFFICE returned an empty file', 'ONLYOFFICE trả về file rỗng'))
-    return { data: toBase64(await out.arrayBuffer()), dirty: p.dirty === true }
+  /** the editor answers one export at a time: they wait for each other, per file */
+  const exporting = useRef(new Map<string, Promise<unknown>>())
+  const oneAtATime = <R,>(path: string, run: () => Promise<R>): Promise<R> => {
+    const p = (exporting.current.get(path) ?? Promise.resolve()).catch(() => {}).then(run)
+    exporting.current.set(path, p)
+    return p
   }
+  const save = (path: string, targetExt?: string): Promise<{ file: Blob; dirty: boolean }> =>
+    call(path, 'document:save', targetExt ? { targetExt } : {}, 300_000).then((p) => {
+      if (!(p.file instanceof Blob) || p.file.size === 0) throw new Error(tr('ONLYOFFICE returned an empty file', 'ONLYOFFICE trả về file rỗng'))
+      return { file: p.file, dirty: p.dirty === true }
+    })
+  /** the file as the editor has it now, in `targetExt` (default: its own format) */
+  const exportFile = (path: string, targetExt?: string): Promise<{ data: string; dirty: boolean }> =>
+    oneAtATime(path, async () => {
+      const { file, dirty } = await save(path, targetExt)
+      return { data: toBase64(await file.arrayBuffer()), dirty }
+    })
+  /** what Claude reads: the editor's content as OOXML (a read-only editor is opened up for the export) */
+  const snapshot = (path: string): Promise<ArrayBuffer> =>
+    oneAtATime(path, async () => {
+      const ro = readonlyOf(path)
+      if (ro) await call(path, 'document:set-readonly', { readonly: false }, 10_000)
+      try {
+        return await (await save(path, READ_AS[kind])).file.arrayBuffer()
+      } finally {
+        if (ro) await call(path, 'document:set-readonly', { readonly: true }, 10_000).catch(() => {})
+      }
+    })
 
   /** what was last written to each file (the same bytes are not written again) */
   const written = useRef(new Map<string, string>())
@@ -136,7 +181,8 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
       return
     }
     if (type === 'document:ready') void load(path)
-    else if (type === 'document:dirty-changed' && payload.dirty === true) auto.changed(path)
+    // a read-only file is never written (a PDF, a .doc / .xls / .ppt: their own format can't be)
+    else if (type === 'document:dirty-changed' && payload.dirty === true && !readonlyOf(path)) auto.changed(path)
   }
   const onMessageRef = useRef(onMessage)
   onMessageRef.current = onMessage
@@ -171,10 +217,12 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
   }
 
   const openPath = async (path: string, create?: boolean): Promise<void> => {
-    if (create) throw new Error(tr('ONLYOFFICE only opens existing files: create new documents / spreadsheets in Docs, Sheets', 'ONLYOFFICE chỉ mở file có sẵn: tạo tài liệu / bảng tính mới ở Docs, Sheets'))
     const open = filesRef.current.find((f) => samePath(f.path, path))
+    if (create && extOf(path) !== EXTS[kind][0])
+      throw new Error(kind === 'pdf' ? tr("Can't create a new PDF: only existing PDFs can be opened", 'Không tạo được PDF mới: chỉ mở PDF có sẵn') : tr(`New files are .${EXTS[kind][0]}`, `File mới là .${EXTS[kind][0]}`))
+    if (create && open) throw new Error(tr(`${fileName(path)} is open: close it first`, `${fileName(path)} đang mở: đóng nó trước`))
     if (!open) {
-      filesRef.current = [...filesRef.current, { path, dirty: false, state: 'loading', gen: 0, locale: tr('en', 'vi') }]
+      filesRef.current = [...filesRef.current, { path, dirty: false, state: 'loading', gen: 0, locale: tr('en', 'vi'), create }]
       setFiles(filesRef.current)
     }
     setActive(open?.path ?? path)
@@ -189,6 +237,7 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
       stopRecheck(path)
       written.current.delete(path)
       frames.current.delete(path)
+      exporting.current.delete(path)
       const i = filesRef.current.findIndex((x) => x.path === path)
       const rest = filesRef.current.filter((x) => x.path !== path)
       filesRef.current = rest
@@ -230,11 +279,40 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
       .finally(() => setBusy(false))
   }
 
+  /* ---------- Claude's read tools ---------- */
+  const tool = async (req: OfficeRequest): Promise<string> => {
+    const f = findOpen(filesRef.current, active, req.args.file, WHAT[kind])
+    // a file just opened (office_open) is read once its editor is up
+    await until(() => filesRef.current.find((x) => x.path === f.path)?.state !== 'loading', 100_000)
+    const now = filesRef.current.find((x) => x.path === f.path)
+    if (!now) throw new Error(`${f.path} was closed`)
+    if (now.state !== 'ready') throw new Error(now.error ?? `${fileName(f.path)} is still opening, try again`)
+    const z = await unzip(await snapshot(f.path))
+    const str = (k: string): string | undefined => (typeof req.args[k] === 'string' && req.args[k] ? (req.args[k] as string) : undefined)
+    switch (req.tool) {
+      case 'doc_read':
+        return (await docText(z)) || `${fileName(f.path)} has no text.`
+      case 'sheet_read':
+        return sheetText(z, str('sheet'), str('range'))
+      case 'slide_read': {
+        const slides = await slideTexts(z)
+        return [`${fileName(f.path)}: ${slides.length} slides`, ...pageList(str('slides'), slides.length).map((n) => `--- Slide ${n} ---\n${slides[n - 1] || '(no text)'}`)].join('\n')
+      }
+      case 'pdf_read': {
+        const pages = await pdfPages(z)
+        return [`${fileName(f.path)}: ${pages.length} pages`, ...pageList(str('pages'), pages.length).map((n) => `--- Page ${n} ---\n${pages[n - 1] || '(no text on this page: a scanned image?)'}`)].join('\n')
+      }
+    }
+    throw new Error(`unknown tool ${req.tool}`)
+  }
+
   useImperativeHandle(ref, () => ({
     open: openPath,
-    tool: () => Promise.reject(new Error('Claude cannot edit files open in ONLYOFFICE; open the file in Docs / Sheets instead')),
+    tool,
     status: () =>
-      filesRef.current.map((f) => `${f.path === active ? '[on screen] ' : ''}${f.path}${f.dirty ? ' (unsaved changes)' : ''}\n- open in the ONLYOFFICE editor (the doc_ / sheet_ tools cannot reach it)`)
+      filesRef.current.map(
+        (f) => `${f.path === active ? '[on screen] ' : ''}${f.path}${f.dirty ? ' (unsaved changes)' : ''}${readonlyOf(f.path) ? ' (read-only)' : ''}${f.state === 'loading' ? ' (opening…)' : f.state === 'error' ? ` (could not open: ${f.error})` : ''}`
+      )
   }))
 
   const t = useT()
@@ -243,19 +321,30 @@ export const OnlyOfficeWorkspace = forwardRef<Workspace, WorkspaceProps>(functio
   const failed = install && 'error' in install ? install.error : null
   return (
     <div className={'of-ws' + (shown ? ' on' : '')}>
-      <FileTabs files={files} active={active} icon={<FileStack size={13} className="of-ic-oo" />} onShow={setActive} onClose={close} onAdd={onAdd} addTitle={t('Open another file with ONLYOFFICE', 'Mở file khác bằng ONLYOFFICE')}>
+      <FileTabs
+        files={files}
+        active={active}
+        icon={KIND_ICON[kind](13)}
+        onShow={setActive}
+        onClose={close}
+        onAdd={onAdd}
+        addTitle={kind === 'pdf' ? t('Open another PDF', 'Mở PDF khác') : t('Open another file / create new', 'Mở file khác / tạo mới')}
+      >
         {busy && <Loader2 size={15} className="of-spin of-dim" />}
+        <button className="of-tool of-ai" title={t('Open a Claude chat that works on this file', 'Mở chat Claude làm việc với file này')} onClick={() => void newChatFromOfficeFile(file.path)}>
+          <Bot size={15} /> {t('Hand to AI', 'Giao cho AI')}
+        </button>
         {legacy ? (
           <button
             className="of-tool"
-            title={t(`The old .${file.path.split('.').pop()} format is view-only. Save a .${legacy} copy beside it to edit.`, `Định dạng cũ .${file.path.split('.').pop()} chỉ xem được. Lưu một bản .${legacy} cạnh nó để sửa.`)}
+            title={t(`The old .${extOf(file.path)} format is view-only. Save a .${legacy} copy beside it to edit.`, `Định dạng cũ .${extOf(file.path)} chỉ xem được. Lưu một bản .${legacy} cạnh nó để sửa.`)}
             disabled={busy || file.state !== 'ready'}
             onClick={() => convert(file.path, legacy)}
           >
             <FileOutput size={15} /> {t(`Save as .${legacy} to edit`, `Lưu thành .${legacy} để sửa`)}
           </button>
         ) : (
-          <SaveStatus dirty={file.dirty} s={auto.saveState[file.path]} note={note(t)} />
+          kind !== 'pdf' && <SaveStatus dirty={file.dirty} s={auto.saveState[file.path]} note={note(t)} />
         )}
       </FileTabs>
       {error && (
