@@ -32,7 +32,7 @@ import {
 } from 'lucide-react'
 import type { ExEntry, ExFound, ExHit, ExPlace } from '../../../shared/types'
 import { useStore } from '../store'
-import { openBrowser, openFile, openInOffice } from '../actions'
+import { openBrowser, openFile, openInOffice, setPcRevealer } from '../actions'
 import { IMAGE_RE, attachPaths, imagePreview } from '../attachments'
 import { openMenu } from './ContextMenu'
 import { FileIcon, FolderIcon } from './icons'
@@ -317,6 +317,17 @@ export function FileExplorerPane(): React.JSX.Element {
   const up = (): void => {
     if (path !== THIS_PC) go(parentOf(path), path)
   }
+  // a path shown from elsewhere (a terminal link, a "Reveal" menu): its folder, the file selected
+  useEffect(
+    () =>
+      setPcRevealer((p, isDir) => {
+        const to = norm(p)
+        setQuery('')
+        if (isDir) go(to)
+        else go(parentOf(to), to)
+      }),
+    [go]
+  )
   const canBack = hist.i > 0
   const canFwd = hist.i < hist.list.length - 1
 

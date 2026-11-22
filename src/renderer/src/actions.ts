@@ -96,6 +96,8 @@ onTerminalEvents({
     const chatId = st().chats.some((c) => c.id === id) ? id : st().activeChatId
     newBrowserTab(browserKey(chatId), url)
   },
+  // A file or folder path clicked in a terminal opens in This PC.
+  reveal: (path, isDir) => revealInApp(path, isDir),
   // A local dev server showing up in a chat's output becomes that chat's Web page.
   data: (id, data) => {
     const chat = st().chats.find((c) => c.id === id)
@@ -877,6 +879,28 @@ export function setOfficeOpener(fn: (path: string) => void): () => void {
   officeWaiting.splice(0).forEach(fn)
   return () => {
     if (officeOpener === fn) officeOpener = null
+  }
+}
+
+/* Showing a file or folder in Source code › This PC from elsewhere (a path clicked in a terminal, a
+   "Reveal" menu): a folder opens, a file is selected in its folder. This PC mounts on its first
+   visit: the path asked for before it's ready waits here. */
+let pcRevealer: ((path: string, isDir: boolean) => void) | null = null
+let pcWaiting: [string, boolean] | null = null
+
+export function revealInApp(path: string, isDir: boolean): void {
+  useStore.setState({ centerView: 'files' })
+  if (pcRevealer) pcRevealer(path, isDir)
+  else pcWaiting = [path, isDir]
+}
+
+/** This PC says how it shows a path; returns the undo. */
+export function setPcRevealer(fn: (path: string, isDir: boolean) => void): () => void {
+  pcRevealer = fn
+  if (pcWaiting) fn(...pcWaiting)
+  pcWaiting = null
+  return () => {
+    if (pcRevealer === fn) pcRevealer = null
   }
 }
 

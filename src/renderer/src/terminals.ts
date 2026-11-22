@@ -170,6 +170,7 @@ type TitleFn = (id: string, title: string) => void
 type ExitFn = (id: string, code: number) => void
 type DataFn = (id: string, data: string) => void
 type LinkFn = (id: string, url: string) => void
+type RevealFn = (path: string, isDir: boolean) => void
 
 const entries = new Map<string, Entry>()
 /** parked terminals still holding their WebGL renderer, oldest first */
@@ -206,7 +207,7 @@ export function setTermFontSize(size: number): void {
 }
 
 type InputFn = (id: string, data: string) => boolean
-const handlers: { activity?: ActivityFn; title?: TitleFn; exit?: ExitFn; data?: DataFn; link?: LinkFn; input?: InputFn } = {}
+const handlers: { activity?: ActivityFn; title?: TitleFn; exit?: ExitFn; data?: DataFn; link?: LinkFn; input?: InputFn; reveal?: RevealFn } = {}
 
 let parking: HTMLDivElement | null = null
 function parkingLot(): HTMLDivElement {
@@ -237,7 +238,7 @@ function wire(): void {
   })
 }
 
-export function onTerminalEvents(h: { activity?: ActivityFn; title?: TitleFn; exit?: ExitFn; data?: DataFn; link?: LinkFn; input?: InputFn }): void {
+export function onTerminalEvents(h: { activity?: ActivityFn; title?: TitleFn; exit?: ExitFn; data?: DataFn; link?: LinkFn; input?: InputFn; reveal?: RevealFn }): void {
   Object.assign(handlers, h)
 }
 
@@ -246,14 +247,14 @@ export function onTerminalEvents(h: { activity?: ActivityFn; title?: TitleFn; ex
 const PATH_RE = /[A-Za-z]:[\\/][^\s"'<>|*?:`]*/g
 const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|avif)$/i
 
-/** Show a path in File Explorer: a folder opens, a file is selected in its folder.
- *  A path cut short (e.g. at a space) falls back to the nearest folder that exists. */
+/** Show a path in the app's This PC (Windows File Explorer only without it): a folder opens, a file is
+ *  selected in its folder. A path cut short (e.g. at a space) falls back to the nearest folder that exists. */
 async function revealPath(path: string): Promise<void> {
   let p = path.replace(/\//g, '\\')
   for (;;) {
     const info = (await window.api.app.fileInfo([p]).catch(() => []))[0]
-    if (info?.dir) return void window.api.fs.openPath(p)
-    if (info && info.size >= 0) return void window.api.fs.reveal(p)
+    if (info?.dir) return void (handlers.reveal ? handlers.reveal(p, true) : window.api.fs.openPath(p))
+    if (info && info.size >= 0) return void (handlers.reveal ? handlers.reveal(p, false) : window.api.fs.reveal(p))
     const cut = p.lastIndexOf('\\')
     if (cut < 3) return
     p = p.slice(0, cut)
@@ -493,7 +494,7 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
   term.loadAddon(fit)
   // clicked links go to the app (a chat's own Web tab); external browser only as a fallback
   term.loadAddon(new WebLinksAddon((_e, url) => openLink(url)))
-  // Windows paths: images get a hover thumbnail + click to enlarge, anything else opens in File Explorer
+  // Windows paths: images get a hover thumbnail + click to enlarge, anything else opens in This PC
   term.registerLinkProvider({
     provideLinks(y, cb) {
       void findPathLinks(term, y).then((found) => {

@@ -2,7 +2,7 @@ import { Suspense, lazy, memo, useEffect, useLayoutEffect, useRef, useState } fr
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
 import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
-import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
+import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, revealInApp, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
 import { SlidePill } from './motion'
 import { openMenu } from './ContextMenu'
@@ -317,7 +317,7 @@ function tabMenu(e: React.MouseEvent, t: EditorTab): void {
     'sep',
     { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(t.path) },
     !!rel && { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(rel) },
-    { label: 'Reveal in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(t.path) }
+    { label: 'Reveal in This PC', icon: <FolderOpen size={14} />, action: () => revealInApp(t.path, false) }
   ])
 }
 

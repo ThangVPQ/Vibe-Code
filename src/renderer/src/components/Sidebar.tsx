@@ -51,6 +51,7 @@ import {
   refreshGit,
   renameChat,
   restartChat,
+  revealInApp,
   selectChat
 } from '../actions'
 import { hasUnsaved } from '../fileModelsLite'
@@ -636,8 +637,8 @@ function explorerMenu(e: React.MouseEvent, path: string, isDir: boolean, root: s
     },
     'sep',
     isDir
-      ? { label: 'Open folder in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.openPath(path) }
-      : { label: 'Reveal in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(path) },
+      ? { label: 'Open folder in This PC', icon: <FolderOpen size={14} />, action: () => revealInApp(path, true) }
+      : { label: 'Reveal in This PC', icon: <FolderOpen size={14} />, action: () => revealInApp(path, false) },
     { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(path) },
     { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(rel) }
   ])
@@ -768,7 +769,7 @@ function changeMenu(e: React.MouseEvent, f: GitFile, root: string): void {
     'sep',
     { label: 'Copy path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(f.abs) },
     { label: 'Copy relative path', icon: <Copy size={14} />, action: () => navigator.clipboard.writeText(f.rel) },
-    f.status !== 'D' && { label: 'Reveal in File Explorer', icon: <FolderOpen size={14} />, action: () => window.api.fs.reveal(f.abs) }
+    f.status !== 'D' && { label: 'Reveal in This PC', icon: <FolderOpen size={14} />, action: () => revealInApp(f.abs, false) }
   ])
 }
 
