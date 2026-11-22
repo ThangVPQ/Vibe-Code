@@ -6,6 +6,7 @@ import { DocsWorkspace } from './Docs'
 import { PdfWorkspace } from './Pdf'
 import { SheetsWorkspace } from './Sheets'
 import { type Kind, type Workspace, errText, fileName, folderOf, kindOf } from './officeShared'
+import { setOfficeOpener } from '../actions'
 import './office.css'
 
 type View = 'home' | Kind
@@ -114,6 +115,10 @@ export function OfficePane(): React.JSX.Element {
   }
   const toolRef = useRef(tool)
   toolRef.current = tool
+  // files opened from the File Explorer tab
+  const openRef = useRef(openFile)
+  openRef.current = openFile
+  useEffect(() => setOfficeOpener((path) => run(() => openRef.current(path))), [])
   useEffect(() => {
     let chain = Promise.resolve()
     const seen = new Set<number>()

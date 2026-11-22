@@ -48,6 +48,28 @@ export function removeAttachment(chatId: string, key: string): void {
   })
 }
 
+/** Empty the tray but keep the pictures alive: a queued message carries them, and may put them back. */
+export function holdAttachments(chatId: string): Attachment[] {
+  const items = attachmentsOf(chatId)
+  if (!items.length) return items
+  useAttachments.setState((s) => {
+    const byChat = { ...s.byChat }
+    delete byChat[chatId]
+    return { byChat }
+  })
+  return items
+}
+
+/** Held files back into the tray (a queued message taken back to the message box). */
+export function putBackAttachments(chatId: string, items: Attachment[]): void {
+  if (items.length) add(chatId, items)
+}
+
+/** Held files went out: let go of their pictures once nothing shows them any more. */
+export function releaseAttachments(items: Attachment[]): void {
+  if (items.length) setTimeout(() => items.forEach(release), 2000)
+}
+
 export function clearAttachments(chatId: string): void {
   useAttachments.setState((s) => {
     if (!s.byChat[chatId]) return s

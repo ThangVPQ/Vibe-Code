@@ -220,7 +220,8 @@ export function ClaudePanel(): React.JSX.Element {
               </div>
             )}
           </div>
-          <AttachmentTray chatId={active.id} />
+          {/* the Chat tab shows the tray itself, right above its message box */}
+          {tab !== 'chat' && <AttachmentTray chatId={active.id} />}
           <div className={`quick-bar${busy ? ' busy' : done ? ' done' : ''}`}>
             {active.status === 'working' && (
               <button

@@ -142,6 +142,8 @@ pub fn run() {
             windowing::win_set_mode,
             // files + git
             fsx::fs_read_dir,
+            fsx::fs_explore,
+            fsx::fs_places,
             fsx::fs_read_file,
             fsx::fs_write_file,
             fsx::fs_list_files,

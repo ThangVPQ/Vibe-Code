@@ -23,6 +23,8 @@ import type {
   DbObject,
   DbQueryResult,
   DirEntry,
+  ExEntry,
+  ExPlace,
   GitCommit,
   GitBranch,
   GitCommitFile,
@@ -250,6 +252,9 @@ export const api = {
   },
   fs: {
     readDir: (dir: string): Promise<DirEntry[]> => invoke('fs_read_dir', { dir }),
+    /** File Explorer tab: every item with size, date and hidden flag */
+    explore: (dir: string): Promise<ExEntry[]> => invoke('fs_explore', { dir }),
+    places: (): Promise<ExPlace[]> => invoke('fs_places'),
     readFile: (path: string): Promise<{ content: string; binary: boolean; tooLarge: boolean }> => invoke('fs_read_file', { path }),
     writeFile: (path: string, content: string): Promise<void> => invoke('fs_write_file', { path, content }),
     listFiles: (root: string): Promise<string[]> => invoke('fs_list_files', { root }),

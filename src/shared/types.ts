@@ -345,6 +345,8 @@ export type ChatItem =
       removed: number
       /** a Write / Edit's change as unified-diff lines ("@@ -a,b +c,d @@" hunk heads, then " ", "+", "-" lines) */
       diff?: string[]
+      /** pictures the tool returned (screenshots…), saved as files: their paths */
+      images?: string[]
       at: number
     }
   /** a turn ended (ms = how long it worked), or was interrupted (ms = 0) */
@@ -417,4 +419,27 @@ export interface ZaloTasksState {
   unseen?: Record<string, 'new' | 'updated'>
   /** a batch of incoming messages is waiting: goes to Claude at this time unless more arrive */
   dueAt?: number
+}
+
+/** A row of the File Explorer tab. */
+export interface ExEntry {
+  name: string
+  path: string
+  isDir: boolean
+  /** bytes (0 for folders) */
+  size: number
+  /** ms since 1970; 0 unknown */
+  modified: number
+  /** hidden or system item */
+  hidden: boolean
+}
+
+/** File Explorer's left column: the user's folders and the drives. */
+export interface ExPlace {
+  kind: 'home' | 'desktop' | 'documents' | 'downloads' | 'pictures' | 'videos' | 'music' | 'drive'
+  name: string
+  path: string
+  /** drives: bytes, 0 unknown */
+  total: number
+  free: number
 }

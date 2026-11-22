@@ -40,6 +40,129 @@ pub async fn fs_read_dir(dir: String) -> Res<Vec<DirEntry>> {
     Ok(out)
 }
 
+/// A row of the File Explorer tab: everything in the folder (hidden / system items flagged, not dropped).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+    size: u64,
+    /// ms since 1970; 0 unknown
+    modified: f64,
+    hidden: bool,
+}
+
+#[tauri::command]
+pub async fn fs_explore(dir: String) -> Res<Vec<ExEntry>> {
+    Ok(tokio::task::spawn_blocking(move || -> std::io::Result<Vec<ExEntry>> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(&dir)?.flatten() {
+            let Ok(meta) = e.metadata() else { continue };
+            // links and junctions: what they point at decides folder or file
+            let is_dir = if meta.file_type().is_symlink() { std::fs::metadata(e.path()).map(|m| m.is_dir()).unwrap_or(false) } else { meta.is_dir() };
+            let name = e.file_name().to_string_lossy().into_owned();
+            #[cfg(windows)]
+            let hidden = {
+                use std::os::windows::fs::MetadataExt;
+                meta.file_attributes() & 0x6 != 0 // HIDDEN | SYSTEM
+            };
+            #[cfg(not(windows))]
+            let hidden = name.starts_with('.');
+            let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_millis() as f64);
+            out.push(ExEntry { path: e.path().to_string_lossy().into_owned(), name, is_dir, size: if is_dir { 0 } else { meta.len() }, modified, hidden });
+        }
+        Ok(out)
+    })
+    .await??)
+}
+
+/// The File Explorer's left column: the user's folders and the drives.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Place {
+    /// home, desktop, documents, downloads, pictures, videos, music, drive
+    kind: &'static str,
+    name: String,
+    path: String,
+    /// drives: bytes, 0 unknown
+    total: u64,
+    free: u64,
+}
+
+#[tauri::command]
+pub async fn fs_places() -> Res<Vec<Place>> {
+    Ok(tokio::task::spawn_blocking(|| {
+        let mut out = Vec::new();
+        let folders: [(&'static str, &str, Option<PathBuf>); 7] = [
+            ("home", "Home", dirs::home_dir()),
+            ("desktop", "Desktop", dirs::desktop_dir()),
+            ("documents", "Documents", dirs::document_dir()),
+            ("downloads", "Downloads", dirs::download_dir()),
+            ("pictures", "Pictures", dirs::picture_dir()),
+            ("videos", "Videos", dirs::video_dir()),
+            ("music", "Music", dirs::audio_dir()),
+        ];
+        for (kind, name, path) in folders {
+            if let Some(p) = path.filter(|p| p.is_dir()) {
+                out.push(Place { kind, name: name.to_owned(), path: p.to_string_lossy().into_owned(), total: 0, free: 0 });
+            }
+        }
+        out.extend(drives());
+        out
+    })
+    .await?)
+}
+
+#[cfg(windows)]
+fn drives() -> Vec<Place> {
+    use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW};
+    use windows::core::HSTRING;
+    const REMOVABLE: u32 = 2;
+    const REMOTE: u32 = 4;
+    const CDROM: u32 = 5;
+    let mask = unsafe { GetLogicalDrives() };
+    let mut out = Vec::new();
+    for i in 0..26u8 {
+        if mask & (1 << i) == 0 {
+            continue;
+        }
+        let letter = (b'A' + i) as char;
+        let root = format!("{letter}:\\");
+        let h = HSTRING::from(root.as_str());
+        let kind = unsafe { GetDriveTypeW(&h) };
+        let mut label = [0u16; 261];
+        let mut total = 0u64;
+        let mut free = 0u64;
+        // network drives can hang when the server is gone: name only
+        let mounted = kind != REMOTE
+            && unsafe { GetVolumeInformationW(&h, Some(&mut label), None, None, None, None) }.is_ok();
+        if mounted {
+            let _ = unsafe { GetDiskFreeSpaceExW(&h, None, Some(&mut total), Some(&mut free)) };
+        } else if kind == CDROM || kind == REMOVABLE {
+            continue; // an empty card reader / disc drive
+        }
+        let label = String::from_utf16_lossy(&label[..label.iter().position(|&c| c == 0).unwrap_or(0)]);
+        let label = if !label.is_empty() {
+            label
+        } else {
+            match kind {
+                REMOVABLE => "USB Drive".into(),
+                REMOTE => "Network Drive".into(),
+                CDROM => "CD Drive".into(),
+                _ => "Local Disk".into(),
+            }
+        };
+        out.push(Place { kind: "drive", name: format!("{label} ({letter}:)"), path: root, total, free });
+    }
+    out
+}
+
+#[cfg(not(windows))]
+fn drives() -> Vec<Place> {
+    vec![Place { kind: "drive", name: "/".into(), path: "/".into(), total: 0, free: 0 }]
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileContent {

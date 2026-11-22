@@ -17,7 +17,16 @@ function iconFor(a: Attachment): React.JSX.Element {
 }
 
 /** Files waiting to go out with the next message: thumbnails / file cards, each removable. */
-export function AttachmentTray({ chatId }: { chatId: string }): React.JSX.Element | null {
+export function AttachmentTray({
+  chatId,
+  className,
+  refocus = () => focusTerm(chatId)
+}: {
+  chatId: string
+  className?: string
+  /** where the keyboard goes back to after removing a file (the terminal by default) */
+  refocus?: () => void
+}): React.JSX.Element | null {
   const items = useAttachments((s) => s.byChat[chatId] ?? EMPTY)
   const [zoom, setZoom] = useState<string | null>(null)
 
@@ -36,11 +45,11 @@ export function AttachmentTray({ chatId }: { chatId: string }): React.JSX.Elemen
   if (!items.length) return null
   const remove = (key: string): void => {
     removeAttachment(chatId, key)
-    focusTerm(chatId)
+    refocus()
   }
 
   return (
-    <div className="attach-tray">
+    <div className={className ? `attach-tray ${className}` : 'attach-tray'}>
       <div className="attach-head">
         <Paperclip size={12} />
         <span>
@@ -50,7 +59,7 @@ export function AttachmentTray({ chatId }: { chatId: string }): React.JSX.Elemen
           className="attach-clear"
           onClick={() => {
             clearAttachments(chatId)
-            focusTerm(chatId)
+            refocus()
           }}
         >
           Clear all

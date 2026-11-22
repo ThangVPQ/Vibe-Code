@@ -860,6 +860,26 @@ export function openFile(path: string): void {
   pushTab({ id: 'f:' + path.toLowerCase(), kind: 'file', path, title: basename(path), dirty: false })
 }
 
+/* Opening a .docx / .xlsx / .csv / .pdf in the Office tab from elsewhere (the File Explorer tab).
+   The Office tab mounts on its first visit: paths asked for before it's ready wait here. */
+let officeOpener: ((path: string) => void) | null = null
+const officeWaiting: string[] = []
+
+export function openInOffice(path: string): void {
+  useStore.setState({ centerView: 'office' })
+  if (officeOpener) officeOpener(path)
+  else officeWaiting.push(path)
+}
+
+/** The Office tab says how it opens files; returns the undo. */
+export function setOfficeOpener(fn: (path: string) => void): () => void {
+  officeOpener = fn
+  officeWaiting.splice(0).forEach(fn)
+  return () => {
+    if (officeOpener === fn) officeOpener = null
+  }
+}
+
 export const HOME_URL = 'about:blank'
 
 /** Browser key for the chat you're looking at — every chat keeps its own page. */

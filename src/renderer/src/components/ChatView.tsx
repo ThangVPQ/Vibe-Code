@@ -1,10 +1,14 @@
 import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronRight, CircleCheck, CircleDashed, CornerDownLeft, Loader, MessageSquare, Mic, Plus, SquareTerminal } from 'lucide-react'
+import { ArrowUp, ChevronRight, CircleCheck, CircleDashed, Clock, CornerDownLeft, Loader, MessageSquare, Mic, Paperclip, Plus, SquareTerminal, X } from 'lucide-react'
 import type { ChatItem, ChatLog, ChatTodo } from '../../../shared/types'
 import type { Chat } from '../store'
 import { menuShown, sendPrompt, takeFiles } from '../terminals'
 import { IMAGE_RE, imagePreview, pickAttachments } from '../attachments'
 import { openFile } from '../actions'
+import { AttachmentTray } from './AttachmentTray'
+import { queuePrompt, sendQueuedNow, unqueue, usePromptQueue, type QueuedPrompt } from '../promptQueue'
+
+const NO_QUEUE: QueuedPrompt[] = []
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
 
@@ -141,30 +145,123 @@ function withPaths(text: string, key: number | string = 0): React.ReactNode[] {
   return out
 }
 
-/** The pictures a message names, shown under it; click one to open it in Source code. */
-function Thumbs({ text }: { text: string }): React.JSX.Element | null {
-  const cwd = useContext(Cwd)
-  const paths = [...new Set([...text.matchAll(PATH_RE)].map((m) => filePath(m[0], cwd)).filter((p): p is string => !!p && IMAGE_RE.test(p)))]
-  const sig = paths.join('|')
-  const [srcs, setSrcs] = useState<{ path: string; src: string }[]>([])
+type Pic = { path: string; src: string }
+
+/** Pictures on disk, loaded (as data: URLs) for showing; the ones that can't be read are left out. */
+function usePics(paths: string[] | undefined): Pic[] {
+  const sig = paths?.join('|') ?? ''
+  const [pics, setPics] = useState<Pic[]>([])
   useEffect(() => {
     let live = true
     const list = sig ? sig.split('|') : []
     Promise.all(list.map((path) => imagePreview(path).then((src) => (src ? { path, src } : null)))).then(
-      (r) => live && setSrcs(r.filter((x): x is { path: string; src: string } => !!x))
+      (r) => live && setPics(r.filter((x): x is Pic => !!x))
     )
     return () => {
       live = false
     }
   }, [sig])
-  if (!srcs.length) return null
+  return pics
+}
+
+/** Small previews in a line (inside a row's header): they only show, the row does the clicking. */
+function MiniPics({ paths, max = 4 }: { paths: string[] | undefined; max?: number }): React.JSX.Element | null {
+  const pics = usePics(paths)
+  if (!pics.length) return null
   return (
-    <div className="cv-thumbs">
-      {srcs.map((s) => (
-        <button key={s.path} className="cv-thumb" title={`Open ${s.path} in Source code`} onClick={() => openFile(s.path)}>
-          <img src={s.src} alt="" draggable={false} />
+    <span className="cv-minipics">
+      {pics.slice(0, max).map((p) => (
+        <img key={p.path} src={p.src} alt="" draggable={false} />
+      ))}
+      {pics.length > max && <span className="cv-minipics-more">+{pics.length - max}</span>}
+    </span>
+  )
+}
+
+/** Pictures full width, one under the other; click one to see it at full size. */
+function BigPics({ paths }: { paths: string[] | undefined }): React.JSX.Element | null {
+  const pics = usePics(paths)
+  const [zoom, setZoom] = useState<string | null>(null)
+  if (!pics.length) return null
+  return (
+    <div className="cv-bigpics">
+      {pics.map((p) => (
+        <button key={p.path} className="cv-bigpic" title="Click to see it full size" onClick={() => setZoom(p.src)}>
+          <img src={p.src} alt="" draggable={false} />
         </button>
       ))}
+      {zoom && <Lightbox src={zoom} onClose={() => setZoom(null)} />}
+    </div>
+  )
+}
+
+function Lightbox({ src, onClose }: { src: string; onClose: () => void }): React.JSX.Element {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+  return (
+    <div className="image-lightbox" onClick={onClose}>
+      <img src={src} alt="" onClick={(e) => e.stopPropagation()} />
+      <button className="lb-btn lb-close" title="Close (Esc)" onClick={onClose}>
+        <X size={18} />
+      </button>
+    </div>
+  )
+}
+
+/** Small previews; click one to open it big right below (click again to fold it). */
+function Pics({ paths, end }: { paths: string[]; end?: boolean }): React.JSX.Element | null {
+  const pics = usePics(paths)
+  const [open, setOpen] = useState<string | null>(null)
+  const shown = pics.find((p) => p.path === open)
+  if (!pics.length) return null
+  return (
+    <div className={`cv-pics${end ? ' end' : ''}`}>
+      <div className="cv-thumbs">
+        {pics.map((p) => (
+          <button
+            key={p.path}
+            className={`cv-thumb${p.path === open ? ' on' : ''}`}
+            title={p.path === open ? 'Fold the picture' : 'Show the picture'}
+            onClick={() => setOpen(p.path === open ? null : p.path)}
+          >
+            <img src={p.src} alt="" draggable={false} />
+          </button>
+        ))}
+      </div>
+      {shown && <BigPics paths={[shown.path]} />}
+    </div>
+  )
+}
+
+/** The pictures a message names, shown under it as small previews. */
+function Thumbs({ text, end }: { text: string; end?: boolean }): React.JSX.Element | null {
+  const cwd = useContext(Cwd)
+  const paths = [...new Set([...text.matchAll(PATH_RE)].map((m) => filePath(m[0], cwd)).filter((p): p is string => !!p && IMAGE_RE.test(p)))]
+  return <Pics paths={paths} end={end} />
+}
+
+/** What I sent: the pictures in it show as pictures only — their paths are left out of the text. */
+function UserMessage({ text, cwd }: { text: string; cwd: string }): React.JSX.Element {
+  const shown = text
+    .replace(PATH_RE, (m) => {
+      const p = filePath(m, cwd)
+      return p && IMAGE_RE.test(p) ? '' : m
+    })
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+  return (
+    <div className="cv-user-wrap">
+      {shown && <div className="cv-user">{withPaths(shown)}</div>}
+      <Thumbs text={text} end />
     </div>
   )
 }
@@ -335,11 +432,14 @@ function ToolRow({ t }: { t: Tool }): React.JSX.Element {
           </span>
         )}
         {t.output === undefined && <Loader size={12} className="task-spin" />}
+        {!open && <MiniPics paths={t.images} />}
       </button>
       {open && (
         <div className="cv-tool-body">
           {t.detail && <pre className="task-out">{t.detail}</pre>}
-          {t.diff?.length && !t.error ? (
+          {t.images?.length ? (
+            <BigPics paths={t.images} />
+          ) : t.diff?.length && !t.error ? (
             <Diff lines={t.diff} />
           ) : (
             t.output !== undefined && <pre className="task-out">{t.output.trim() || 'No output.'}</pre>
@@ -384,6 +484,7 @@ function ToolGroup({ tools, live }: { tools: Tool[]; live: boolean }): React.JSX
   const added = tools.reduce((n, t) => n + t.added, 0)
   const removed = tools.reduce((n, t) => n + t.removed, 0)
   const running = live && tools.some((t) => t.output === undefined)
+  const images = tools.flatMap((t) => t.images ?? [])
   return (
     <div className="cv-group">
       <button className="cv-group-head" onClick={() => setOpen(!open)}>
@@ -392,6 +493,7 @@ function ToolGroup({ tools, live }: { tools: Tool[]; live: boolean }): React.JSX
         {added > 0 && <span className="cv-diff"><span className="add">+{added}</span></span>}
         {removed > 0 && <span className="cv-diff"><span className="del">−{removed}</span></span>}
         <ChevronRight size={13} className={open ? 'task-chev open' : 'task-chev'} />
+        {!open && <MiniPics paths={images} />}
       </button>
       {open && (
         <div className="cv-group-body">
@@ -469,12 +571,28 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
     box.current?.focus()
   }, [chat.id])
 
+  const queued = usePromptQueue((s) => s.byChat[chat.id] ?? NO_QUEUE)
   const send = (): void => {
     const text = draft.trim()
     if (!text || chat.status === 'exited' || chat.status === 'starting') return
-    sendPrompt(chat.id, text)
+    // Claude is busy: the message waits above the box (X takes it back, "Send now" sends it anyway)
+    if (working) queuePrompt(chat.id, text)
+    else sendPrompt(chat.id, text)
     setDraft('')
     stick.current = true
+  }
+  /** X on a waiting message: back into the box (before what's being typed), cursor at its end */
+  const takeBack = (id: string): void => {
+    const item = unqueue(chat.id, id)
+    if (!item) return
+    const next = draft.trim() ? `${item.text}\n${draft}` : item.text
+    setDraft(next)
+    requestAnimationFrame(() => {
+      const el = box.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(item.text.length, item.text.length)
+    })
   }
 
   const items = log?.items ?? []
@@ -504,10 +622,7 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
               {b.kind === 'todos' && log && <Todos todos={log.todos} />}
               {b.kind === 'tools' && <ToolGroup tools={b.tools} live={working && n === list.length - 1} />}
               {b.kind === 'item' && b.item.kind === 'user' && (
-                <div className="cv-user">
-                  {withPaths(b.item.text)}
-                  <Thumbs text={b.item.text} />
-                </div>
+                <UserMessage text={b.item.text} cwd={chat.cwd} />
               )}
               {b.kind === 'item' && b.item.kind === 'text' && (
                 <>
@@ -533,6 +648,30 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
             </div>
           )}
         </div>
+        {queued.length > 0 && (
+          <div className="cv-queue">
+            {queued.map((q) => (
+              <div key={q.id} className="cv-queued">
+                <Clock size={13} className="cv-queued-ic" />
+                <span className="cv-queued-text" title={q.text}>
+                  {q.text}
+                </span>
+                {q.files.length > 0 && (
+                  <span className="cv-queued-files" title={q.files.map((f) => f.path).join('\n')}>
+                    <Paperclip size={11} /> {q.files.length}
+                  </span>
+                )}
+                <button className="cv-queued-send" title="Send it now — Claude reads it while it works" onClick={() => sendQueuedNow(chat.id, q.id)}>
+                  <ArrowUp size={12} /> Send now
+                </button>
+                <button className="cv-queued-x" title="Take it back to the message box" onClick={() => takeBack(q.id)}>
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <AttachmentTray chatId={chat.id} className="cv-tray" refocus={() => box.current?.focus()} />
         <div className="cv-compose">
           <button
             className="cv-icon"

@@ -1,5 +1,5 @@
 import { Suspense, lazy, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FileText, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FileText, FolderOpen, FolderTree, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
@@ -11,6 +11,7 @@ import { EditorFontButton } from './EditorFont'
 // heavy parts load on first use: Monaco (~4 MB) only when a file or diff opens
 const FileEditor = lazy(() => import('./MonacoViews').then((m) => ({ default: m.FileEditor })))
 const DiffView = lazy(() => import('./MonacoViews').then((m) => ({ default: m.DiffView })))
+const FileExplorerPane = lazy(() => import('./FileExplorer').then((m) => ({ default: m.FileExplorerPane })))
 const DatabasePane = lazy(() => import('./Database').then((m) => ({ default: m.DatabasePane })))
 const ZaloPane = lazy(() => import('./Zalo').then((m) => ({ default: m.ZaloPane })))
 const GmailPane = lazy(() => import('./Gmail').then((m) => ({ default: m.GmailPane })))
@@ -25,11 +26,13 @@ export function EditorArea(): React.JSX.Element {
   const key = useStore((s) => browserKey(s.activeChatId))
   const browsers = useStore((s) => s.browsers)
   // the Database tab mounts on first visit, then stays (keeps its SQL, results and open tree)
+  const [filesSeen, setFilesSeen] = useState(view === 'files')
   const [dbSeen, setDbSeen] = useState(view === 'db')
   const [zaloSeen, setZaloSeen] = useState(view === 'zalo')
   const [gmailSeen, setGmailSeen] = useState(view === 'gmail')
   const [officeSeen, setOfficeSeen] = useState(view === 'office')
   useEffect(() => {
+    if (view === 'files') setFilesSeen(true)
     if (view === 'db') setDbSeen(true)
     if (view === 'zalo') setZaloSeen(true)
     if (view === 'gmail') setGmailSeen(true)
@@ -52,6 +55,9 @@ export function EditorArea(): React.JSX.Element {
         </button>
         <button role="tab" aria-selected={view === 'web'} className={view === 'web' ? 'on' : ''} onClick={() => openBrowser()}>
           <Globe size={14} /> <span className="center-label">Web</span>
+        </button>
+        <button role="tab" aria-selected={view === 'files'} className={view === 'files' ? 'on' : ''} title="Browse and read any file on this computer" onClick={() => useStore.setState({ centerView: 'files' })}>
+          <FolderTree size={14} /> <span className="center-label">File Explorer</span>
         </button>
         <button role="tab" aria-selected={view === 'db'} className={view === 'db' ? 'on' : ''} onClick={() => useStore.setState({ centerView: 'db' })}>
           <Database size={14} /> <span className="center-label">Database</span>
@@ -80,6 +86,13 @@ export function EditorArea(): React.JSX.Element {
         <CodeSide />
         <CodeArea />
       </div>
+      {filesSeen && (
+        <div className={`center-pane fx-host${view === 'files' ? ' on' : ''}`}>
+          <Suspense fallback={null}>
+            <FileExplorerPane />
+          </Suspense>
+        </div>
+      )}
       {dbSeen && (
         <div className={`center-pane db-host${view === 'db' ? ' on' : ''}`}>
           <Suspense fallback={null}>

@@ -5,7 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import type { PtySpawnOptions } from '../../shared/types'
-import { attachBlob, attachPaths, attachmentsOf, takeAttachments } from './attachments'
+import { attachBlob, attachPaths, attachmentsOf, takeAttachments, type Attachment } from './attachments'
 
 export const termTheme: ITheme = {
   // macOS dark: the system palette on a graphite background (same as --bg-term in styles.css)
@@ -459,93 +459,6 @@ async function showImageLightbox(path: string): Promise<void> {
   document.body.appendChild(box)
 }
 
-/* ---- pictures named on screen: a thumbnail at the right edge, next to the row with the path ---- */
-
-const thumbLayer = new WeakMap<Entry, HTMLDivElement>()
-const thumbTimer = new WeakMap<Entry, ReturnType<typeof setTimeout>>()
-const thumbRun = new WeakMap<Entry, number>()
-const IMAGE_WORD_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|avif)\b/i
-const THUMB_W = 160
-const THUMB_H = 96
-
-/** Output streams in constantly while Claude works: look again at most every 300 ms. */
-function scheduleThumbs(e: Entry): void {
-  if (thumbTimer.has(e) || e.el.parentElement === parking) return
-  thumbTimer.set(
-    e,
-    setTimeout(() => {
-      thumbTimer.delete(e)
-      void showThumbs(e)
-    }, 300)
-  )
-}
-
-async function showThumbs(e: Entry): Promise<void> {
-  const run = (thumbRun.get(e) ?? 0) + 1
-  thumbRun.set(e, run)
-  const screen = e.el.querySelector<HTMLElement>('.xterm-screen')
-  if (!screen || e.el.parentElement === parking) return
-  const b = e.term.buffer.active
-  const top = b.viewportY + 1
-  const bottom = b.viewportY + e.term.rows
-  // image paths on screen (a path seen from several of its rows counts once)
-  const found = new Map<string, { path: string; row: number }>()
-  for (let y = top; y <= bottom; y++) {
-    if (!IMAGE_WORD_RE.test(b.getLine(y - 1)?.translateToString(true) ?? '')) continue
-    for (const l of await findPathLinks(e.term, y)) {
-      if (!IMAGE_EXT_RE.test(l.path)) continue
-      const row = Math.max(top, Math.min(bottom, l.start.y)) - top
-      found.set(`${l.path}|${l.start.y}`, { path: l.path, row })
-    }
-  }
-  const shots = await Promise.all([...found.values()].map(async (f) => ({ ...f, src: await loadImage(f.path) })))
-  // something newer started meanwhile, or the chat went off screen
-  if (thumbRun.get(e) !== run || e.el.parentElement === parking) return
-
-  let layer = thumbLayer.get(e)
-  if (!layer || layer.parentElement !== screen) {
-    layer?.remove()
-    layer = document.createElement('div')
-    layer.className = 'term-thumbs'
-    screen.appendChild(layer)
-    thumbLayer.set(e, layer)
-  }
-  const cellH = screen.clientHeight / e.term.rows
-  const placed: { from: number; to: number }[] = []
-  const nodes: HTMLElement[] = []
-  for (const s of shots) {
-    if (!s.src) continue
-    // lower half of the screen: the picture rises from its row instead of hanging below it
-    const up = s.row > e.term.rows / 2
-    const from = up ? (s.row + 1) * cellH - THUMB_H : s.row * cellH
-    const to = from + THUMB_H
-    const slot = placed.filter((p) => p.from < to && p.to > from).length
-    placed.push({ from, to })
-    const btn = document.createElement('button')
-    btn.className = 'term-thumb'
-    btn.title = `${s.path} — click to enlarge`
-    btn.style.right = `${8 + slot * (THUMB_W + 6)}px`
-    if (up) btn.style.bottom = `${screen.clientHeight - (s.row + 1) * cellH}px`
-    else btn.style.top = `${s.row * cellH}px`
-    const img = document.createElement('img')
-    img.src = s.src
-    img.draggable = false
-    btn.appendChild(img)
-    const path = s.path
-    btn.addEventListener('mousedown', (ev) => ev.stopPropagation())
-    btn.addEventListener('click', (ev) => {
-      ev.stopPropagation()
-      void showImageLightbox(path)
-    })
-    nodes.push(btn)
-  }
-  // runs after every output chunk: touch the DOM only when something moved
-  const sig = nodes.map((n) => n.title + n.style.cssText).join('\n')
-  if (layer.dataset.sig === sig) return
-  layer.dataset.sig = sig
-  layer.replaceChildren(...nodes)
-}
-
 export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void {
   wire()
   if (entries.has(spawn.id)) return
@@ -705,10 +618,6 @@ export function createTerm(spawn: Omit<PtySpawnOptions, 'cols' | 'rows'>): void 
   // keep the footer cover on the right row when scrolling or resizing
   term.onScroll(() => scheduleFooterHide(entry))
   term.onResize(() => scheduleFooterHide(entry))
-  // pictures named on screen stay shown beside their path
-  term.onScroll(() => scheduleThumbs(entry))
-  term.onResize(() => scheduleThumbs(entry))
-  term.onWriteParsed(() => scheduleThumbs(entry))
 }
 
 function doFit(e: Entry): void {
@@ -769,7 +678,6 @@ export function attachTerm(id: string, container: HTMLElement, focus = true): vo
   // on screen: its output streams at full rate again
   window.api.pty.visible(id, true)
   scheduleFooterHide(e)
-  scheduleThumbs(e)
   const fresh = !e.spawned
   // An already-running chat gets its GPU renderer right away (its screen is full). A new one starts
   // empty, so the WebGL setup (GPU context, shaders, glyph atlas: the slowest part of opening a
@@ -898,10 +806,11 @@ export function writeToTerm(id: string, text: string): void {
 }
 
 /** The Chat view's message box: the text (and the tray's files) pasted into Claude's prompt, then Enter. */
-export function sendPrompt(id: string, text: string): void {
+/** Types a message into Claude's prompt and sends it, with the tray's files (or `files`: a queued message's own). */
+export function sendPrompt(id: string, text: string, files?: Attachment[]): void {
   const e = entries.get(id)
   if (!e) return
-  const paths = takeAttachments(id).map((a) => quotePath(a.path))
+  const paths = (files ?? takeAttachments(id)).map((a) => quotePath(a.path))
   e.term.paste([text, ...paths].join(' '))
   // a separate Enter, so Claude doesn't read it as part of the pasted block
   setTimeout(() => window.api.pty.write(id, '\r'), 120)

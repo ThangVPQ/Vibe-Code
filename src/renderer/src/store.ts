@@ -77,7 +77,7 @@ interface State {
   diffSideBySide: boolean
 
   /** middle area: the code editor or the built-in browser */
-  centerView: 'code' | 'web' | 'db' | 'zalo' | 'gmail' | 'office'
+  centerView: 'code' | 'web' | 'files' | 'db' | 'zalo' | 'gmail' | 'office'
   /** each chat has its own browser tabs: chat id ('_' with no chat open) → its tabs */
   browsers: Record<string, ChatBrowser>
   /** project folder (lower-cased, no trailing slash) → Claude runs it in bypass-permissions mode */

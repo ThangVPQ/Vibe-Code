@@ -1308,6 +1308,9 @@ pub enum ChatItem {
         /// a Write / Edit's change as unified-diff lines ("@@ -a,b +c,d @@" hunk heads, then " ", "+", "-" lines)
         #[serde(skip_serializing_if = "Vec::is_empty")]
         diff: Vec<String>,
+        /// pictures the tool returned (screenshots…), saved as files: their paths
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        images: Vec<String>,
         at: i64,
     },
     /// a turn ended ("Worked for 33s"), or was interrupted (ms = 0)
@@ -1374,6 +1377,33 @@ fn result_text(v: Option<&Value>) -> String {
             .join("\n"),
         _ => String::new(),
     }
+}
+
+/// The pictures in a tool_result (screenshots…), written once to temp files the Chat tab can show.
+fn result_images(tool_id: &str, v: Option<&Value>) -> Vec<String> {
+    let Some(Value::Array(a)) = v else { return Vec::new() };
+    let dir = std::env::temp_dir().join("vibe-tool-images");
+    let safe: String = tool_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').collect();
+    let mut out = Vec::new();
+    for (n, b) in a.iter().filter(|b| b.get("type").and_then(Value::as_str) == Some("image")).enumerate() {
+        let Some(src) = b.get("source") else { continue };
+        let Some(data) = src.get("data").and_then(Value::as_str) else { continue };
+        let ext = match src.get("media_type").and_then(Value::as_str).unwrap_or("image/png") {
+            "image/jpeg" => "jpg",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            _ => "png",
+        };
+        let file = dir.join(format!("{safe}-{n}.{ext}"));
+        if !file.exists() {
+            let Ok(bytes) = B64.decode(data) else { continue };
+            if fs::create_dir_all(&dir).is_err() || fs::write(&file, bytes).is_err() {
+                continue;
+            }
+        }
+        out.push(file.to_string_lossy().into_owned());
+    }
+    out
 }
 
 /// (label, detail) of a tool call.
@@ -1522,8 +1552,9 @@ impl LogScan {
                         continue;
                     }
                     let Some(&i) = self.tools.get(id) else { continue };
-                    if let ChatItem::Tool { output, error, added, removed, diff, .. } = &mut self.items[i] {
+                    if let ChatItem::Tool { output, error, added, removed, diff, images, .. } = &mut self.items[i] {
                         let out = result_text(b.get("content"));
+                        *images = result_images(id, b.get("content"));
                         *output = Some(clip(&ANSI_RE.replace_all(&out, ""), OUTPUT_KEEP));
                         *error = truthy(b.get("is_error"));
                         (*added, *removed) = diff_size(result);
@@ -1602,6 +1633,7 @@ impl LogScan {
                     added: 0,
                     removed: 0,
                     diff: Vec::new(),
+                    images: Vec::new(),
                     at,
                 });
             }

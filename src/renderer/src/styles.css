@@ -1710,6 +1710,18 @@ kbd {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* my message: the text bubble, its pictures as small previews under it (paths left out of the text) */
+.cv-user-wrap {
+  align-self: flex-end;
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.cv-user-wrap > .cv-user {
+  max-width: 100%;
+}
 .cv-note {
   font-size: 11.5px;
   color: var(--text-faint);
@@ -1725,28 +1737,107 @@ kbd {
   color: var(--accent-2);
   text-decoration-style: solid;
 }
+/* pictures in a message: small previews; one clicked opens big below them */
+.cv-pics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 100%;
+}
+.cv-pics.end {
+  align-items: flex-end;
+}
 .cv-thumbs {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
+}
+.cv-pics.end .cv-thumbs {
+  justify-content: flex-end;
 }
 .cv-thumb {
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 7px;
   overflow: hidden;
   background: var(--bg-term);
   cursor: pointer;
+  transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s;
 }
 .cv-thumb:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+.cv-thumb.on {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .cv-thumb img {
   display: block;
-  max-width: 240px;
-  max-height: 160px;
+  width: 64px;
+  height: 44px;
+  object-fit: cover;
+  object-position: top left;
+}
+/* tiny previews at the end of a folded tool line */
+.cv-minipics {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: 10px;
+}
+.cv-minipics img {
+  display: block;
+  width: 40px;
+  height: 26px;
+  object-fit: cover;
+  object-position: top left;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-term);
+}
+.cv-minipics-more {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.cv-group-head:has(.cv-minipics) {
+  width: 100%;
+}
+/* pictures opened big: as wide as the conversation allows */
+.cv-bigpics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 100%;
+  animation: cv-pic-in 0.18s ease-out;
+}
+@keyframes cv-pic-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.cv-bigpic {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg-term);
+  cursor: zoom-in;
+}
+.cv-pics.end .cv-bigpic {
+  align-self: flex-end;
+}
+.cv-bigpic img {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
   object-fit: contain;
+}
+.cv-tool-body .cv-bigpics {
+  margin: 4px 0 2px;
 }
 .cv-group-head,
 .cv-tool-head {
@@ -1915,6 +2006,78 @@ kbd {
 }
 .cv-asking span {
   flex: 1;
+}
+/* messages written while Claude works: they wait here, above the box */
+.cv-queue {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 12px 6px;
+}
+.cv-queued {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 6px 5px 11px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  background: var(--w-04);
+  font-size: 12.5px;
+  color: var(--text-2);
+  animation: attach-in 0.18s ease-out;
+}
+.cv-queued-ic {
+  flex: none;
+  color: var(--text-faint);
+}
+.cv-queued-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-queued-files {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.cv-queued-send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+}
+.cv-queued-send:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.cv-queued-x {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--text-dim);
+  transition: background 0.12s, color 0.12s;
+}
+.cv-queued-x:hover {
+  background: var(--w-0f);
+  color: var(--text);
 }
 .cv-compose {
   display: flex;
@@ -4524,6 +4687,10 @@ button.sb-item.sb-update:hover {
   border-top: 1px solid var(--w-07);
   animation: attach-in 0.18s ease-out;
 }
+/* in the Chat tab: sits right above the message box, lined up with it */
+.attach-tray.cv-tray {
+  padding: 8px 14px 4px;
+}
 @keyframes attach-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
@@ -5076,34 +5243,6 @@ button.sb-item.sb-update:hover {
 
 
 /* Image path hovered in a terminal: floating thumbnail */
-/* pictures named on the terminal screen, at the right edge beside their row */
-.term-thumbs {
-  position: absolute;
-  inset: 0;
-  z-index: 21;
-  pointer-events: none;
-  overflow: hidden;
-}
-.term-thumb {
-  position: absolute;
-  padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--bg-elev);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  cursor: zoom-in;
-  pointer-events: auto;
-}
-.term-thumb:hover {
-  border-color: var(--accent);
-}
-.term-thumb img {
-  display: block;
-  max-width: 160px;
-  max-height: 96px;
-  object-fit: contain;
-}
 .term-image-hover {
   position: fixed;
   z-index: 1001;
@@ -5345,12 +5484,12 @@ button.sb-item.sb-update:hover {
   }
 }
 
-/* Source code | Web | Database | Zalo: when they no longer fit, only the open tab keeps its label */
+/* the center tabs (Source code, Web, File Explorer…): when they no longer fit, only the open tab keeps its label */
 .center-switch {
   min-width: 0;
   container-type: inline-size;
 }
-@container (max-width: 440px) {
+@container (max-width: 560px) {
   .center-switch button:not(.on) .center-label {
     display: none;
   }
