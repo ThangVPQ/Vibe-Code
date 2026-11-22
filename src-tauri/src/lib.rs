@@ -11,6 +11,7 @@ mod browser;
 mod capture;
 mod desktop;
 mod extensions;
+mod fsearch;
 mod fsx;
 mod git;
 mod gmail;
@@ -154,6 +155,8 @@ pub fn run() {
             fsx::fs_copy,
             fsx::fs_trash,
             fsx::fs_create,
+            fsearch::fs_search,
+            fsearch::fs_search_forget,
             git::git_state,
             git::git_original,
             git::git_init,

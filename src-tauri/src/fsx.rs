@@ -163,6 +163,11 @@ fn drives() -> Vec<Place> {
     vec![Place { kind: "drive", name: "/".into(), path: "/".into(), total: 0, free: 0 }]
 }
 
+/// the drives searched from This PC: mounted, not on the network
+pub fn local_drives() -> Vec<PathBuf> {
+    drives().into_iter().filter(|d| d.total > 0).map(|d| PathBuf::from(d.path)).collect()
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileContent {

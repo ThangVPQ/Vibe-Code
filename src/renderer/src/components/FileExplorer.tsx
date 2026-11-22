@@ -30,7 +30,7 @@ import {
   X,
   FileText
 } from 'lucide-react'
-import type { ExEntry, ExPlace } from '../../../shared/types'
+import type { ExEntry, ExFound, ExHit, ExPlace } from '../../../shared/types'
 import { useStore } from '../store'
 import { openBrowser, openFile, openInOffice } from '../actions'
 import { IMAGE_RE, attachPaths, imagePreview } from '../attachments'
@@ -330,14 +330,50 @@ export function FileExplorerPane(): React.JSX.Element {
     if (el) el.scrollTop = scrollPos.current.get(keyOf(path)) ?? 0
   }, [path])
 
+  /* ---------- search: this folder and every folder below it (all drives from This PC) ---------- */
+  const q = query.trim()
+  const searching = !!q
+  const [found, setFound] = useState<ExFound | null>(null)
+  /** results best-first until a column header is clicked */
+  const [byRank, setByRank] = useState(true)
+  const [walked, setWalked] = useState(0)
+  const searchSeq = useRef(0)
+  /** a new search: an index older than a moment is walked again */
+  const fresh = useRef(true)
+  useEffect(() => {
+    const n = ++searchSeq.current
+    if (!q) {
+      setFound(null)
+      setByRank(true)
+      fresh.current = true
+      return
+    }
+    // one or two letters match half the disk: wait to see if another comes
+    const t = window.setTimeout(
+      () => {
+        void window.api.fs.search(path, q, showHidden, fresh.current).then((f) => n === searchSeq.current && setFound(f), () => {})
+        fresh.current = false
+      },
+      q.length < 3 ? 120 : 0
+    )
+    return () => window.clearTimeout(t)
+  }, [q, path, showHidden, walked])
+  // the walk found more: the same search again (only the new items get looked at)
+  useEffect(() => {
+    if (!searching) return
+    return window.api.fs.onSearchProgress((p) => keyOf(p.root) === keyOf(path) && setWalked((w) => w + 1))
+  }, [searching, path])
+  useLayoutEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0
+  }, [q])
+
   /* ---------- rows ---------- */
-  const rows = useMemo(() => {
+  const rows = useMemo((): ExEntry[] => {
+    if (searching) return byRank ? (found?.hits ?? []) : sortRows(found?.hits ?? [], sort)
     let list = entries ?? []
     if (!showHidden) list = list.filter((e) => !e.hidden)
-    const q = query.trim().toLowerCase()
-    if (q) list = list.filter((e) => e.name.toLowerCase().includes(q))
     return sortRows(list, sort)
-  }, [entries, showHidden, query, sort])
+  }, [entries, showHidden, searching, found, byRank, sort])
   const index = useMemo(() => new Map(rows.map((e, i) => [keyOf(e.path), i])), [rows])
 
   // select / rename what a navigation or a change asked for, once it's listed
@@ -357,6 +393,11 @@ export function FileExplorerPane(): React.JSX.Element {
   }, [entries, index])
 
   const setSort = (key: SortKey): void => {
+    if (searching && byRank) {
+      // the first click on a header leaves best-first for that column, in its usual direction
+      setByRank(false)
+      if (sort.key === key) return
+    }
     const next: Sort = sort.key === key ? { key, dir: sort.dir === 1 ? -1 : 1 } : { key, dir: key === 'modified' || key === 'size' ? -1 : 1 }
     setSortState(next)
     LS.set('vibe.fx.sort', JSON.stringify(next))
@@ -372,7 +413,7 @@ export function FileExplorerPane(): React.JSX.Element {
     setView({ top: el.scrollTop, h: el.clientHeight })
     return () => ro.disconnect()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path === THIS_PC])
+  }, [path === THIS_PC && !searching])
   const frame = useRef(0)
   const onScroll = (): void => {
     if (frame.current) return
@@ -414,6 +455,8 @@ export function FileExplorerPane(): React.JSX.Element {
   const refresh = (): void => {
     void load(path, true)
     if (path === THIS_PC) loadPlaces()
+    // a search on screen walks the folders again, so renamed and deleted items show as they are now
+    if (searching) void window.api.fs.searchForget().then(() => setWalked((w) => w + 1))
   }
   const selected = (): ExEntry[] => rows.filter((e) => sel.has(e.path))
   const remove = async (list: ExEntry[]): Promise<void> => {
@@ -776,8 +819,8 @@ export function FileExplorerPane(): React.JSX.Element {
             ref={searchRef}
             value={query}
             spellCheck={false}
-            placeholder={path === THIS_PC ? 'Search' : `Search ${nameOf(path)}`}
-            disabled={path === THIS_PC}
+            placeholder={path === THIS_PC ? 'Search This PC' : `Search ${nameOf(path)}`}
+            title="Searches every folder below this one. Accents and case don't matter; fe finds FileExplorer, *.pdf finds PDFs, a second word can be a folder name."
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
@@ -807,7 +850,7 @@ export function FileExplorerPane(): React.JSX.Element {
 
       <div className="fx-body">
         <div className="fx-main">
-          {path === THIS_PC ? (
+          {path === THIS_PC && !searching ? (
             <ThisPc places={places} onOpen={(p) => go(p)} />
           ) : (
             <>
@@ -822,7 +865,7 @@ export function FileExplorerPane(): React.JSX.Element {
                 ).map(([k, label]) => (
                   <button key={k} className={`fx-col fx-col-${k}${sort.key === k ? ' on' : ''}`} onClick={() => setSort(k)}>
                     <span>{label}</span>
-                    {sort.key === k && (sort.dir === 1 ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
+                    {sort.key === k && !(searching && byRank) && (sort.dir === 1 ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                   </button>
                 ))}
               </div>
@@ -852,9 +895,11 @@ export function FileExplorerPane(): React.JSX.Element {
                     />
                   ))}
                 </div>
-                {!rows.length && !loading && entries && (
+                {!rows.length && (searching ? found : !loading && entries) && (
                   <div className="fx-empty">
-                    {error ? (
+                    {searching ? (
+                      <span>{found?.done ? `No items match "${q}"` : 'Searching…'}</span>
+                    ) : error ? (
                       <>
                         <b>Can't open this folder</b>
                         <span>{error}</span>
@@ -862,8 +907,6 @@ export function FileExplorerPane(): React.JSX.Element {
                           <ArrowUp size={13} /> Go up
                         </button>
                       </>
-                    ) : query ? (
-                      <span>No items match "{query}"</span>
                     ) : (
                       <span>This folder is empty.</span>
                     )}
@@ -880,19 +923,31 @@ export function FileExplorerPane(): React.JSX.Element {
             </>
           )}
           <div className="fx-status">
-            {path === THIS_PC ? (
+            {path === THIS_PC && !searching ? (
               <span>{places.length} items</span>
             ) : (
               <>
-                <span>
-                  {rows.length.toLocaleString()} {rows.length === 1 ? 'item' : 'items'}
-                </span>
+                {searching ? (
+                  <span>
+                    {found ? `${found.total.toLocaleString()} ${found.total === 1 ? 'result' : 'results'}` : 'Searching…'}
+                    {found && found.total > found.hits.length ? ` · best ${found.hits.length.toLocaleString()} shown` : ''}
+                  </span>
+                ) : (
+                  <span>
+                    {rows.length.toLocaleString()} {rows.length === 1 ? 'item' : 'items'}
+                  </span>
+                )}
+                {searching && found && !found.done && (
+                  <span className="fx-status-dim">
+                    <RotateCw size={11} className="fx-spin" /> looking through {found.indexed.toLocaleString()} items…
+                  </span>
+                )}
                 {sel.size > 0 && (
                   <span>
                     {sel.size.toLocaleString()} selected{selSize > 0 ? ` · ${sizeText(selSize)}` : ''}
                   </span>
                 )}
-                {!showHidden && entries && entries.some((e) => e.hidden) && <span className="fx-status-dim">hidden items not shown</span>}
+                {!searching && !showHidden && entries && entries.some((e) => e.hidden) && <span className="fx-status-dim">hidden items not shown</span>}
               </>
             )}
             {note && <span className="fx-note">{note}</span>}
@@ -948,7 +1003,16 @@ const Row = memo(function Row({
     >
       <span className="fx-col-name">
         {e.isDir ? <FolderIcon open={false} size={16} /> : <FileIcon name={e.name} size={16} />}
-        {renaming ? <RenameInput value={e.name} stem={!e.isDir} onCommit={(next) => api.rename(e, next)} className="fx-rename" /> : <span className="fx-name">{e.name}</span>}
+        {renaming ? (
+          <RenameInput value={e.name} stem={!e.isDir} onCommit={(next) => api.rename(e, next)} className="fx-rename" />
+        ) : 'marks' in e ? (
+          <>
+            <span className="fx-name">{marked(e.name, (e as ExHit).marks)}</span>
+            {(e as ExHit).at && <span className="fx-at">{(e as ExHit).at}</span>}
+          </>
+        ) : (
+          <span className="fx-name">{e.name}</span>
+        )}
       </span>
       <span className="fx-col-modified">{dateText(e.modified)}</span>
       <span className="fx-col-type">{typeName(e)}</span>
@@ -956,6 +1020,22 @@ const Row = memo(function Row({
     </div>
   )
 })
+
+/** the name with the letters the search matched in bold (marks: [start, end) pairs of characters, maybe overlapping) */
+function marked(name: string, marks: number[]): React.ReactNode {
+  const chars = Array.from(name)
+  const on = new Array<boolean>(chars.length).fill(false)
+  for (let i = 0; i + 1 < marks.length; i += 2) for (let c = marks[i]; c < marks[i + 1] && c < chars.length; c++) on[c] = true
+  const out: React.ReactNode[] = []
+  let from = 0
+  for (let c = 1; c <= chars.length; c++) {
+    if (c < chars.length && on[c] === on[from]) continue
+    const text = chars.slice(from, c).join('')
+    out.push(on[from] ? <mark key={from}>{text}</mark> : text)
+    from = c
+  }
+  return out
+}
 
 /* ================================ address bar ================================ */
 

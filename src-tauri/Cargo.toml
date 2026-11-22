@@ -61,10 +61,11 @@ webview2-com = "0.39.1"
 opt-level = 2
 
 [profile.release]
-# fast builds over a fast/small exe: no LTO, parallel codegen, incremental rebuilds
+# fast builds over a small exe: no LTO, parallel codegen, incremental rebuilds;
+# the app's own code optimised too, so File Explorer search stays instant on millions of files
 codegen-units = 256
 lto = false
-opt-level = 0
+opt-level = 2
 incremental = true
 panic = "abort"
 strip = true

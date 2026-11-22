@@ -413,6 +413,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* search results: the letters that matched, and the folder the item is in */
+.fx-name mark {
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+.fx-name:has(+ .fx-at) {
+  flex: none;
+  max-width: 70%;
+}
+.fx-at {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.fx-status-dim .fx-spin {
+  vertical-align: -1px;
+  margin-right: 3px;
+}
 .fx-row .fx-col-modified,
 .fx-row .fx-col-type,
 .fx-row .fx-col-size {

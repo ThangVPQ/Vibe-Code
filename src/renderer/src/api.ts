@@ -24,6 +24,7 @@ import type {
   DbQueryResult,
   DirEntry,
   ExEntry,
+  ExFound,
   ExPlace,
   GitCommit,
   GitBranch,
@@ -255,6 +256,11 @@ export const api = {
     /** Source code › This PC: every item with size, date and hidden flag */
     explore: (dir: string): Promise<ExEntry[]> => invoke('fs_explore', { dir }),
     places: (): Promise<ExPlace[]> => invoke('fs_places'),
+    /** names in `root` and every folder below it ("" = all drives); `fresh` walks a stale index again */
+    search: (root: string, query: string, hidden: boolean, fresh: boolean): Promise<ExFound> => invoke('fs_search', { root, query, hidden, fresh }),
+    /** the next search walks the folders again */
+    searchForget: (): Promise<void> => invoke('fs_search_forget'),
+    onSearchProgress: (cb: (p: { root: string; indexed: number; done: boolean }) => void): Off => on('fs:search-progress', cb),
     readFile: (path: string): Promise<{ content: string; binary: boolean; tooLarge: boolean }> => invoke('fs_read_file', { path }),
     writeFile: (path: string, content: string): Promise<void> => invoke('fs_write_file', { path, content }),
     listFiles: (root: string): Promise<string[]> => invoke('fs_list_files', { root }),

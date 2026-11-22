@@ -438,6 +438,25 @@ export interface ExEntry {
   hidden: boolean
 }
 
+/** A search result of Source code › This PC. */
+export interface ExHit extends ExEntry {
+  /** the folder it's in, relative to where the search started ("" right there) */
+  at: string
+  /** matched characters of the name: [start, end) pairs */
+  marks: number[]
+}
+
+export interface ExFound {
+  /** the best ones, best first */
+  hits: ExHit[]
+  /** matches in all */
+  total: number
+  /** items walked so far */
+  indexed: number
+  /** the walk is over */
+  done: boolean
+}
+
 /** File Explorer's left column: the user's folders and the drives. */
 export interface ExPlace {
   kind: 'home' | 'desktop' | 'documents' | 'downloads' | 'pictures' | 'videos' | 'music' | 'drive'
