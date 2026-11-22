@@ -806,14 +806,16 @@ export function writeToTerm(id: string, text: string): void {
 }
 
 /** The Chat view's message box: the text (and the tray's files) pasted into Claude's prompt, then Enter. */
-/** Types a message into Claude's prompt and sends it, with the tray's files (or `files`: a queued message's own). */
-export function sendPrompt(id: string, text: string, files?: Attachment[]): void {
+/** Types a message into Claude's prompt and sends it, with the tray's files (or `files`: a queued message's own). Returns what it typed ('' if nothing). */
+export function sendPrompt(id: string, text: string, files?: Attachment[]): string {
   const e = entries.get(id)
-  if (!e) return
+  if (!e) return ''
   const paths = (files ?? takeAttachments(id)).map((a) => quotePath(a.path))
-  e.term.paste([text, ...paths].join(' '))
+  const typed = [text, ...paths].join(' ')
+  e.term.paste(typed)
   // a separate Enter, so Claude doesn't read it as part of the pasted block
   setTimeout(() => window.api.pty.write(id, '\r'), 120)
+  return typed
 }
 
 /** Claude is waiting on a numbered choice (permission prompt, plan approval…) only its terminal can answer. */

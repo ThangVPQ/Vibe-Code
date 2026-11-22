@@ -2,13 +2,14 @@ import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef
 import { ArrowUp, ChevronRight, CircleCheck, CircleDashed, Clock, CornerDownLeft, Loader, MessageSquare, Mic, Paperclip, Plus, SquareTerminal, X } from 'lucide-react'
 import type { ChatItem, ChatLog, ChatTodo } from '../../../shared/types'
 import type { Chat } from '../store'
-import { chatBoxFocus, menuShown, promptSuggestion, sendPrompt, takeFiles } from '../terminals'
+import { chatBoxFocus, menuShown, promptSuggestion, takeFiles } from '../terminals'
 import { IMAGE_RE, imagePreview, pickAttachments } from '../attachments'
 import { openFile } from '../actions'
 import { AttachmentTray } from './AttachmentTray'
-import { queuePrompt, sendQueuedNow, unqueue, usePromptQueue, type QueuedPrompt } from '../promptQueue'
+import { queuePrompt, sendMessage, sendQueuedNow, sentSeen, unqueue, usePromptQueue, useSentPrompts, type QueuedPrompt, type SentPrompt } from '../promptQueue'
 
 const NO_QUEUE: QueuedPrompt[] = []
+const NO_SENT: SentPrompt[] = []
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
 
@@ -252,7 +253,7 @@ function Thumbs({ text, end }: { text: string; end?: boolean }): React.JSX.Eleme
 }
 
 /** What I sent: the pictures in it show as pictures only — their paths are left out of the text. */
-function UserMessage({ text, cwd }: { text: string; cwd: string }): React.JSX.Element {
+function UserMessage({ text, cwd, sending }: { text: string; cwd: string; sending?: boolean }): React.JSX.Element {
   const shown = text
     .replace(PATH_RE, (m) => {
       const p = filePath(m, cwd)
@@ -262,7 +263,7 @@ function UserMessage({ text, cwd }: { text: string; cwd: string }): React.JSX.El
     .replace(/[ \t]+\n/g, '\n')
     .trim()
   return (
-    <div className="cv-user-wrap">
+    <div className={`cv-user-wrap${sending ? ' sending' : ''}`} title={sending ? 'Sent — Claude reads it as soon as it can' : undefined}>
       {shown && <div className="cv-user">{withPaths(shown)}</div>}
       <Thumbs text={text} end />
     </div>
@@ -540,6 +541,7 @@ function blocks(log: ChatLog): Block[] {
 /** The Chat tab: the conversation drawn from the transcript, and a message box that types into Claude's terminal. */
 export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => void }): React.JSX.Element {
   const log = useChatLog(chat.sessionId)
+  const sent = useSentPrompts((s) => s.byChat[chat.id] ?? NO_SENT)
   const working = chat.status === 'working'
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
@@ -572,7 +574,7 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
   useLayoutEffect(() => {
     const el = scroller.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [log, working, asking])
+  }, [log, working, asking, sent])
   useEffect(() => {
     stick.current = true
     const el = box.current
@@ -590,7 +592,7 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
     if (!text || chat.status === 'exited' || chat.status === 'starting') return
     // Claude is busy: the message waits above the box (X takes it back, "Send now" sends it anyway)
     if (working) queuePrompt(chat.id, text)
-    else sendPrompt(chat.id, text)
+    else sendMessage(chat.id, text)
     setDraft('')
     stick.current = true
   }
@@ -615,6 +617,14 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
   const turnStart = [...items].reverse().find((it) => it.kind === 'user' && !it.mid)
   const lastDone = items.findLastIndex((it) => it.kind === 'done') + (log?.skipped ?? 0)
   const list = log ? blocks(log) : []
+  // sent messages the transcript has caught up with: it writes each one down after it was typed, in order
+  const seen = sent.length ? items.filter((it) => it.kind === 'user' && it.at >= sent[0].at).length : 0
+  const sending = chat.status === 'exited' ? NO_SENT : sent.slice(seen)
+  useEffect(() => {
+    if (seen) sentSeen(chat.id, seen)
+  }, [chat.id, seen])
+  // a turn starts with a message sent while idle, even before the transcript has it
+  const startAt = sending.find((p) => !p.mid)?.at ?? turnStart?.at
 
   return (
     <Cwd.Provider value={chat.cwd}>
@@ -627,7 +637,7 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
             stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
           }}
         >
-          {!list.length && (
+          {!list.length && !sending.length && (
             <div className="chat-images-empty">
               <MessageSquare size={22} />
               <p>{log === undefined ? 'Loading…' : 'Send a message to start. Everything Claude does in this chat shows up here; the Terminal tab has the full screen.'}</p>
@@ -655,10 +665,13 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
               )}
             </Fragment>
           ))}
+          {sending.map((p) => (
+            <UserMessage key={`sent-${p.at}`} text={p.text} cwd={chat.cwd} sending />
+          ))}
           {working && (
             <div className="cv-working">
               <Loader size={13} className="task-spin" />
-              Working{turnStart ? ` · ${dur(Date.now() - turnStart.at)}` : '…'}
+              Working{startAt ? ` · ${dur(Date.now() - startAt)}` : '…'}
               {!!log?.turnOutTokens && <span title="Tokens Claude wrote in this turn">· ↓ {tokens(log.turnOutTokens)} tokens</span>}
               {!!log?.outTokens && <span className="cv-working-total" title="Tokens Claude wrote in this whole chat">· {tokens(log.outTokens)} in this chat</span>}
             </div>

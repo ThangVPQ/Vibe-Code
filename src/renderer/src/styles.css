@@ -1743,6 +1743,10 @@ kbd {
 .cv-user-wrap > .cv-user {
   max-width: 100%;
 }
+/* sent, not in the transcript yet */
+.cv-user-wrap.sending {
+  opacity: 0.65;
+}
 .cv-note {
   font-size: 11.5px;
   color: var(--text-faint);
@@ -5564,6 +5568,44 @@ button.sb-item.sb-update:hover {
 .code-side-switch button > svg,
 .code-side-switch .center-count {
   flex: none;
+}
+.code-side-switch .code-side-fold {
+  flex: none;
+  width: 26px;
+}
+/* Source code's column (project or This PC) folded to a strip: the switch stands up, icons only */
+.code-tree.folded,
+.fx-nav.folded {
+  width: 42px;
+  min-width: 0;
+}
+.code-tree.folded > :not(.code-side-switch),
+.fx-nav.folded > :not(.code-side-switch),
+.folded > .code-side-switch .code-side-label {
+  display: none;
+}
+.folded > .code-side-switch {
+  flex-direction: column;
+  padding: 6px 4px;
+  border-bottom: none;
+}
+.folded > .code-side-switch button {
+  flex: none;
+  width: 100%;
+  height: 30px;
+  position: relative;
+  overflow: visible;
+}
+.folded > .code-side-switch .code-side-fold {
+  order: -1;
+  margin-bottom: 6px;
+}
+.folded > .code-side-switch .center-count {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  padding: 0 4px;
+  font-size: 9.5px;
 }
 .empty-editor {
   min-width: 0;

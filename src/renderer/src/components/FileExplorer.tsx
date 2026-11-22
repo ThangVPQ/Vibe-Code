@@ -37,6 +37,7 @@ import { IMAGE_RE, attachPaths, imagePreview } from '../attachments'
 import { openMenu } from './ContextMenu'
 import { FileIcon, FolderIcon } from './icons'
 import { RenameInput, startRename, useRenaming } from './InlineRename'
+import { SourceSwitch } from './SourceSwitch'
 import './explorer.css'
 
 /* ================================ paths ================================ */
@@ -207,6 +208,7 @@ interface RowApi {
  */
 export function FileExplorerPane(): React.JSX.Element {
   const onScreen = useStore((s) => s.centerView === 'files')
+  const sourceFolded = useStore((s) => s.sourceFolded)
   const projectRoot = useStore((s) => s.root)
   const activeChatId = useStore((s) => s.activeChatId)
 
@@ -711,7 +713,8 @@ export function FileExplorerPane(): React.JSX.Element {
         if (e.button === 4 && canFwd) step(1)
       }}
     >
-      <nav className="fx-nav">
+      <nav className={`fx-nav${sourceFolded ? ' folded' : ''}`}>
+        <SourceSwitch />
         <div className="fx-places">
           <button className={`fx-place${path === THIS_PC ? ' on' : ''}`} onClick={() => go(THIS_PC)}>
             <Monitor size={15} className="fx-ic pc" />

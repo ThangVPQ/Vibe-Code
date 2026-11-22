@@ -65,6 +65,8 @@ interface State {
   quickOpenQuery: string
   /** left column of Source code */
   codeSide: 'files' | 'changes'
+  /** that column (and This PC's) folded to a strip of icons */
+  sourceFolded: boolean
 
   chats: Chat[]
   activeChatId: string | null
@@ -124,6 +126,7 @@ export const useStore = create<State>((set) => ({
   quickOpen: false,
   quickOpenQuery: '',
   codeSide: 'files',
+  sourceFolded: localStorage.getItem('vibe.sourceFolded') === '1',
 
   chats: [],
   activeChatId: null,

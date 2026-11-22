@@ -45,8 +45,41 @@ export function queuePrompt(chatId: string, text: string): void {
 export function sendQueuedNow(chatId: string, id: string): void {
   const item = take(chatId, id)
   if (!item) return
-  sendPrompt(chatId, item.text, item.files)
+  sendMessage(chatId, item.text, item.files)
   releaseAttachments(item.files)
+}
+
+/**
+ * Messages sent from the Chat tab that its transcript doesn't hold yet: the Chat view shows them at once
+ * (as the terminal does) instead of when Claude writes them down — which, for one sent mid-turn, is only
+ * when Claude gets to read it.
+ */
+export interface SentPrompt {
+  text: string
+  at: number
+  /** sent while Claude was working: it joins that turn */
+  mid: boolean
+}
+export const useSentPrompts = create<{ byChat: Record<string, SentPrompt[]> }>(() => ({ byChat: {} }))
+
+/** Type a message into Claude (with the tray's files, or `files`) and show it in the Chat view right away. */
+export function sendMessage(chatId: string, text: string, files?: Attachment[]): void {
+  const mid = useStore.getState().chats.find((c) => c.id === chatId)?.status === 'working'
+  const typed = sendPrompt(chatId, text, files)
+  if (!typed) return
+  const item = { text: typed, at: Date.now(), mid }
+  useSentPrompts.setState((s) => ({ byChat: { ...s.byChat, [chatId]: [...(s.byChat[chatId] ?? []), item] } }))
+}
+
+/** The transcript now holds the first `n` sent messages. */
+export function sentSeen(chatId: string, n: number): void {
+  useSentPrompts.setState((s) => {
+    const byChat = { ...s.byChat }
+    const rest = (byChat[chatId] ?? []).slice(n)
+    if (rest.length) byChat[chatId] = rest
+    else delete byChat[chatId]
+    return { byChat }
+  })
 }
 
 /** Take a parked message back (its files return to the tray); the text is the caller's to put back. */

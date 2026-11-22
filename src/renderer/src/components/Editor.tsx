@@ -1,5 +1,5 @@
 import { Suspense, lazy, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Monitor, Plus, Search } from 'lucide-react'
+import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
@@ -20,12 +20,17 @@ const OfficePane = lazy(() => import('./Office').then((m) => ({ default: m.Offic
 import type { ZaloTasksState } from '../../../shared/types'
 import { revealIn } from '../scroll'
 
-/** Middle area: fixed tabs — Source code (project files, diffs), This PC (any file on the computer), Web (built-in browser), Database, … */
+/** Middle area: fixed tabs — Source code (project files, diffs, and This PC: any file on the computer), Web (built-in browser), Database, … */
 export function EditorArea(): React.JSX.Element {
   const view = useStore((s) => s.centerView)
   const fileCount = useStore((s) => s.tabs.length)
   const key = useStore((s) => browserKey(s.activeChatId))
   const browsers = useStore((s) => s.browsers)
+  // Source code holds two views (the project / This PC): its tab brings back the one used last
+  const lastSource = useRef<'code' | 'files'>('code')
+  useEffect(() => {
+    if (view === 'code' || view === 'files') lastSource.current = view
+  }, [view])
   // the Database tab mounts on first visit, then stays (keeps its SQL, results and open tree)
   const [filesSeen, setFilesSeen] = useState(view === 'files')
   const [dbSeen, setDbSeen] = useState(view === 'db')
@@ -50,12 +55,15 @@ export function EditorArea(): React.JSX.Element {
     <div className="center-area">
       <div className="center-switch" role="tablist">
         <SlidePill />
-        <button role="tab" aria-selected={view === 'code'} className={view === 'code' ? 'on' : ''} title="Project files and Git changes" onClick={() => useStore.setState({ centerView: 'code' })}>
+        <button
+          role="tab"
+          aria-selected={view === 'code' || view === 'files'}
+          className={view === 'code' || view === 'files' ? 'on' : ''}
+          title="Project files, Git changes and This PC"
+          onClick={() => useStore.setState({ centerView: lastSource.current })}
+        >
           <Code2 size={14} /> <span className="center-label">Source code</span>
           {fileCount > 0 && <span className="center-count">{fileCount}</span>}
-        </button>
-        <button role="tab" aria-selected={view === 'files'} className={view === 'files' ? 'on' : ''} title="Browse and read any file on this computer" onClick={() => useStore.setState({ centerView: 'files' })}>
-          <Monitor size={14} /> <span className="center-label">This PC</span>
         </button>
         <button role="tab" aria-selected={view === 'web'} className={view === 'web' ? 'on' : ''} onClick={() => openBrowser()}>
           <Globe size={14} /> <span className="center-label">Web</span>
@@ -273,8 +281,9 @@ const CodeSide = memo(function CodeSide(): React.JSX.Element {
   // in the store: Ctrl+Shift+E / Ctrl+Shift+G switch it
   const side = useStore((s) => s.codeSide)
   const hasRoot = useStore((s) => !!s.root)
+  const folded = useStore((s) => s.sourceFolded)
   return (
-    <div className="sidebar code-tree">
+    <div className={`sidebar code-tree${folded ? ' folded' : ''}`}>
       <SourceSwitch />
       {hasRoot && (side === 'files' ? <ExplorerView /> : <ChangesView />)}
     </div>
