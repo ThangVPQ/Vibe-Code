@@ -210,7 +210,7 @@ export function ClaudePanel(): React.JSX.Element {
               }}
             >
               <Paperclip size={12} />
-              Attach files
+              <span className="chip-label">Attach files</span>
             </button>
             <button
               className="chip"
@@ -222,7 +222,7 @@ export function ClaudePanel(): React.JSX.Element {
               }}
             >
               <GitCommitHorizontal size={12} />
-              Commit + push
+              <span className="chip-label">Commit + push</span>
             </button>
             <button
               className="chip"
@@ -234,7 +234,7 @@ export function ClaudePanel(): React.JSX.Element {
               }}
             >
               <Download size={12} />
-              Pull
+              <span className="chip-label">Pull</span>
             </button>
             {agentDef(active.agent).id === 'claude' && <TokenButton chat={active} />}
             {agentDef(active.agent).id === 'claude' && window.api.platform === 'win32' && (
@@ -243,12 +243,12 @@ export function ClaudePanel(): React.JSX.Element {
                 title={
                   active.desktop
                     ? 'Claude can see and control the other apps on this computer in this chat. Click to turn it off.'
-                    : 'Let Claude see and control the other apps on this computer (mouse and keyboard) in this chat'
+                    : 'Let Claude see and control the other apps on this computer (mouse and keyboard) in this chat. The chat restarts (same conversation); new chats keep it on until you turn it off.'
                 }
                 onClick={() => void toggleDesktop(active.id)}
               >
                 <Monitor size={12} />
-                Desktop control
+                <span className="chip-label">Desktop control</span>
               </button>
             )}
           </div>
@@ -367,7 +367,7 @@ function TokenButton({ chat }: { chat: Chat }): React.JSX.Element {
         onClick={(e) => (open ? setOpen(false) : show(e.currentTarget))}
       >
         <Gauge size={12} />
-        Optimize tokens
+        <span className="chip-label">Optimize tokens</span>
         {saved.length > 0 && <span className="tok-count">{saved.length} off</span>}
       </button>
       {open && (

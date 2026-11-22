@@ -5008,3 +5008,29 @@ button.sb-item.sb-update:hover {
   border-radius: 4px;
   outline: none;
 }
+
+/* quick bar under the chat: icons only, the name slides out on hover */
+.quick-bar .chip {
+  gap: 0;
+  padding: 0 8px;
+}
+.quick-bar .chip-label {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width 0.2s var(--ios-ease), margin 0.2s var(--ios-ease), opacity 0.15s ease;
+}
+.quick-bar .chip:is(:hover, :focus-visible) .chip-label {
+  max-width: 160px;
+  margin-left: 5px;
+  opacity: 1;
+}
+.quick-bar .chip-stop {
+  gap: 5px;
+}
+.quick-bar .chip .tok-count {
+  margin-left: 5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .quick-bar .chip-label { transition: none; }
+}

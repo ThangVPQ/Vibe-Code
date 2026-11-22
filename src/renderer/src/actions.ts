@@ -523,6 +523,11 @@ export function newChat(opts: NewChatOpts = {}): void {
   }
   if (opts.draft) pendingDraft.set(chat.id, opts.draft)
   if (blank) blankChats.add(chat.id)
+  // desktop control stays on for new chats once turned on; set before the chat launches, which reads it
+  if (window.api.platform === 'win32' && remembered(DESKTOP_KEY, '')) {
+    chat.desktop = true
+    void window.api.desktop.set(chat.id, true)
+  }
   createTerm({ id: chat.id, cwd: chat.cwd, kind: 'claude', claudeArgs: args })
   useStore.setState((s) => ({ chats: [...s.chats, chat], activeChatId: chat.id, ...browserForNewChat(s, chat.id) }))
 }
@@ -567,6 +572,8 @@ const projectModelKey = (cwd: string): string => `${MODEL_KEY}:${folderKey(cwd)}
 const rememberedModel = (cwd: string): string | undefined =>
   remembered(projectModelKey(cwd), remembered(MODEL_KEY, NEW_CHAT_DEFAULTS.model) ?? '')
 const EFFORT_KEY = 'vibe.newChatEffort'
+/** '1': new Claude chats start with desktop control on (the Desktop control button's last choice) */
+const DESKTOP_KEY = 'vibe.desktopControl'
 const PERMISSION_KEY = 'vibe.newChatPermission'
 /** The value last picked in a chat's menu ('' = Claude Code's default), else the fallback. */
 function remembered(key: string, fallback: string): string | undefined {
@@ -614,17 +621,15 @@ export async function setDisabledTools(id: string, tools: string[]): Promise<voi
   if (c) restartChat(id)
 }
 
-/** Give this chat's Claude the vibe-desktop tools (or take them away), then restart it (same conversation). */
+/** Give this chat's Claude the vibe-desktop tools (or take them away) right away, then restart it (same conversation). New chats keep the choice. */
 export async function toggleDesktop(id: string): Promise<void> {
   const c = st().chats.find((x) => x.id === id)
   if (!c) return
   const on = !c.desktop
-  const msg = on
-    ? 'Let Claude control the other apps on this computer in this chat?\n\nIt can read their windows and use your real mouse and keyboard: click, type and press keys in them. It asks first before sending, deleting, paying or changing settings.\n\nThe chat restarts (same conversation). Off again when VIBE CODE restarts.'
-    : 'Turn off desktop control for this chat? The chat restarts (same conversation).'
-  if (!(await window.api.ask(msg))) return
+  if (c.status === 'working' && !(await window.api.ask('Claude is still working. Restart this chat to switch desktop control?'))) return
   await window.api.desktop.set(id, on)
   st().patchChat(id, { desktop: on || undefined })
+  remember(DESKTOP_KEY, on ? '1' : '')
   restartChat(id)
 }
 
@@ -817,11 +822,38 @@ export function toggleBottom(): void {
 
 /* ---------------- Editor tabs ---------------- */
 
+/** At most this many editor tabs stay open: past it, the one used longest ago closes (never one with unsaved edits). */
+const MAX_TABS = 5
+/** editor tab id → when it was last shown (a counter) */
+const tabUsed = new Map<string, number>()
+let tabClock = 0
+useStore.subscribe((s, prev) => {
+  if (s.activeTabId && s.activeTabId !== prev.activeTabId) tabUsed.set(s.activeTabId, ++tabClock)
+})
+
 function pushTab(tab: EditorTab): void {
   useStore.setState((s) => {
     if (s.tabs.some((t) => t.id === tab.id)) return { activeTabId: tab.id, centerView: 'code' }
     return { tabs: [...s.tabs, tab], activeTabId: tab.id, centerView: 'code' }
   })
+  trimTabs()
+}
+
+/** Closes the least recently used tabs beyond MAX_TABS; Ctrl+Shift+T brings them back. */
+function trimTabs(): void {
+  const { tabs, activeTabId } = st()
+  const spare = tabs
+    .filter((t) => t.id !== activeTabId && !(t.kind === 'file' && hasUnsaved(t.path)))
+    .sort((a, b) => (tabUsed.get(a.id) ?? 0) - (tabUsed.get(b.id) ?? 0))
+    .slice(0, Math.max(0, tabs.length - MAX_TABS))
+  if (!spare.length) return
+  for (const t of spare) {
+    if (t.kind === 'file') disposeModel(t.path)
+    tabUsed.delete(t.id)
+    closedTabs.push(t.kind === 'file' ? { ...t, dirty: false } : t)
+  }
+  closedTabs.splice(0, Math.max(0, closedTabs.length - 30))
+  useStore.setState((s) => ({ tabs: s.tabs.filter((t) => !spare.includes(t)) }))
 }
 
 export function openFile(path: string): void {
@@ -930,6 +962,7 @@ export async function closeTab(id: string): Promise<void> {
     if (hasUnsaved(tab.path) && !(await window.api.ask(`Discard unsaved changes to ${tab.title}?`))) return
     disposeModel(tab.path)
   }
+  tabUsed.delete(id)
   if (tab) {
     closedTabs.push(tab.kind === 'file' ? { ...tab, dirty: false } : tab)
     if (closedTabs.length > 30) closedTabs.shift()

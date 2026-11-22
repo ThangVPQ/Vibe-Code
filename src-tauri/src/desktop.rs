@@ -1,7 +1,7 @@
 //! Claude's tools for the other apps on the user's Windows desktop (MCP server "vibe-desktop").
 //!
-//! Off by default: a chat only gets this server once the user turns "Desktop control" on for it,
-//! and only until the app restarts. Windows are read through UI Automation (numbered controls,
+//! Off by default: a chat only gets this server once the user turns "Desktop control" on for it
+//! (the renderer remembers the choice for new chats). Windows are read through UI Automation (numbered controls,
 //! like browser_snapshot) and driven with the real mouse and keyboard (SendInput).
 
 use std::{collections::HashSet, sync::LazyLock};

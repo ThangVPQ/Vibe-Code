@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, us
 import { Bot, ChevronDown, ChevronUp, FileType2, Minus, PanelLeft, Plus, Search } from 'lucide-react'
 import { GlobalWorkerOptions, TextLayer, getDocument, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import 'pdfjs-dist/web/pdf_viewer.css'
+import './pdf-textlayer.css'
 import type { OfficeRequest } from '../../../shared/types'
 import { newChatFromOfficeFile } from '../actions'
 import { FileTabs, type Workspace, type WorkspaceProps, errText, fileName, findOpen, samePath } from './officeShared'
