@@ -57,7 +57,7 @@ impl Default for AppSettings {
     }
 }
 
-/// The Web tabs run uBlock Origin.
+/// The Web tabs run uBlock Origin Lite.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn ad_block() -> bool {
     CACHE.read().ad_block

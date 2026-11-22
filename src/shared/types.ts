@@ -282,6 +282,17 @@ export interface WebData {
   chromeFound: boolean
 }
 
+/** A browser extension in the Web tabs */
+export interface WebExtension {
+  id: string
+  name: string
+  enabled: boolean
+  /** the ad blocker: switched with the shield, not removable */
+  builtin: boolean
+  /** its settings page (chrome-extension://…), when it has one */
+  options?: string
+}
+
 export interface WebSuggestion {
   url: string
   title: string
@@ -312,6 +323,46 @@ export interface ChatFile {
   /** the last time Claude touched it */
   at: number
   exists: boolean
+}
+
+/** One thing in a chat's conversation, as the Chat view draws it */
+export type ChatItem =
+  | { kind: 'user'; text: string; at: number }
+  | { kind: 'text'; text: string; at: number }
+  | {
+      kind: 'tool'
+      id: string
+      name: string
+      /** one line: the command's description, the file, the pattern… */
+      label: string
+      /** the full command / prompt / input, when the label doesn't say it all */
+      detail: string
+      /** undefined while the tool runs */
+      output?: string
+      error: boolean
+      /** lines a Write / Edit added and removed */
+      added: number
+      removed: number
+      at: number
+    }
+  /** a turn ended (ms = how long it worked), or was interrupted (ms = 0) */
+  | { kind: 'done'; ms: number; at: number }
+
+export interface ChatTodo {
+  id: string
+  text: string
+  /** pending, in_progress, completed */
+  status: string
+}
+
+/** A chat's conversation: its last items, and Claude's to-do list as it stands now */
+export interface ChatLog {
+  items: ChatItem[]
+  todos: ChatTodo[]
+  /** the list is drawn before items[todosAt] (or at the end) */
+  todosAt: number
+  /** older items left out */
+  skipped: number
 }
 
 /** One item of the Zalo "Việc của tôi" checklist, summarised by Claude from messages sent to me. */

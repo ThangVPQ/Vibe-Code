@@ -738,7 +738,7 @@ const quotePath = (p: string): string => (/\s/.test(p) ? `"${p}"` : p)
  * Files from a drop / paste. A chat puts them in its attachment tray (clipboard pictures saved to
  * temp first); a plain shell just gets the paths typed in.
  */
-async function takeFiles(id: string, kind: PtySpawnOptions['kind'], files: File[]): Promise<void> {
+export async function takeFiles(id: string, kind: PtySpawnOptions['kind'], files: File[]): Promise<void> {
   // files copied in Explorer: the page only sees their bytes, the clipboard knows their paths
   const copied: string[] = await window.api.app.clipboardFiles().catch(() => [])
   if (copied.length) return takePaths(id, kind, copied)
@@ -803,6 +803,22 @@ export function copyFrom(id: string): void {
 
 export function writeToTerm(id: string, text: string): void {
   window.api.pty.write(id, text)
+}
+
+/** The Chat view's message box: the text (and the tray's files) pasted into Claude's prompt, then Enter. */
+export function sendPrompt(id: string, text: string): void {
+  const e = entries.get(id)
+  if (!e) return
+  const paths = takeAttachments(id).map((a) => quotePath(a.path))
+  e.term.paste([text, ...paths].join(' '))
+  // a separate Enter, so Claude doesn't read it as part of the pasted block
+  setTimeout(() => window.api.pty.write(id, '\r'), 120)
+}
+
+/** Claude is waiting on a numbered choice (permission prompt, plan approval…) only its terminal can answer. */
+export function menuShown(id: string): boolean {
+  const e = entries.get(id)
+  return !!e && menuOnScreen(e.term)
 }
 
 export function restartTerm(id: string, spawn?: Partial<Omit<PtySpawnOptions, 'cols' | 'rows'>>): void {

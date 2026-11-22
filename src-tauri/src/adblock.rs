@@ -1,4 +1,4 @@
-//! Ad blocking for the Web tabs: uBlock Origin (github.com/gorhill/uBlock), loaded into WebView2 as a
+//! Ad blocking for the Web tabs: uBlock Origin Lite (github.com/uBlockOrigin/uBOL-home), loaded into WebView2 as a
 //! browser extension. Its newest release is downloaded on first launch and again whenever a newer
 //! one is out; browser.rs adds it to the Web tabs' profile and turns it on / off with the setting.
 
@@ -9,12 +9,14 @@ use serde_json::Value;
 
 use crate::core::{command, user_data};
 
-const REPO: &str = "gorhill/uBlock";
+const REPO: &str = "uBlockOrigin/uBOL-home";
 /// Extension name in its manifest: how it is found again among the profile's extensions.
-pub const NAME: &str = "uBlock Origin";
+pub const NAME: &str = "uBlock Origin Lite";
+/// What earlier versions loaded (the full uBlock Origin): taken out of the profile.
+pub const OLD_NAME: &str = "uBlock Origin";
 
 fn root() -> PathBuf {
-    user_data().join("ublock")
+    user_data().join("ubol")
 }
 
 /// The release now on disk: (tag, unpacked extension folder).
@@ -77,7 +79,7 @@ pub async fn update() -> anyhow::Result<bool> {
     let _ = tokio::fs::remove_file(&file).await;
     if !out.status.success() || manifest_dir(&part).is_none() {
         let _ = tokio::fs::remove_dir_all(&part).await;
-        bail!("could not unpack uBlock Origin {tag}: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!("could not unpack {NAME} {tag}: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
     tokio::fs::rename(&part, &done).await?;
     // older releases: the profile may still have one loaded until the next launch, so a failed
@@ -87,6 +89,8 @@ pub async fn update() -> anyhow::Result<bool> {
             let _ = std::fs::remove_dir_all(d.path());
         }
     }
+    // the full uBlock Origin earlier versions downloaded
+    let _ = std::fs::remove_dir_all(user_data().join("ublock"));
     Ok(true)
 }
 

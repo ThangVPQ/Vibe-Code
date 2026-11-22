@@ -10,6 +10,7 @@ mod appcmds;
 mod browser;
 mod capture;
 mod desktop;
+mod extensions;
 mod fsx;
 mod git;
 mod gmail;
@@ -63,6 +64,10 @@ pub fn run() {
             browser::web_set_user_agent,
             browser::web_close,
             browser::web_adblock_status,
+            extensions::web_extensions,
+            extensions::web_extension_add,
+            extensions::web_extension_enable,
+            extensions::web_extension_remove,
             webdata::web_data,
             webdata::web_import_chrome,
             webdata::web_suggest,
@@ -74,6 +79,7 @@ pub fn run() {
             sessions::sessions_context,
             sessions::sessions_tasks,
             sessions::sessions_files,
+            sessions::sessions_log,
             sessions::sessions_delete,
             // SQL Server
             mssql::db_list,
@@ -185,7 +191,10 @@ pub fn run() {
             // before any chat starts: chats get the MCP server's address at launch
             tauri::async_runtime::block_on(mcp::start())?;
             windowing::init(app)?;
-            tauri::async_runtime::spawn(browser::start_adblock());
+            tauri::async_runtime::spawn(async {
+                browser::start_adblock().await;
+                extensions::install_defaults().await;
+            });
             zalo::init();
             zalo_tasks::init();
             Ok(())

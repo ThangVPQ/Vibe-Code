@@ -1525,9 +1525,9 @@ kbd {
   position: relative;
   flex: none;
   display: flex;
+  align-items: center;
   gap: 5px;
-  padding: 8px 10px 10px;
-  overflow-x: auto;
+  padding: 8px 10px 8px;
   border-top: 1px solid var(--w-07);
 }
 /* the chat is working: an indeterminate bar runs along the top edge */
@@ -1662,6 +1662,286 @@ kbd {
   font-size: 10.5px;
   color: var(--text-faint);
 }
+/* Chat tab: the conversation drawn from the transcript, tool calls folded into one line per run */
+.cv {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-term);
+}
+.cv-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  user-select: text;
+}
+.cv-scroll > * {
+  flex: none;
+}
+.cv-user {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cv-note {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.cv-group-head,
+.cv-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cv-group-head {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.cv-group-head:hover {
+  color: var(--text);
+}
+.cv-group-head .task-chev {
+  color: inherit;
+}
+.cv-group-body {
+  margin: 6px 0 0 2px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cv-tool-head {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.cv-tool-name {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.cv-tool.err .cv-tool-name {
+  color: var(--red);
+}
+.cv-tool-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-tool-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 6px 18px;
+}
+.cv-diff {
+  display: inline-flex;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.cv-diff .add {
+  color: var(--green);
+}
+.cv-diff .del {
+  color: var(--red);
+}
+.cv-todos {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-2);
+  font-size: 12.5px;
+}
+.cv-todo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+}
+.cv-todo > svg {
+  flex: none;
+}
+.cv-todo.s-in_progress {
+  color: var(--text);
+}
+.cv-todo.s-in_progress > svg {
+  color: var(--blue);
+}
+.cv-todo.s-completed > svg {
+  color: var(--green);
+}
+.cv-working {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.cv-asking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  font-size: 12.5px;
+}
+.cv-asking span {
+  flex: 1;
+}
+.cv-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin: 0 12px 8px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-2);
+}
+.cv-compose:focus-within {
+  border-color: var(--accent);
+}
+.cv-compose textarea {
+  flex: 1;
+  min-height: 22px;
+  max-height: 180px;
+  field-sizing: content;
+  resize: none;
+  padding: 3px 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.cv-send {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.cv-send:disabled {
+  background: var(--bg-active);
+  color: var(--text-faint);
+  cursor: default;
+}
+/* what Claude writes */
+.md {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  word-break: break-word;
+}
+.md p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.md code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--w-0c);
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: var(--accent-2);
+}
+.md a {
+  color: var(--accent-2);
+}
+.md-code {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-x: auto;
+}
+.md-h {
+  font-weight: 600;
+}
+.md-h1 {
+  font-size: 16px;
+}
+.md-h2 {
+  font-size: 14.5px;
+}
+.md-li {
+  position: relative;
+}
+.md-bullet {
+  position: absolute;
+  margin-left: -16px;
+  color: var(--text-faint);
+}
+.md blockquote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-dim);
+}
+.md hr {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.md-table {
+  overflow-x: auto;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.md th,
+.md td {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  background: var(--w-06);
+  font-weight: 600;
+}
 /* Files tab: what Claude changed / read in the chat (rows reuse .change-row) */
 .chat-files {
   flex: 1;
@@ -1713,14 +1993,12 @@ kbd {
   background: var(--accent-soft);
 }
 
-/* model / effort / permission pickers under the chat */
-.chat-statusbar {
-  flex: none;
+/* model / effort / permission pickers, right end of the bar under the chat */
+.sb-pickers {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 2px;
-  padding: 0 10px 8px;
+  margin-left: auto;
 }
 .sb-picker {
   position: relative;
@@ -2776,8 +3054,7 @@ button.sb-item.sb-update:hover {
 
 
 /* chat action buttons (replace typed commands) */
-.quick-bar .chip,
-.sb-actions .chip {
+.quick-bar .chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -3428,15 +3705,102 @@ button.sb-item.sb-update:hover {
   font-variant-numeric: tabular-nums;
 }
 
-/* one-click prompts (Run App / Publish BE), left side of the chat status bar */
-.sb-actions {
-  display: flex;
-  gap: 6px;
-  margin-right: auto;
+/* "…" under the chat: quick prompts, Git and chat switches, each with a line on what it does */
+.more-wrap {
+  position: relative;
 }
-.chip.sb-action:disabled {
+.quick-bar .more-btn {
+  position: relative;
+  padding: 0 7px;
+}
+.quick-bar .more-btn.open {
+  color: var(--accent-2);
+  border-color: #0a84ff55;
+  background: var(--accent-soft);
+}
+/* something is switched on in there (desktop control, tools off) */
+.more-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.more-menu {
+  left: 0;
+  right: auto;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.more-section + .more-section {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--w-0a);
+}
+.more-item {
+  display: flex;
+  width: 100%;
+  height: auto;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  white-space: normal;
+}
+.more-item:disabled {
   opacity: 0.45;
-  cursor: default;
+  pointer-events: none;
+}
+.more-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  height: 18px;
+  color: var(--text-dim);
+}
+.more-item:hover .more-icon {
+  color: var(--accent-2);
+}
+.more-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.more-item .tok-count {
+  align-self: center;
+}
+.more-switch {
+  flex: none;
+  align-self: center;
+  position: relative;
+  width: 26px;
+  height: 15px;
+  border-radius: 8px;
+  background: var(--bg-active);
+  transition: background 0.15s;
+}
+.more-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.more-switch.on {
+  background: var(--accent);
+}
+.more-switch.on::after {
+  transform: translateX(11px);
 }
 
 /* chat panel: Chat | Images tabs */
@@ -4927,8 +5291,7 @@ button.sb-item.sb-update:hover {
 }
 
 /* chat footer rows wrap instead of running off the edge */
-.quick-bar,
-.chat-statusbar {
+.quick-bar {
   flex-wrap: wrap;
   row-gap: 5px;
 }
@@ -5033,4 +5396,115 @@ button.sb-item.sb-update:hover {
 }
 @media (prefers-reduced-motion: reduce) {
   .quick-bar .chip-label { transition: none; }
+}
+
+/* Web tab: extensions menu under the puzzle button */
+.ext-menu {
+  position: fixed;
+  z-index: 30;
+  width: 340px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--glass-strong);
+  box-shadow: 0 10px 30px var(--shadow);
+  backdrop-filter: blur(14px);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.ext-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+.ext-row:hover {
+  background: var(--w-08);
+}
+.ext-row.off .ext-name,
+.ext-row.off .ext-icon {
+  opacity: 0.5;
+}
+.ext-icon {
+  flex: none;
+  color: var(--text-dim);
+}
+.ext-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ext-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--w-0c);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.ext-row .more-switch {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.ext-empty,
+.ext-note,
+.ext-error {
+  padding: 6px 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.ext-error {
+  color: var(--red);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ext-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 8px 4px;
+  border-top: 1px solid var(--w-0a);
+}
+.ext-add input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  outline: 0;
+}
+.ext-add input:focus {
+  border-color: var(--accent);
+}
+.ext-add .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ext-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 8px 0;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--accent-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ext-folder:disabled {
+  opacity: 0.5;
 }

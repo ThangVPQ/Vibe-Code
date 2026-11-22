@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, FileText, Gauge, Image as ImageIcon, ListChecks, MessageSquare, Monitor, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink } from 'lucide-react'
+import { Check, ChevronDown, FileText, Gauge, Image as ImageIcon, ListChecks, MessageSquare, Monitor, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink, Ellipsis, FlaskConical, ScanSearch, Shrink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -26,6 +26,7 @@ import { attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../term
 import { Logo, StatusDot, statusLabel } from './icons'
 import { ChatImages, useChatImages } from './ChatImages'
 import { ChatTasks, useChatTasks } from './ChatTasks'
+import { ChatView } from './ChatView'
 import { ChatFiles, useChatFiles } from './ChatFiles'
 import { ChatTitle, chatMenu } from './Sidebar'
 import { AttachmentTray } from './AttachmentTray'
@@ -70,11 +71,22 @@ export function TerminalView({ id, autoFocus = true }: { id: string; autoFocus?:
 /** One click: Claude commits everything and pushes, following our commit-message rules. */
 const COMMIT_PUSH =
   'Commit all current changes and push to the remote. Commit message rules: English, one short subject line only ' +
-  '(no body or description), and no Co-Authored-By or any other author/attribution trailer.\r'
+  '(no body or description), and no Co-Authored-By or any other author/attribution trailer.'
 
 const PULL =
   'Pull the latest code from the remote for the current branch (git pull). If there are local changes or conflicts, ' +
-  'keep my work safe and tell me what happened.\r'
+  'keep my work safe and tell me what happened.'
+
+const RUN_APP =
+  "Run this project's app the usual way for this project (backend and frontend if both are needed). Keep it running in the background, check that it responds, and give me the local URL."
+
+const RUN_TESTS = "Run this project's tests (if it has none, its build or type check) and tell me what fails and why. Don't change any files."
+
+const REVIEW =
+  "Review the uncommitted changes in this project for bugs, missed cases and leftovers. List what you find with file:line, most serious first. Don't change any files."
+
+const PUBLISH =
+  "Publish this project's backend: build it in Release and publish it the way this project is set up to (publish profile or script). Tell me where the output went and whether anything failed."
 
 export function ClaudePanel(): React.JSX.Element {
   // only the open chat: other chats' status / title changes don't re-render this panel
@@ -88,14 +100,32 @@ export function ClaudePanel(): React.JSX.Element {
   const runningTasks = tasks.filter((t) => t.status === 'running').length
   const files = useChatFiles(active?.sessionId)
   const changedFiles = files.filter((f) => f.action !== 'read').length
-  const [tab, setTab] = useState<'chat' | 'images' | 'files' | 'tasks'>('chat')
-  // another chat opens on its Chat tab
-  useEffect(() => setTab('chat'), [activeId])
-  // the terminal stays under Images / Files / Tasks, so it must not keep the keyboard
-  const leaveChat = (t: 'images' | 'files' | 'tasks'): void => {
+  const [tab, setTab] = useState<'chat' | 'terminal' | 'images' | 'files' | 'tasks'>('chat')
+  // Chat (drawn from Claude's transcript) or Terminal: the last one you picked; other agents only have the terminal
+  const [lastView, setLastView] = useState<'chat' | 'terminal'>('chat')
+  const hasChatView = !!active && agentDef(active.agent).id === 'claude'
+  const view = hasChatView ? lastView : 'terminal'
+  // another chat opens on that view
+  useEffect(() => {
+    setTab(view)
+    if (view === 'terminal' && activeId) setTimeout(() => focusTerm(activeId), 0)
+  }, [activeId])
+  // the terminal stays under the other tabs, so it must not keep the keyboard
+  const leaveTerminal = (t: 'chat' | 'images' | 'files' | 'tasks'): void => {
     const el = document.activeElement
     if (el instanceof HTMLElement && termFrame.current?.contains(el)) el.blur()
+    if (t === 'chat') setLastView('chat')
     setTab(t)
+  }
+  const showTerminal = (): void => {
+    setLastView('terminal')
+    setTab('terminal')
+    setTimeout(() => active && focusTerm(active.id), 0)
+  }
+  // a quick action: back to the conversation, keyboard in the terminal only when it shows
+  const backToView = (): void => {
+    setTab(view)
+    if (view === 'terminal' && active) focusTerm(active.id)
   }
   // switching chats: the new conversation eases in
   const termFrame = useRef<HTMLDivElement>(null)
@@ -145,24 +175,23 @@ export function ClaudePanel(): React.JSX.Element {
           </div>
           <div className="code-side-switch chat-tabs">
             <SlidePill />
-            <button
-              className={tab === 'chat' ? 'on' : ''}
-              onClick={() => {
-                setTab('chat')
-                setTimeout(() => focusTerm(active.id), 0)
-              }}
-            >
-              <MessageSquare size={13} /> Chat
+            {hasChatView && (
+              <button className={tab === 'chat' ? 'on' : ''} title="The conversation, with tool calls folded up" onClick={() => leaveTerminal('chat')}>
+                <MessageSquare size={13} /> Chat
+              </button>
+            )}
+            <button className={tab === 'terminal' ? 'on' : ''} title="Claude Code's own screen" onClick={showTerminal}>
+              <SquareTerminal size={13} /> Terminal
             </button>
-            <button className={tab === 'images' ? 'on' : ''} onClick={() => leaveChat('images')}>
+            <button className={tab === 'images' ? 'on' : ''} onClick={() => leaveTerminal('images')}>
               <ImageIcon size={13} /> Images
               {images.length > 0 && <span className="center-count">{images.length}</span>}
             </button>
-            <button className={tab === 'files' ? 'on' : ''} title="Files Claude created, edited or read in this chat" onClick={() => leaveChat('files')}>
+            <button className={tab === 'files' ? 'on' : ''} title="Files Claude created, edited or read in this chat" onClick={() => leaveTerminal('files')}>
               <FileText size={13} /> Files
               {changedFiles > 0 && <span className="center-count">{changedFiles}</span>}
             </button>
-            <button className={tab === 'tasks' ? 'on' : ''} title="Background tasks Claude started in this chat" onClick={() => leaveChat('tasks')}>
+            <button className={tab === 'tasks' ? 'on' : ''} title="Background tasks Claude started in this chat" onClick={() => leaveTerminal('tasks')}>
               <ListChecks size={13} /> Tasks
               {runningTasks > 0 ? <span className="center-count running">{runningTasks}</span> : tasks.length > 0 && <span className="center-count">{tasks.length}</span>}
             </button>
@@ -170,16 +199,24 @@ export function ClaudePanel(): React.JSX.Element {
           {/*
             The terminal stays mounted and laid out (only made invisible): display:none would reset
             xterm's scroll position to the top of the buffer and replay the enter animation on return.
-            Images / Tasks cover it instead.
+            Chat / Images / Files / Tasks cover it instead.
           */}
           <div className="term-frame" ref={termFrame}>
-            <div className="term-layer" style={tab === 'chat' ? undefined : { visibility: 'hidden' }}>
-              <TerminalView id={active.id} />
+            <div className="term-layer" style={tab === 'terminal' ? undefined : { visibility: 'hidden' }}>
+              <TerminalView id={active.id} autoFocus={false} />
             </div>
             <StartSkeleton show={active.status === 'starting'} />
-            {tab !== 'chat' && (
+            {tab !== 'terminal' && (
               <div className="chat-overlay">
-                {tab === 'images' ? <ChatImages images={images} /> : tab === 'files' ? <ChatFiles files={files} cwd={active.cwd} /> : <ChatTasks tasks={tasks} />}
+                {tab === 'chat' ? (
+                  <ChatView chat={active} onTerminal={showTerminal} />
+                ) : tab === 'images' ? (
+                  <ChatImages images={images} />
+                ) : tab === 'files' ? (
+                  <ChatFiles files={files} cwd={active.cwd} />
+                ) : (
+                  <ChatTasks tasks={tasks} />
+                )}
               </div>
             )}
           </div>
@@ -190,9 +227,8 @@ export function ClaudePanel(): React.JSX.Element {
                 className="chip chip-stop"
                 title="Stop what the AI is doing (Esc)"
                 onClick={() => {
-                  setTab('chat')
                   writeToTerm(active.id, '\x1b')
-                  focusTerm(active.id)
+                  backToView()
                 }}
               >
                 <Square size={10} fill="currentColor" />
@@ -204,55 +240,16 @@ export function ClaudePanel(): React.JSX.Element {
               title="Attach files — they go with your next message (you can also paste pictures or drag files onto the chat)"
               disabled={active.status === 'exited'}
               onClick={async () => {
-                setTab('chat')
                 await pickAttachments(active.id, active.cwd)
-                focusTerm(active.id)
+                backToView()
               }}
             >
               <Paperclip size={12} />
               <span className="chip-label">Attach files</span>
             </button>
-            <button
-              className="chip"
-              title="Ask Claude to commit all changes (English subject line, no description, no co-author) and push"
-              onClick={() => {
-                setTab('chat')
-                writeToTerm(active.id, COMMIT_PUSH)
-                focusTerm(active.id)
-              }}
-            >
-              <GitCommitHorizontal size={12} />
-              <span className="chip-label">Commit + push</span>
-            </button>
-            <button
-              className="chip"
-              title="Ask Claude to pull the latest code from the remote"
-              onClick={() => {
-                setTab('chat')
-                writeToTerm(active.id, PULL)
-                focusTerm(active.id)
-              }}
-            >
-              <Download size={12} />
-              <span className="chip-label">Pull</span>
-            </button>
-            {agentDef(active.agent).id === 'claude' && <TokenButton chat={active} />}
-            {agentDef(active.agent).id === 'claude' && window.api.platform === 'win32' && (
-              <button
-                className={`chip${active.desktop ? ' on' : ''}`}
-                title={
-                  active.desktop
-                    ? 'Claude can see and control the other apps on this computer in this chat. Click to turn it off.'
-                    : 'Let Claude see and control the other apps on this computer (mouse and keyboard) in this chat. The chat restarts (same conversation); new chats keep it on until you turn it off.'
-                }
-                onClick={() => void toggleDesktop(active.id)}
-              >
-                <Monitor size={12} />
-                <span className="chip-label">Desktop control</span>
-              </button>
-            )}
+            <MoreMenu chat={active} onDone={backToView} />
+            <ChatPickers chat={active} />
           </div>
-          <ChatStatusBar chat={active} />
           {agentDef(active.agent).id === 'claude' && <ContextBar chat={active} />}
         </>
       )}
@@ -310,13 +307,108 @@ function BypassProjectButton({ chat }: { chat: Chat }): React.JSX.Element {
 /** Tools Claude can't do much without: turning them off is allowed, but flagged. */
 const CORE_TOOLS = new Set(['Bash', 'PowerShell', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'ToolSearch', 'Skill'])
 
-/** Pick tools to take out of Claude chats: their definitions stop filling the context. */
-function TokenButton({ chat }: { chat: Chat }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+/** Pick tools to take out of Claude chats: their definitions stop filling the context. Opened from More. */
+function TokenMenu({ chat, at, onClose }: { chat: Chat; at: { left: number; bottom: number }; onClose: () => void }): React.JSX.Element {
+  const saved = disabledTools()
   const [tools, setTools] = useState<{ name: string; tokens: number }[]>([])
-  const [off, setOff] = useState<Set<string>>(new Set())
-  const [pos, setPos] = useState({ left: 0, bottom: 0 })
+  const [off, setOff] = useState<Set<string>>(() => new Set(saved))
   const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (chat.sessionId)
+      window.api.sessions
+        .context(chat.sessionId)
+        .then((c) => setTools(c?.tools ?? []))
+        .catch(() => {})
+  }, [chat.sessionId])
+  useEffect(() => {
+    const close = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) onClose()
+    }
+    const esc = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', esc)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', esc)
+    }
+  }, [onClose])
+
+  // tools already off aren't in the chat's requests any more: listed after the rest, size unknown
+  const rows = [...tools, ...saved.filter((n) => !tools.some((t) => t.name === n)).map((name) => ({ name, tokens: 0 }))]
+  const saving = tools.filter((t) => off.has(t.name)).reduce((n, t) => n + t.tokens, 0)
+  const changed = off.size !== saved.length || saved.some((n) => !off.has(n))
+  const fmt = (n: number): string => (n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`)
+  const toggle = (name: string): void =>
+    setOff((s) => {
+      const next = new Set(s)
+      if (!next.delete(name)) next.add(name)
+      return next
+    })
+
+  return (
+    <div className="tok-menu" ref={ref} style={{ left: at.left, bottom: at.bottom }} role="menu">
+      <div className="sb-menu-title">Tick the tools to turn off (all Claude chats)</div>
+      <div className="tok-list">
+        {rows.length === 0 && <div className="tok-empty">{chat.sessionId ? 'Loading…' : 'Send a message first to see the tools.'}</div>}
+        {rows.map((t) => (
+          <label key={t.name} className={`tok-row${off.has(t.name) ? ' on' : ''}`}>
+            <input type="checkbox" checked={off.has(t.name)} onChange={() => toggle(t.name)} />
+            <span className="tok-name">{t.name}</span>
+            {CORE_TOOLS.has(t.name) && <span className="tok-core" title="Claude relies on this tool for everyday work">core</span>}
+            <span className="tok-size">{t.tokens ? fmt(t.tokens) : 'off'}</span>
+          </label>
+        ))}
+      </div>
+      <div className="tok-foot">
+        <span>{saving > 0 ? `Saves ~${fmt(saving)} tokens` : ''}</span>
+        <button
+          className="btn btn-primary btn-sm"
+          disabled={!changed}
+          onClick={() => {
+            onClose()
+            setDisabledTools(chat.id, [...off])
+          }}
+        >
+          Apply & restart chat
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface MoreItem {
+  key: string
+  icon: React.JSX.Element
+  label: string
+  hint: string
+  run: () => void
+  /** a switch: drawn on or off */
+  on?: boolean
+  badge?: string
+}
+
+/** Claude's last answer (every text of its last turn), from the transcript. */
+async function lastReply(sessionId: string | undefined): Promise<string> {
+  const log = sessionId ? await window.api.sessions.log(sessionId).catch(() => null) : null
+  const items = log?.items ?? []
+  const texts: string[] = []
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]
+    if (it.kind === 'user') break
+    if (it.kind === 'text') texts.unshift(it.text)
+  }
+  return texts.join('\n\n')
+}
+
+/** "…": the one-click prompts and chat switches, each with what it does, out of the conversation's way. */
+function MoreMenu({ chat, onDone }: { chat: Chat; onDone: () => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [tokensAt, setTokensAt] = useState<{ left: number; bottom: number } | null>(null)
+  const [copied, setCopied] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  const btn = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     if (!open) return
     const close = (e: MouseEvent): void => {
@@ -333,72 +425,118 @@ function TokenButton({ chat }: { chat: Chat }): React.JSX.Element {
     }
   }, [open])
 
-  const saved = disabledTools()
-  const show = (btn: HTMLElement): void => {
-    // fixed, not inside the quick bar: that one scrolls sideways and would clip the menu
-    const r = btn.getBoundingClientRect()
-    setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 328)), bottom: window.innerHeight - r.top + 6 })
-    setOff(new Set(saved))
-    setTools([])
-    if (chat.sessionId)
-      window.api.sessions
-        .context(chat.sessionId)
-        .then((c) => setTools(c?.tools ?? []))
-        .catch(() => {})
-    setOpen(true)
-  }
-  // tools already off aren't in the chat's requests any more: listed after the rest, size unknown
-  const rows = [...tools, ...saved.filter((n) => !tools.some((t) => t.name === n)).map((name) => ({ name, tokens: 0 }))]
-  const saving = tools.filter((t) => off.has(t.name)).reduce((n, t) => n + t.tokens, 0)
-  const changed = off.size !== saved.length || saved.some((n) => !off.has(n))
-  const fmt = (n: number): string => (n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`)
-  const toggle = (name: string): void =>
-    setOff((s) => {
-      const next = new Set(s)
-      if (!next.delete(name)) next.add(name)
-      return next
-    })
+  const exited = chat.status === 'exited'
+  const isClaude = agentDef(chat.agent).id === 'claude'
+  const off = disabledTools().length
+  const ask =
+    (prompt: string, confirm = ''): (() => void) =>
+    async () => {
+      setOpen(false)
+      if (confirm && !(await window.api.ask(confirm))) return
+      sendPrompt(chat.id, prompt)
+      onDone()
+    }
+  const sections: { title: string; items: (MoreItem | false)[] }[] = [
+    {
+      title: 'Ask the AI',
+      items: [
+        { key: 'continue', icon: <FastForward size={14} />, label: 'Continue', hint: 'Pick up where it stopped', run: ask('continue') },
+        { key: 'run', icon: <Play size={14} />, label: 'Run app', hint: 'Start the project and give the local URL', run: ask(RUN_APP) },
+        { key: 'test', icon: <FlaskConical size={14} />, label: 'Run tests', hint: 'Tests (or build) and what fails, no edits', run: ask(RUN_TESTS) },
+        { key: 'review', icon: <ScanSearch size={14} />, label: 'Review changes', hint: 'Look over uncommitted code for bugs, no edits', run: ask(REVIEW) },
+        {
+          key: 'publish',
+          icon: <Upload size={14} />,
+          label: 'Publish backend',
+          hint: 'Release build, published the way the project is set up',
+          run: ask(PUBLISH, 'Ask the AI to publish the backend of this project now?')
+        }
+      ]
+    },
+    {
+      title: 'Git',
+      items: [
+        { key: 'commit', icon: <GitCommitHorizontal size={14} />, label: 'Commit + push', hint: 'One English subject line, no co-author', run: ask(COMMIT_PUSH) },
+        { key: 'pull', icon: <Download size={14} />, label: 'Pull', hint: 'Get the latest code, keep local work safe', run: ask(PULL) }
+      ]
+    },
+    {
+      title: 'This chat',
+      items: [
+        isClaude && {
+          key: 'copy',
+          icon: <Copy size={14} />,
+          label: 'Copy last reply',
+          hint: copied || "Claude's last answer, as markdown",
+          run: async () => {
+            const text = await lastReply(chat.sessionId)
+            if (text) await navigator.clipboard.writeText(text)
+            setCopied(text ? 'Copied' : 'No reply yet')
+            setTimeout(() => {
+              setCopied('')
+              setOpen(false)
+            }, 700)
+          }
+        },
+        isClaude && { key: 'compact', icon: <Shrink size={14} />, label: 'Compact context', hint: 'Summarise the chat to free up context (/compact)', run: ask('/compact') },
+        isClaude && {
+          key: 'tokens',
+          icon: <Gauge size={14} />,
+          label: 'Optimize tokens',
+          hint: "Turn off tools you don't use",
+          badge: off ? `${off} off` : undefined,
+          run: () => {
+            const r = btn.current!.getBoundingClientRect()
+            setOpen(false)
+            setTokensAt({ left: Math.max(8, Math.min(r.left, window.innerWidth - 328)), bottom: window.innerHeight - r.top + 6 })
+          }
+        },
+        isClaude &&
+          window.api.platform === 'win32' && {
+            key: 'desktop',
+            icon: <Monitor size={14} />,
+            label: 'Desktop control',
+            hint: 'See and use your other apps (restarts the chat)',
+            on: !!chat.desktop,
+            run: () => {
+              setOpen(false)
+              void toggleDesktop(chat.id)
+            }
+          }
+      ]
+    }
+  ]
 
   return (
-    <div className="tok-wrap" ref={ref}>
-      <button
-        className={`chip${saved.length ? ' on' : ''}`}
-        title="Turn off tools you don't use, so their definitions stop taking up the context"
-        onClick={(e) => (open ? setOpen(false) : show(e.currentTarget))}
-      >
-        <Gauge size={12} />
-        <span className="chip-label">Optimize tokens</span>
-        {saved.length > 0 && <span className="tok-count">{saved.length} off</span>}
+    <div className="more-wrap" ref={ref}>
+      <button ref={btn} className={`chip more-btn${open ? ' open' : ''}`} title="More: quick prompts, Git, tokens, desktop control" onClick={() => setOpen(!open)}>
+        <Ellipsis size={14} />
+        {(chat.desktop || off > 0) && <i className="more-dot" />}
       </button>
       {open && (
-        <div className="tok-menu" style={{ left: pos.left, bottom: pos.bottom }} role="menu">
-          <div className="sb-menu-title">Tick the tools to turn off (all Claude chats)</div>
-          <div className="tok-list">
-            {rows.length === 0 && <div className="tok-empty">{chat.sessionId ? 'Loading…' : 'Send a message first to see the tools.'}</div>}
-            {rows.map((t) => (
-              <label key={t.name} className={`tok-row${off.has(t.name) ? ' on' : ''}`}>
-                <input type="checkbox" checked={off.has(t.name)} onChange={() => toggle(t.name)} />
-                <span className="tok-name">{t.name}</span>
-                {CORE_TOOLS.has(t.name) && <span className="tok-core" title="Claude relies on this tool for everyday work">core</span>}
-                <span className="tok-size">{t.tokens ? fmt(t.tokens) : 'off'}</span>
-              </label>
-            ))}
-          </div>
-          <div className="tok-foot">
-            <span>{saving > 0 ? `Saves ~${fmt(saving)} tokens` : ''}</span>
-            <button
-              className="btn btn-primary btn-sm"
-              disabled={!changed}
-              onClick={() => {
-                setOpen(false)
-                setDisabledTools(chat.id, [...off])
-              }}
-            >
-              Apply & restart chat
-            </button>
-          </div>
+        <div className="sb-menu more-menu" role="menu">
+          {sections.map((s) => (
+            <div key={s.title} className="more-section">
+              <div className="sb-menu-title">{s.title}</div>
+              {s.items.map(
+                (it) =>
+                  it && (
+                    <button key={it.key} role="menuitem" className="sb-item more-item" disabled={exited && it.key !== 'copy'} onClick={it.run}>
+                      <span className="more-icon">{it.icon}</span>
+                      <span className="more-text">
+                        <span>{it.label}</span>
+                        <span className="sb-item-hint">{it.hint}</span>
+                      </span>
+                      {it.badge && <span className="tok-count">{it.badge}</span>}
+                      {it.on !== undefined && <span className={`more-switch${it.on ? ' on' : ''}`} />}
+                    </button>
+                  )
+              )}
+            </div>
+          ))}
         </div>
       )}
+      {tokensAt && <TokenMenu chat={chat} at={tokensAt} onClose={() => setTokensAt(null)} />}
     </div>
   )
 }
@@ -435,68 +573,20 @@ const MODES: Opt[] = [
   { value: 'bypassPermissions', label: 'Bypass permissions', hint: 'No prompts at all' }
 ]
 
-/** One-click prompts for the chat's project. */
-const ACTIONS = [
-  {
-    key: 'continue',
-    label: 'Continue',
-    icon: <FastForward size={12} />,
-    title: 'Tell Claude to continue where it stopped',
-    prompt: 'continue',
-    confirm: ''
-  },
-  {
-    key: 'run',
-    label: 'Run App',
-    icon: <Play size={12} />,
-    title: 'Ask Claude to start this project and give you the local URL',
-    prompt:
-      "Run this project's app the usual way for this project (backend and frontend if both are needed). Keep it running in the background, check that it responds, and give me the local URL.",
-    confirm: ''
-  },
-  {
-    key: 'publish',
-    label: 'Publish BE',
-    icon: <Upload size={12} />,
-    title: 'Ask Claude to build and publish the backend',
-    prompt:
-      "Publish this project's backend: build it in Release and publish it the way this project is set up to (publish profile or script). Tell me where the output went and whether anything failed.",
-    confirm: 'Ask Claude to publish the backend of this project now?'
-  }
-]
-
+/** Typed into the chat's prompt, then Enter on its own so it isn't read as part of a pasted block. */
 function sendPrompt(id: string, text: string): void {
   writeToTerm(id, text)
-  // a separate Enter, so Claude doesn't read it as part of a pasted block
   setTimeout(() => writeToTerm(id, '\r'), 150)
-  focusTerm(id)
 }
 
-function ChatStatusBar({ chat }: { chat: Chat }): React.JSX.Element {
-  const exited = chat.status === 'exited'
+/** Model / effort / permission mode, at the right of the bar under the chat. */
+function ChatPickers({ chat }: { chat: Chat }): React.JSX.Element {
   const agent = agentDef(chat.agent)
   const isClaude = agent.id === 'claude'
   // other agents: only "ask" vs their own never-ask flag (Codex --dangerously-bypass…, Gemini --yolo…)
   const modes = isClaude ? MODES : agent.yolo.length ? MODES.filter((m) => !m.value || m.value === 'bypassPermissions') : []
   return (
-    <div className="chat-statusbar">
-      <div className="sb-actions">
-        {ACTIONS.map((a) => (
-          <button
-            key={a.key}
-            className="chip sb-action"
-            title={exited ? 'This chat has ended — restart it first' : `${a.label} — ${a.title}`}
-            aria-label={a.label}
-            disabled={exited}
-            onClick={async () => {
-              if (a.confirm && !(await window.api.ask(a.confirm))) return
-              sendPrompt(chat.id, a.prompt)
-            }}
-          >
-            {a.icon}
-          </button>
-        ))}
-      </div>
+    <div className="sb-pickers">
       {isClaude && <Picker title="Model" options={MODELS} value={chat.model ?? ''} onPick={(v) => setChatModel(chat.id, v)} />}
       {isClaude && <Picker title="Effort" options={EFFORTS} value={chat.effort ?? ''} onPick={(v) => setChatEffort(chat.id, v)} />}
       {modes.length > 0 && (

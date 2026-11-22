@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ExternalLink, Laptop, Maximize, Monitor, RotateCw, Eraser, Search, ShieldCheck, ShieldOff, Shuffle, Smartphone, Star, Tablet, X } from 'lucide-react'
 import type { WebSuggestion } from '../../../shared/types'
 import { BookmarkBar } from './BrowserBookmarks'
+import { ExtensionsButton } from './BrowserExtensions'
 import { useStore } from '../store'
-import { HOME_URL, setBrowserUrl } from '../actions'
+import { HOME_URL, newBrowserTab, setBrowserUrl } from '../actions'
 import { SlidePill } from './motion'
 
 /** transitions that never move anything (a slide or scale can move the page, so those still count) */
@@ -59,7 +60,7 @@ function savedDevice(): string {
  * Anything drawn over the page area (menus, dialogs, lightboxes, address suggestions). The page
  * itself is a native view stacked above the app's HTML, so it steps aside while one is open.
  */
-const OVERLAYS = '.overlay, .menu, .ctx-menu, .ctx-pop, .image-lightbox, .term-image-hover, .bm-menu, .browser-sugg, .zl-ctx'
+const OVERLAYS = '.overlay, .menu, .ctx-menu, .ctx-pop, .image-lightbox, .term-image-hover, .bm-menu, .browser-sugg, .zl-ctx, .ext-menu'
 
 const overlaps = (a: DOMRect, b: DOMRect): boolean => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
 
@@ -373,6 +374,14 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
           >
             {adBlock ? <ShieldCheck size={14} /> : <ShieldOff size={14} />}
           </button>
+        )}
+        {window.api.platform === 'win32' && (
+          <ExtensionsButton
+            adBlock={adBlock}
+            onToggleAdBlock={() => void toggleAdBlock()}
+            onOpen={(url) => newBrowserTab(chatKey, url)}
+            onChanged={() => window.api.browser.reload(label)}
+          />
         )}
         <button className="icon-btn" title="Clear cache & reload (keeps logins)" disabled={clearing} onClick={clearCache}>
           <Eraser size={14} />

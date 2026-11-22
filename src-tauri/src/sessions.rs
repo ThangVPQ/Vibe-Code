@@ -137,6 +137,11 @@ pub async fn sessions_files(session_id: String) -> Res<Vec<ChatFile>> {
     Ok(tokio::task::spawn_blocking(move || session_files(&session_id)).await?)
 }
 
+#[tauri::command]
+pub async fn sessions_log(session_id: String) -> Res<Option<ChatLog>> {
+    Ok(tokio::task::spawn_blocking(move || session_log(&session_id)).await?)
+}
+
 /* ---------------- session list ---------------- */
 
 pub fn projects_dir() -> PathBuf {
@@ -1274,6 +1279,323 @@ fn session_files(session_id: &str) -> Vec<ChatFile> {
         f.exists = Path::new(&f.path).is_file();
     }
     files
+}
+
+/* ---------------- the conversation, for the Chat view ---------------- */
+
+/// One thing in the conversation as the Chat view draws it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ChatItem {
+    /// a prompt you sent
+    User { text: String, at: i64 },
+    /// what Claude wrote (markdown)
+    Text { text: String, at: i64 },
+    /// a tool call, and its result once it is back
+    Tool {
+        id: String,
+        name: String,
+        /// one line: the command's description, the file, the pattern…
+        label: String,
+        /// the full command / prompt / input, when the label doesn't already say it all
+        detail: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output: Option<String>,
+        error: bool,
+        /// lines a Write / Edit added and removed
+        added: u32,
+        removed: u32,
+        at: i64,
+    },
+    /// a turn ended ("Worked for 33s"), or was interrupted (ms = 0)
+    Done { ms: u64, at: i64 },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatTodo {
+    pub id: String,
+    pub text: String,
+    /// pending, in_progress, completed
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatLog {
+    pub items: Vec<ChatItem>,
+    /// Claude's to-do list (TodoWrite / TaskCreate + TaskUpdate) as it stands now
+    pub todos: Vec<ChatTodo>,
+    /// drawn before `items[todos_at]` (or at the end): where the list last changed
+    pub todos_at: usize,
+    /// items before the first one sent (only the last `LOG_KEEP` are)
+    pub skipped: usize,
+}
+
+#[derive(Default)]
+struct LogScan {
+    items: Vec<ChatItem>,
+    /// tool_use id → its item, to fill in the result
+    tools: HashMap<String, usize>,
+    /// TaskCreate calls waiting for the id their result gives the task
+    creating: HashMap<String, String>,
+    todos: Vec<ChatTodo>,
+    todos_at: usize,
+    seen: HashSet<String>,
+}
+
+/// the Chat view gets the last this many items, and this much of each tool's output
+const LOG_KEEP: usize = 400;
+const OUTPUT_KEEP: usize = 2000;
+
+fn clip(s: &str, n: usize) -> String {
+    match s.char_indices().nth(n) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_owned(),
+    }
+}
+
+/// A tool_result's content as text (images as a placeholder).
+fn result_text(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|b| match b.get("type")?.as_str()? {
+                "text" => b.get("text")?.as_str().map(str::to_owned),
+                "image" => Some("[image]".into()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// (label, detail) of a tool call.
+fn tool_brief(name: &str, input: Option<&Obj>) -> (String, String) {
+    let s = |k: &str| input.and_then(|i| str_of(i, k)).unwrap_or("").to_owned();
+    let first_line = |t: String| t.lines().next().unwrap_or("").to_owned();
+    match name {
+        "Bash" | "PowerShell" => {
+            let cmd = s("command");
+            let desc = s("description");
+            if desc.is_empty() { (first_line(cmd.clone()), cmd) } else { (desc, cmd) }
+        }
+        "Read" | "Write" | "Edit" | "MultiEdit" => (s("file_path"), String::new()),
+        "NotebookEdit" => (s("notebook_path"), String::new()),
+        "Grep" | "Glob" => {
+            let path = s("path");
+            (if path.is_empty() { s("pattern") } else { format!("{} in {path}", s("pattern")) }, String::new())
+        }
+        "WebFetch" => (s("url"), s("prompt")),
+        "WebSearch" => (s("query"), String::new()),
+        "Agent" | "Task" => (s("description"), s("prompt")),
+        "Skill" => (s("skill"), String::new()),
+        "ToolSearch" => (s("query"), String::new()),
+        _ => {
+            let json = input.map(|i| Value::Object(i.clone()).to_string()).unwrap_or_default();
+            let label = input.and_then(|i| i.values().find_map(Value::as_str)).map(|t| first_line(t.to_owned())).unwrap_or_default();
+            (label, if json == "{}" { String::new() } else { json })
+        }
+    }
+}
+
+/// Lines a Write / Edit added and removed, from its toolUseResult.
+fn diff_size(r: Option<&Value>) -> (u32, u32) {
+    let Some(r) = r else { return (0, 0) };
+    if r.get("type").and_then(Value::as_str) == Some("create") {
+        return (r.get("content").and_then(Value::as_str).map_or(0, |c| c.lines().count() as u32), 0);
+    }
+    let (mut add, mut del) = (0, 0);
+    for hunk in r.get("structuredPatch").and_then(Value::as_array).into_iter().flatten() {
+        for l in hunk.get("lines").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+            if l.starts_with('+') {
+                add += 1;
+            } else if l.starts_with('-') {
+                del += 1;
+            }
+        }
+    }
+    (add, del)
+}
+
+/// A prompt you typed, as written (None for injected rows: reminders, command output, notifications…).
+fn prompt_text(content: &Value) -> Option<String> {
+    static CMD_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<command-name>(.*?)</command-name>(?:.*?<command-args>(.*?)</command-args>)?").unwrap());
+    let text = match content {
+        Value::String(s) => s.trim().to_owned(),
+        Value::Array(items) => {
+            if items.iter().any(|c| c.get("type").and_then(Value::as_str) == Some("tool_result")) {
+                return None;
+            }
+            items
+                .iter()
+                .filter(|c| c.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|c| c.get("text").and_then(Value::as_str).map(str::trim))
+                .filter(|t| !t.starts_with('<'))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        _ => return None,
+    };
+    // a slash command: "/name args"
+    if let Some(c) = CMD_RE.captures(&text) {
+        return Some(format!("{} {}", c[1].trim(), c.get(2).map_or("", |a| a.as_str().trim())).trim().to_owned());
+    }
+    Some(text).filter(|t| !t.is_empty() && !t.starts_with('<') && !t.starts_with("Caveat:"))
+}
+
+impl LogScan {
+    fn feed(&mut self, text: &str) {
+        static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[A-Za-z]").unwrap());
+        for line in text.split('\n') {
+            if !line.contains("\"type\":\"user\"") && !line.contains("\"type\":\"assistant\"") && !line.contains("turn_duration") {
+                continue;
+            }
+            let Ok(row) = serde_json::from_str::<Obj>(line) else { continue };
+            let (assistant, user) = (is_type(&row, "assistant"), is_type(&row, "user"));
+            if truthy(row.get("isSidechain")) || truthy(row.get("isMeta")) || truthy(row.get("isCompactSummary")) {
+                continue;
+            }
+            // a resumed / replayed conversation can write the same row again
+            if let Some(uuid) = str_of(&row, "uuid")
+                && !self.seen.insert(uuid.to_owned())
+            {
+                continue;
+            }
+            let at = row.get("timestamp").and_then(|v| parse_date(&js_string(v))).unwrap_or(0);
+
+            if is_type(&row, "system") && str_of(&row, "subtype") == Some("turn_duration") {
+                let ms = row.get("durationMs").and_then(Value::as_u64).unwrap_or(0);
+                self.items.push(ChatItem::Done { ms: ms.max(1), at });
+                continue;
+            }
+            if !assistant && !user {
+                continue;
+            }
+            let Some(content) = row.get("message").and_then(|m| m.get("content")) else { continue };
+
+            if user {
+                if let Some(t) = prompt_text(content) {
+                    if t.starts_with("[Request interrupted by user") {
+                        self.items.push(ChatItem::Done { ms: 0, at });
+                    } else {
+                        self.items.push(ChatItem::User { text: t, at });
+                    }
+                    continue;
+                }
+                let result = row.get("toolUseResult");
+                for b in content.as_array().into_iter().flatten().filter_map(Value::as_object) {
+                    if !is_type(b, "tool_result") {
+                        continue;
+                    }
+                    let id = str_of(b, "tool_use_id").unwrap_or("");
+                    // a TaskCreate's result names the task it made
+                    if let Some(subject) = self.creating.remove(id) {
+                        let task_id = result.and_then(|r| r.get("task")).and_then(|t| t.get("id")).map(js_string).unwrap_or_default();
+                        self.todos.push(ChatTodo { id: task_id, text: subject, status: "pending".into() });
+                        self.todos_at = self.items.len();
+                        continue;
+                    }
+                    let Some(&i) = self.tools.get(id) else { continue };
+                    if let ChatItem::Tool { output, error, added, removed, .. } = &mut self.items[i] {
+                        let out = result_text(b.get("content"));
+                        *output = Some(clip(&ANSI_RE.replace_all(&out, ""), OUTPUT_KEEP));
+                        *error = truthy(b.get("is_error"));
+                        (*added, *removed) = diff_size(result);
+                    }
+                }
+                continue;
+            }
+
+            for b in content.as_array().into_iter().flatten().filter_map(Value::as_object) {
+                if is_type(b, "text") {
+                    let t = str_of(b, "text").unwrap_or("").trim();
+                    if !t.is_empty() {
+                        self.items.push(ChatItem::Text { text: t.to_owned(), at });
+                    }
+                    continue;
+                }
+                if !is_type(b, "tool_use") {
+                    continue;
+                }
+                let id = str_of(b, "id").unwrap_or("").to_owned();
+                let name = str_of(b, "name").unwrap_or("").to_owned();
+                let input = b.get("input").and_then(Value::as_object);
+                // the to-do list is drawn as a checklist, not as tool calls
+                match name.as_str() {
+                    "TodoWrite" => {
+                        let list = input.and_then(|i| i.get("todos")).and_then(Value::as_array);
+                        self.todos = list
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_object)
+                            .enumerate()
+                            .map(|(n, t)| ChatTodo {
+                                id: n.to_string(),
+                                text: js_string_coalesce(Some(t), &["content", "subject"]),
+                                status: js_string_coalesce(Some(t), &["status"]),
+                            })
+                            .collect();
+                        self.todos_at = self.items.len();
+                        continue;
+                    }
+                    "TaskCreate" => {
+                        self.creating.insert(id, js_string_coalesce(input, &["subject"]));
+                        continue;
+                    }
+                    "TaskUpdate" => {
+                        let task_id = input.and_then(|i| i.get("taskId")).map(js_string).unwrap_or_default();
+                        let status = js_string_coalesce(input, &["status"]);
+                        if status == "deleted" {
+                            self.todos.retain(|t| t.id != task_id);
+                        } else if let Some(t) = self.todos.iter_mut().find(|t| t.id == task_id) {
+                            if !status.is_empty() {
+                                t.status = status;
+                            }
+                            if let Some(s) = input.and_then(|i| str_of(i, "subject")).filter(|s| !s.is_empty()) {
+                                t.text = s.to_owned();
+                            }
+                        }
+                        self.todos_at = self.items.len();
+                        continue;
+                    }
+                    _ => {}
+                }
+                if self.tools.contains_key(&id) {
+                    continue;
+                }
+                let (label, detail) = tool_brief(&name, input);
+                self.tools.insert(id.clone(), self.items.len());
+                self.items.push(ChatItem::Tool {
+                    id,
+                    name,
+                    label: clip(&label, 200),
+                    detail: clip(&detail, OUTPUT_KEEP),
+                    output: None,
+                    error: false,
+                    added: 0,
+                    removed: 0,
+                    at,
+                });
+            }
+        }
+    }
+}
+
+static LOG_SCANS: ScanCache<LogScan> = LazyLock::new(Default::default);
+
+/// The conversation of a chat (its last `LOG_KEEP` items), for the Chat view.
+fn session_log(session_id: &str) -> Option<ChatLog> {
+    scan(&LOG_SCANS, session_id, LogScan::feed, |s| {
+        let skipped = s.items.len().saturating_sub(LOG_KEEP);
+        ChatLog {
+            items: s.items[skipped..].to_vec(),
+            todos: s.todos.clone(),
+            todos_at: s.todos_at.saturating_sub(skipped),
+            skipped,
+        }
+    })
 }
 
 /* ---------------- dates ---------------- */

@@ -12,7 +12,9 @@ import type {
   AgentInfo,
   AppSettings,
   ChatFile,
+  ChatLog,
   ChatTask,
+  WebExtension,
   ClaudeInfo,
   DbColumn,
   DbConnection,
@@ -132,9 +134,15 @@ export const api = {
     setUserAgent: (label: string, userAgent: string | null): Promise<void> => invoke('web_set_user_agent', { label, userAgent }),
     close: (label: string): void => void invoke('web_close', { label }),
     onNav: (cb: (label: string, nav: WebNav) => void): Off => on('web:nav', cb),
-    /** uBlock Origin in the Web tabs: its version, "Downloading…", or what went wrong */
+    /** uBlock Origin Lite in the Web tabs: its version, "Downloading…", or what went wrong */
     adblockStatus: (): Promise<string> => invoke('web_adblock_status'),
     onAdblockStatus: (cb: (status: string) => void): Off => on('web:adblock', cb),
+    /** other extensions in the Web tabs (the ad blocker is listed too, as built-in) */
+    extensions: (): Promise<WebExtension[]> => invoke('web_extensions'),
+    /** from a Chrome Web Store link / id, or an unpacked folder */
+    addExtension: (source: string): Promise<WebExtension> => invoke('web_extension_add', { source }),
+    enableExtension: (id: string, on: boolean): Promise<void> => invoke('web_extension_enable', { id, on }),
+    removeExtension: (id: string): Promise<void> => invoke('web_extension_remove', { id }),
     /** a chat's browser tools were used: make sure its Web tab exists (and show it) */
     onOpen: (cb: (chatId: string) => void): Off => on('browser:open', cb),
     data: (): Promise<WebData> => invoke('web_data'),
@@ -155,6 +163,7 @@ export const api = {
       invoke('sessions_context', { sessionId }),
     tasks: (sessionId: string): Promise<ChatTask[]> => invoke('sessions_tasks', { sessionId }),
     files: (sessionId: string): Promise<ChatFile[]> => invoke('sessions_files', { sessionId }),
+    log: (sessionId: string): Promise<ChatLog | null> => invoke('sessions_log', { sessionId }),
     /** ids of the sessions whose transcript changed (empty: only project folders came or went) */
     onChanged: (cb: (ids: string[]) => void): Off => on('sessions:changed', cb)
   },

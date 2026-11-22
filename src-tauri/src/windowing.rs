@@ -468,7 +468,7 @@ pub fn init(app: &mut App) -> anyhow::Result<()> {
     };
     #[allow(unused_mut)]
     let mut b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::default())
-        // every webview shares one WebView2 environment, and the Web tabs need extensions (uBlock Origin)
+        // every webview shares one WebView2 environment, and the Web tabs need extensions (uBlock Origin Lite)
         .browser_extensions_enabled(true)
         .title("VIBE CODE")
         .inner_size(1480.0, 920.0)

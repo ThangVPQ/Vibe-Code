@@ -91,7 +91,7 @@ async fn open_tab(label: String, chat_id: String, url: String, user_agent: Optio
     let popup_label = label.clone();
     #[allow(unused_mut)]
     let mut b = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
-        // uBlock Origin runs in the tabs (adblock.rs)
+        // uBlock Origin Lite runs in the tabs (adblock.rs)
         .browser_extensions_enabled(true)
         // popups open in the same tab
         .on_new_window(move |url, _features| {
@@ -270,10 +270,10 @@ pub async fn clear_cache() -> Res<()> {
     Ok(())
 }
 
-/* ---------------- ad blocking (uBlock Origin) ---------------- */
+/* ---------------- ad blocking (uBlock Origin Lite) ---------------- */
 
-/// What the shield button says: "uBlock Origin 1.76.6", "Downloading uBlock Origin…", an error.
-static ADBLOCK_STATUS: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new("Downloading uBlock Origin…".into()));
+/// What the shield button says: "uBlock Origin Lite 2026.1116.1650", "Downloading uBlock Origin Lite…", an error.
+static ADBLOCK_STATUS: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(format!("Downloading {}…", crate::adblock::NAME)));
 
 #[cfg_attr(not(windows), allow(dead_code))]
 fn set_adblock_status(s: String) {
@@ -286,27 +286,72 @@ pub fn web_adblock_status() -> String {
     ADBLOCK_STATUS.lock().clone()
 }
 
-/// Startup: fetch uBlock Origin (first launch, or a newer release) and load it into the Web tabs.
+/// Startup: fetch uBlock Origin Lite (first launch, or a newer release) and load it into the Web tabs.
 pub async fn start_adblock() {
     #[cfg(windows)]
     {
         if let Err(e) = crate::adblock::update().await
             && crate::adblock::installed().is_none()
         {
-            set_adblock_status(format!("Couldn't download uBlock Origin: {e:#}"));
+            set_adblock_status(format!("Couldn't download {}: {e:#}", crate::adblock::NAME));
             return;
         }
         sync_adblock();
     }
 }
 
-/// Puts the Web tabs' uBlock Origin in line with the setting (and the release on disk). The tabs
+/// Puts the Web tabs' uBlock Origin Lite in line with the setting (and the release on disk). The tabs
 /// share the main window's profile, so its webview is enough.
 pub fn sync_adblock() {
     #[cfg(windows)]
     if let Some(w) = app().get_webview(crate::core::MAIN) {
         win::sync_ublock(&w);
     }
+}
+
+/* ---------------- other extensions (extensions.rs) ---------------- */
+
+/// (id, name, enabled) of an extension in the Web tabs' profile.
+pub type Ext = (String, String, bool);
+
+#[cfg(not(windows))]
+const NO_EXTENSIONS: &str = "Browser extensions need Windows (WebView2).";
+
+/// The tabs share the main window's profile, so its webview is enough.
+#[cfg(windows)]
+fn main_view() -> Result<Webview> {
+    app().get_webview(crate::core::MAIN).context("the window is not ready")
+}
+
+pub async fn extensions() -> Result<Vec<crate::extensions::ExtInfo>> {
+    #[cfg(windows)]
+    {
+        let list = win::extensions(&main_view()?).await?;
+        Ok(list.into_iter().map(|(id, name, on)| crate::extensions::info(id, name, on)).collect())
+    }
+    #[cfg(not(windows))]
+    bail!(NO_EXTENSIONS)
+}
+
+pub async fn add_extension(dir: &std::path::Path) -> Result<Ext> {
+    #[cfg(windows)]
+    return win::add_extension(&main_view()?, dir).await;
+    #[cfg(not(windows))]
+    bail!("{NO_EXTENSIONS} {}", dir.display())
+}
+
+pub async fn extension_enable(id: &str, on: bool) -> Result<()> {
+    #[cfg(windows)]
+    return win::extension_op(&main_view()?, id, Some(on)).await;
+    #[cfg(not(windows))]
+    bail!("{NO_EXTENSIONS} {id} {on}")
+}
+
+pub async fn extension_remove(id: &str) -> Result<()> {
+    #[cfg(windows)]
+    return win::extension_op(&main_view()?, id, None).await;
+    #[cfg(not(windows))]
+    bail!("{NO_EXTENSIONS} {id}")
 }
 
 /* ---------------- for Claude's tools (mcp.rs) ---------------- */
@@ -669,8 +714,109 @@ mod win {
         Ok(serde_json::from_str(&json).unwrap_or(Value::Null))
     }
 
-    /// uBlock Origin in the profile: added (or swapped for the release on disk when that is newer),
-    /// then turned on or off as the setting says.
+    fn profile7(pw: &tauri::webview::PlatformWebview) -> Option<ICoreWebView2Profile7> {
+        // SAFETY: COM calls on the webview's own (UI) thread, inside with_webview.
+        unsafe { pw.controller().CoreWebView2().and_then(|c| c.cast::<ICoreWebView2_13>()).and_then(|c| c.Profile()).and_then(|p| p.cast::<ICoreWebView2Profile7>()).ok() }
+    }
+
+    fn ext_info(ext: &ICoreWebView2BrowserExtension) -> Ext {
+        let (mut id, mut name, mut on) = (PWSTR::null(), PWSTR::null(), BOOL(0));
+        // SAFETY: out-params of a live extension object.
+        unsafe {
+            let _ = ext.Id(&mut id);
+            let _ = ext.Name(&mut name);
+            let _ = ext.IsEnabled(&mut on);
+        }
+        (take_pwstr(id), take_pwstr(name), on.as_bool())
+    }
+
+    const NO_PROFILE: &str = "Extensions need a newer WebView2 runtime.";
+
+    async fn wait<T>(rx: oneshot::Receiver<Result<T>>) -> Result<T> {
+        tokio::time::timeout(Duration::from_secs(30), rx).await.map_err(|_| anyhow!("WebView2 did not answer within 30s"))?.map_err(|_| anyhow!("WebView2 dropped the request"))?
+    }
+
+    /// Every extension in the Web tabs' profile.
+    pub async fn extensions(w: &Webview) -> Result<Vec<Ext>> {
+        let (tx, rx) = oneshot::channel::<Result<Vec<Ext>>>();
+        w.with_webview(move |pw| unsafe {
+            let Some(profile) = profile7(&pw) else {
+                let _ = tx.send(Err(anyhow!(NO_PROFILE)));
+                return;
+            };
+            let _ = profile.GetBrowserExtensions(&ProfileGetBrowserExtensionsCompletedHandler::create(Box::new(move |hr, list| {
+                let mut out = Vec::new();
+                if let Some(list) = list {
+                    let mut n = 0;
+                    let _ = list.Count(&mut n);
+                    out.extend((0..n).filter_map(|i| list.GetValueAtIndex(i).ok()).map(|e| ext_info(&e)));
+                }
+                let _ = tx.send(hr.map(|_| out).map_err(|e| anyhow!("{}", e.message())));
+                Ok(())
+            })));
+        })?;
+        wait(rx).await
+    }
+
+    /// Loads an unpacked extension folder into the profile (on, until switched off).
+    pub async fn add_extension(w: &Webview, dir: &std::path::Path) -> Result<Ext> {
+        let (tx, rx) = oneshot::channel::<Result<Ext>>();
+        let path = HSTRING::from(dir);
+        w.with_webview(move |pw| unsafe {
+            let Some(profile) = profile7(&pw) else {
+                let _ = tx.send(Err(anyhow!(NO_PROFILE)));
+                return;
+            };
+            let _ = profile.AddBrowserExtension(
+                &path,
+                &ProfileAddBrowserExtensionCompletedHandler::create(Box::new(move |hr, ext| {
+                    let _ = tx.send(match (hr, ext) {
+                        (Ok(()), Some(ext)) => Ok(ext_info(&ext)),
+                        (Err(e), _) => Err(anyhow!("WebView2 refused the extension: {}", e.message())),
+                        (Ok(()), None) => Err(anyhow!("WebView2 refused the extension")),
+                    });
+                    Ok(())
+                })),
+            );
+        })?;
+        wait(rx).await
+    }
+
+    /// Switches an extension on / off (`Some`), or removes it from the profile (`None`).
+    pub async fn extension_op(w: &Webview, id: &str, on: Option<bool>) -> Result<()> {
+        let (tx, rx) = oneshot::channel::<Result<()>>();
+        let id = id.to_owned();
+        w.with_webview(move |pw| unsafe {
+            let Some(profile) = profile7(&pw) else {
+                let _ = tx.send(Err(anyhow!(NO_PROFILE)));
+                return;
+            };
+            let _ = profile.GetBrowserExtensions(&ProfileGetBrowserExtensionsCompletedHandler::create(Box::new(move |_, list| {
+                let found = list.and_then(|list| {
+                    let mut n = 0;
+                    let _ = list.Count(&mut n);
+                    (0..n).filter_map(|i| list.GetValueAtIndex(i).ok()).find(|e| ext_info(e).0 == id)
+                });
+                let Some(ext) = found else {
+                    let _ = tx.send(Err(anyhow!("that extension is not installed any more")));
+                    return Ok(());
+                };
+                let done = move |hr: windows::core::Result<()>| {
+                    let _ = tx.send(hr.map_err(|e| anyhow!("{}", e.message())));
+                    Ok(())
+                };
+                let _ = match on {
+                    Some(on) => ext.Enable(on, &BrowserExtensionEnableCompletedHandler::create(Box::new(done))),
+                    None => ext.Remove(&BrowserExtensionRemoveCompletedHandler::create(Box::new(done))),
+                };
+                Ok(())
+            })));
+        })?;
+        wait(rx).await
+    }
+
+    /// uBlock Origin Lite in the profile: added (or swapped for the release on disk when that is newer),
+    /// then turned on or off as the setting says. The full uBlock Origin earlier versions added goes.
     pub fn sync_ublock(w: &Webview) {
         let _ = w.with_webview(|pw| unsafe {
             let Ok(profile) = pw.controller().CoreWebView2().and_then(|c| c.cast::<ICoreWebView2_13>()).and_then(|c| c.Profile()).and_then(|p| p.cast::<ICoreWebView2Profile7>()) else {
@@ -689,9 +835,11 @@ mod win {
                         let Ok(ext) = list.GetValueAtIndex(i) else { continue };
                         let mut name = PWSTR::null();
                         let _ = ext.Name(&mut name);
-                        if take_pwstr(name).starts_with(crate::adblock::NAME) {
+                        let name = take_pwstr(name);
+                        if name.starts_with(crate::adblock::NAME) {
                             ours = Some(ext);
-                            break;
+                        } else if name.starts_with(crate::adblock::OLD_NAME) {
+                            let _ = ext.Remove(&BrowserExtensionRemoveCompletedHandler::create(Box::new(|_| Ok(()))));
                         }
                     }
                 }
