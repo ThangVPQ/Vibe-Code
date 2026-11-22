@@ -37,6 +37,7 @@ import { IMAGE_RE, attachPaths, imagePreview } from '../attachments'
 import { openMenu } from './ContextMenu'
 import { FileIcon, FolderIcon } from './icons'
 import { RenameInput, startRename, useRenaming } from './InlineRename'
+import { SourceSwitch } from './SourceSwitch'
 import './explorer.css'
 
 /* ================================ paths ================================ */
@@ -201,7 +202,7 @@ interface RowApi {
 }
 
 /**
- * File Explorer tab: browse any folder on the computer (not just the project), with an address bar
+ * This PC view of the Source code tab: browse any folder on the computer (not just the project), with an address bar
  * you can type or paste a path into, and a preview that reads text files and shows pictures.
  * Office files open in the Office tab, code and text in Source code, the rest in their Windows app.
  */
@@ -711,6 +712,42 @@ export function FileExplorerPane(): React.JSX.Element {
         if (e.button === 4 && canFwd) step(1)
       }}
     >
+      <nav className="fx-nav">
+        <SourceSwitch />
+        <div className="fx-places">
+          <button className={`fx-place${path === THIS_PC ? ' on' : ''}`} onClick={() => go(THIS_PC)}>
+            <Monitor size={15} className="fx-ic pc" />
+            <span>This PC</span>
+          </button>
+          {projectRoot && (
+            <button className={`fx-place${keyOf(path) === keyOf(projectRoot) ? ' on' : ''}`} title={projectRoot} onClick={() => go(projectRoot)}>
+              <FolderIcon open={false} size={15} />
+              <span>{nameOf(projectRoot)}</span>
+              <span className="fx-place-tag">project</span>
+            </button>
+          )}
+          <div className="fx-nav-head">Quick access</div>
+          {places
+            .filter((p) => p.kind !== 'drive')
+            .map((p) => (
+              <button key={p.path} className={`fx-place${keyOf(path) === keyOf(p.path) ? ' on' : ''}`} title={p.path} onClick={() => go(p.path)}>
+                {placeIcon(p.kind)}
+                <span>{p.name}</span>
+              </button>
+            ))}
+          <div className="fx-nav-head">Drives</div>
+          {places
+            .filter((p) => p.kind === 'drive')
+            .map((p) => (
+              <button key={p.path} className={`fx-place${keyOf(path) === keyOf(p.path) ? ' on' : ''}`} title={p.total ? `${sizeText(p.free)} free of ${sizeText(p.total)}` : p.path} onClick={() => go(p.path)}>
+                {placeIcon(p.kind)}
+                <span>{p.name}</span>
+              </button>
+            ))}
+        </div>
+      </nav>
+
+      <div className="fx-right">
       <div className="fx-bar">
         <button className="icon-btn" title="Back (Alt+Left)" disabled={!canBack} onClick={() => step(-1)}>
           <ArrowLeft size={15} />
@@ -768,38 +805,6 @@ export function FileExplorerPane(): React.JSX.Element {
       </div>
 
       <div className="fx-body">
-        <nav className="fx-nav">
-          <button className={`fx-place${path === THIS_PC ? ' on' : ''}`} onClick={() => go(THIS_PC)}>
-            <Monitor size={15} className="fx-ic pc" />
-            <span>This PC</span>
-          </button>
-          {projectRoot && (
-            <button className={`fx-place${keyOf(path) === keyOf(projectRoot) ? ' on' : ''}`} title={projectRoot} onClick={() => go(projectRoot)}>
-              <FolderIcon open={false} size={15} />
-              <span>{nameOf(projectRoot)}</span>
-              <span className="fx-place-tag">project</span>
-            </button>
-          )}
-          <div className="fx-nav-head">Quick access</div>
-          {places
-            .filter((p) => p.kind !== 'drive')
-            .map((p) => (
-              <button key={p.path} className={`fx-place${keyOf(path) === keyOf(p.path) ? ' on' : ''}`} title={p.path} onClick={() => go(p.path)}>
-                {placeIcon(p.kind)}
-                <span>{p.name}</span>
-              </button>
-            ))}
-          <div className="fx-nav-head">Drives</div>
-          {places
-            .filter((p) => p.kind === 'drive')
-            .map((p) => (
-              <button key={p.path} className={`fx-place${keyOf(path) === keyOf(p.path) ? ' on' : ''}`} title={p.total ? `${sizeText(p.free)} free of ${sizeText(p.total)}` : p.path} onClick={() => go(p.path)}>
-                {placeIcon(p.kind)}
-                <span>{p.name}</span>
-              </button>
-            ))}
-        </nav>
-
         <div className="fx-main">
           {path === THIS_PC ? (
             <ThisPc places={places} onOpen={(p) => go(p)} />
@@ -906,6 +911,7 @@ export function FileExplorerPane(): React.JSX.Element {
             onCopy={(p) => copyText(p, 'Path')}
           />
         )}
+      </div>
       </div>
     </div>
   )

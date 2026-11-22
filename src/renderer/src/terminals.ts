@@ -822,6 +822,48 @@ export function menuShown(id: string): boolean {
   return !!e && menuOnScreen(e.term)
 }
 
+/**
+ * The Chat view's message box stands in for Claude's input: tell Claude it's focused or not, as the terminal
+ * would (focus reporting). Claude only suggests a next prompt while its input is focused.
+ */
+export function chatBoxFocus(id: string, focused: boolean): void {
+  const e = entries.get(id)
+  if (e?.term.modes.sendFocusMode) window.api.pty.write(id, focused ? '\x1b[I' : '\x1b[O')
+}
+
+/**
+ * The next prompt Claude suggests, as it shows it in its own input box: `❯ ` followed by dim text,
+ * between the box's two ─── rules (Tab takes it there). Empty when the box holds anything else.
+ */
+export function promptSuggestion(id: string): string {
+  const e = entries.get(id)
+  if (!e) return ''
+  const b = e.term.buffer.active
+  const rule = (y: number): boolean => /^─{8,}\s*$/.test(b.getLine(y)?.translateToString(true) ?? '')
+  for (let r = e.term.rows - 1; r >= Math.max(1, e.term.rows - 14); r--) {
+    const y = b.viewportY + r
+    const line = b.getLine(y)
+    const text = line?.translateToString(true) ?? ''
+    if (!line || !/^❯ \S/.test(text) || /^❯\s*\d+\./.test(text) || !rule(y - 1)) continue
+    // every letter after the prompt sign is dim: a placeholder, not something typed
+    let out = ''
+    let row: typeof line | undefined = line
+    for (let k = 0; row && !rule(y + k); row = b.getLine(y + ++k)) {
+      for (let x = k ? 0 : 2; x < row.length; x++) {
+        const c = row.getCell(x)
+        const ch = c?.getChars() ?? ''
+        if (ch.trim() && !c?.isDim()) return ''
+        out += ch || (c?.getWidth() ? ' ' : '')
+      }
+      if (k > 3) return ''
+    }
+    out = out.replace(/\s+/g, ' ').trim()
+    // the startup hint (Try "how does <filepath> work?") is not a suggestion
+    return /^Try "/.test(out) ? '' : out
+  }
+  return ''
+}
+
 export function restartTerm(id: string, spawn?: Partial<Omit<PtySpawnOptions, 'cols' | 'rows'>>): void {
   const e = entries.get(id)
   if (!e) return

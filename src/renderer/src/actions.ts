@@ -860,7 +860,7 @@ export function openFile(path: string): void {
   pushTab({ id: 'f:' + path.toLowerCase(), kind: 'file', path, title: basename(path), dirty: false })
 }
 
-/* Opening a .docx / .xlsx / .csv / .pdf in the Office tab from elsewhere (the File Explorer tab).
+/* Opening a .docx / .xlsx / .csv / .pdf in the Office tab from elsewhere (Source code › This PC).
    The Office tab mounts on its first visit: paths asked for before it's ready wait here. */
 let officeOpener: ((path: string) => void) | null = null
 const officeWaiting: string[] = []

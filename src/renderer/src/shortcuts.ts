@@ -86,7 +86,7 @@ export const COMMANDS: Command[] = [
   { id: 'viewZalo', label: 'Show Zalo tab', keys: 'Ctrl+4', run: () => useStore.setState({ centerView: 'zalo' }) },
   { id: 'viewGmail', label: 'Show Gmail tab', keys: 'Ctrl+5', run: () => useStore.setState({ centerView: 'gmail' }) },
   { id: 'viewOffice', label: 'Show Office tab', keys: 'Ctrl+6', run: () => useStore.setState({ centerView: 'office' }) },
-  { id: 'viewFiles', label: 'Show File Explorer tab', run: () => useStore.setState({ centerView: 'files' }) },
+  { id: 'viewFiles', label: 'Show This PC (browse the whole computer)', run: () => useStore.setState({ centerView: 'files' }) },
 
   { id: 'theme', label: 'Toggle light / dark theme', run: () => void toggleTheme() }
 ]

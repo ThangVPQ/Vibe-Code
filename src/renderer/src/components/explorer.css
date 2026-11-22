@@ -1,11 +1,18 @@
-/* ============================== File Explorer tab ============================== */
+/* ============== Source code tab, This PC view (the whole-computer file browser) ============== */
 
+/* left: switch + places (same width as the Source code file tree, so the switch doesn't move) | right: bar + body */
 .fx {
   flex: 1;
   min-height: 0;
   display: flex;
-  flex-direction: column;
   background: var(--bg-2);
+}
+.fx-right {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   container-type: inline-size;
 }
 
@@ -238,12 +245,20 @@
 
 .fx-nav {
   flex: none;
-  width: 196px;
+  width: min(320px, 42%);
+  min-width: 170px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+}
+.fx-places {
+  flex: 1;
+  min-height: 0;
   padding: 8px 6px;
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--bg-1);
-  border-right: 1px solid var(--border);
 }
 .fx-nav-head {
   margin: 12px 8px 4px;
@@ -690,8 +705,8 @@
   color: var(--text-faint);
 }
 
-/* ---------- narrow ---------- */
-@container (max-width: 900px) {
+/* ---------- narrow (measured on the right side: bar, list, preview) ---------- */
+@container (max-width: 700px) {
   .fx-preview {
     width: 260px;
   }
@@ -703,10 +718,7 @@
     display: none !important;
   }
 }
-@container (max-width: 700px) {
-  .fx-nav {
-    width: 150px;
-  }
+@container (max-width: 520px) {
   .fx-head,
   .fx-row {
     grid-template-columns: minmax(100px, 1fr) 76px;
@@ -718,8 +730,7 @@
     flex-basis: 130px;
   }
 }
-@container (max-width: 560px) {
-  .fx-nav,
+@container (max-width: 420px) {
   .fx-preview {
     display: none;
   }

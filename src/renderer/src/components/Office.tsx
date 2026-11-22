@@ -115,7 +115,7 @@ export function OfficePane(): React.JSX.Element {
   }
   const toolRef = useRef(tool)
   toolRef.current = tool
-  // files opened from the File Explorer tab
+  // files opened from Source code › This PC
   const openRef = useRef(openFile)
   openRef.current = openFile
   useEffect(() => setOfficeOpener((path) => run(() => openRef.current(path))), [])

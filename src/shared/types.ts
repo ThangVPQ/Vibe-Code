@@ -421,7 +421,7 @@ export interface ZaloTasksState {
   dueAt?: number
 }
 
-/** A row of the File Explorer tab. */
+/** A row of Source code › This PC (the whole-computer file browser). */
 export interface ExEntry {
   name: string
   path: string

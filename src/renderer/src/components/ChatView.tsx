@@ -2,7 +2,7 @@ import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef
 import { ArrowUp, ChevronRight, CircleCheck, CircleDashed, Clock, CornerDownLeft, Loader, MessageSquare, Mic, Paperclip, Plus, SquareTerminal, X } from 'lucide-react'
 import type { ChatItem, ChatLog, ChatTodo } from '../../../shared/types'
 import type { Chat } from '../store'
-import { menuShown, sendPrompt, takeFiles } from '../terminals'
+import { chatBoxFocus, menuShown, promptSuggestion, sendPrompt, takeFiles } from '../terminals'
 import { IMAGE_RE, imagePreview, pickAttachments } from '../attachments'
 import { openFile } from '../actions'
 import { AttachmentTray } from './AttachmentTray'
@@ -484,7 +484,7 @@ function ToolGroup({ tools, live }: { tools: Tool[]; live: boolean }): React.JSX
   const added = tools.reduce((n, t) => n + t.added, 0)
   const removed = tools.reduce((n, t) => n + t.removed, 0)
   const running = live && tools.some((t) => t.output === undefined)
-  const images = tools.flatMap((t) => t.images ?? [])
+  // no pictures on this line: the ones Claude looked at are mostly the ones I sent, already shown above
   return (
     <div className="cv-group">
       <button className="cv-group-head" onClick={() => setOpen(!open)}>
@@ -493,7 +493,6 @@ function ToolGroup({ tools, live }: { tools: Tool[]; live: boolean }): React.JSX
         {added > 0 && <span className="cv-diff"><span className="add">+{added}</span></span>}
         {removed > 0 && <span className="cv-diff"><span className="del">−{removed}</span></span>}
         <ChevronRight size={13} className={open ? 'task-chev open' : 'task-chev'} />
-        {!open && <MiniPics paths={images} />}
       </button>
       {open && (
         <div className="cv-group-body">
@@ -544,10 +543,15 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
   const [draft, setDraft] = useState('')
   const box = useRef<HTMLTextAreaElement>(null)
 
-  // Claude waiting on a numbered choice: only its terminal can answer
+  // Claude waiting on a numbered choice: only its terminal can answer.
+  // And the next prompt it suggests (dim in its input box): shown in ours, Tab takes it.
   const [asking, setAsking] = useState(false)
+  const [suggested, setSuggested] = useState('')
   useEffect(() => {
-    const check = (): void => setAsking(menuShown(chat.id))
+    const check = (): void => {
+      setAsking(menuShown(chat.id))
+      setSuggested(promptSuggestion(chat.id))
+    }
     check()
     const i = setInterval(check, 700)
     return () => clearInterval(i)
@@ -568,7 +572,13 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
   }, [log, working, asking])
   useEffect(() => {
     stick.current = true
-    box.current?.focus()
+    const el = box.current
+    if (el && document.activeElement === el) chatBoxFocus(chat.id, true)
+    el?.focus()
+    // the box moves to another chat (or goes away) while focused: this chat's Claude is no longer typed into
+    return () => {
+      if (el && document.activeElement === el) chatBoxFocus(chat.id, false)
+    }
   }, [chat.id])
 
   const queued = usePromptQueue((s) => s.byChat[chat.id] ?? NO_QUEUE)
@@ -594,6 +604,8 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
       el.setSelectionRange(item.text.length, item.text.length)
     })
   }
+
+  const suggestion = !draft && !working && chat.status !== 'exited' ? suggested : ''
 
   const items = log?.items ?? []
   const lastUser = [...items].reverse().find((it) => it.kind === 'user')
@@ -688,10 +700,17 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
             ref={box}
             rows={1}
             value={draft}
-            placeholder={chat.status === 'exited' ? 'This chat has ended' : 'Message Claude (Enter to send, Shift+Enter for a new line)'}
+            placeholder={chat.status === 'exited' ? 'This chat has ended' : suggestion || 'Message Claude (Enter to send, Shift+Enter for a new line)'}
             disabled={chat.status === 'exited'}
             onChange={(e) => setDraft(e.target.value)}
+            onFocus={() => chatBoxFocus(chat.id, true)}
+            onBlur={() => chatBoxFocus(chat.id, false)}
             onKeyDown={(e) => {
+              if (e.key === 'Tab' && suggestion && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+                e.preventDefault()
+                setDraft(suggestion)
+                return
+              }
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 send()
@@ -704,6 +723,14 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
               void takeFiles(chat.id, 'claude', files)
             }}
           />
+          {suggestion && (
+            <button className="cv-tab-hint" title="Take Claude's suggestion (Tab)" onMouseDown={(e) => e.preventDefault()} onClick={() => {
+                setDraft(suggestion)
+                box.current?.focus()
+              }}>
+              Tab
+            </button>
+          )}
           <button className="cv-icon cv-send" title="Send (Enter)" disabled={!draft.trim() || chat.status === 'exited' || chat.status === 'starting'} onClick={send}>
             <CornerDownLeft size={16} />
           </button>
