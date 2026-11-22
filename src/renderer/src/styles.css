@@ -3776,6 +3776,11 @@ button.sb-item.sb-update:hover {
   width: 320px;
   border-right: 1px solid var(--border);
 }
+/* project Files on top, Git Changes below */
+.code-side-split { flex: 1; min-height: 0; }
+.code-side-resize { height: 1px; background: var(--border); cursor: row-resize; transition: background 0.12s; position: relative; }
+.code-side-resize::after { content: ''; position: absolute; inset: -3px 0; }
+.code-side-resize:hover, .code-side-resize[data-separator='active'] { background: var(--accent); }
 .code-pane > .editor-area {
   flex: 1;
   min-width: 0;

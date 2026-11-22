@@ -63,9 +63,7 @@ interface State {
   quickOpen: boolean
   /** what the palette starts with: '' files, '>' commands (Ctrl+Shift+P) */
   quickOpenQuery: string
-  /** left column of Source code */
-  codeSide: 'files' | 'changes'
-  /** that column (and This PC's) folded to a strip of icons */
+  /** Source code's left column (and This PC's) folded to a strip of icons */
   sourceFolded: boolean
 
   chats: Chat[]
@@ -125,7 +123,6 @@ export const useStore = create<State>((set) => ({
   bottomOpen: false,
   quickOpen: false,
   quickOpenQuery: '',
-  codeSide: 'files',
   sourceFolded: localStorage.getItem('vibe.sourceFolded') === '1',
 
   chats: [],

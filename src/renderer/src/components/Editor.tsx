@@ -1,4 +1,5 @@
 import { Suspense, lazy, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
 import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
@@ -275,17 +276,29 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
   )
 }
 
-/** Left column of Source code: the project's files, or its Git changes (click one for the diff). */
+// a panel's own box scrolls by default: let the tree / change list inside do it (header and commit box stay put)
+const partStyle = { overflow: 'hidden', display: 'flex', flexDirection: 'column' } as const
+
+/** Left column of Source code: the project's files on top, its Git changes below (click one for the diff). */
 // memo (no props): EditorArea re-renders whenever any web page changes its address or title
 const CodeSide = memo(function CodeSide(): React.JSX.Element {
-  // in the store: Ctrl+Shift+E / Ctrl+Shift+G switch it
-  const side = useStore((s) => s.codeSide)
   const hasRoot = useStore((s) => !!s.root)
   const folded = useStore((s) => s.sourceFolded)
+  const split = useDefaultLayout({ id: 'vibe-code-side-split', storage: localStorage })
   return (
     <div className={`sidebar code-tree${folded ? ' folded' : ''}`}>
       <SourceSwitch />
-      {hasRoot && (side === 'files' ? <ExplorerView /> : <ChangesView />)}
+      {hasRoot && (
+        <Group orientation="vertical" className="code-side-split" defaultLayout={split.defaultLayout} onLayoutChanged={split.onLayoutChanged}>
+          <Panel id="files" defaultSize="55%" minSize="15%" className="code-side-part" style={partStyle}>
+            <ExplorerView />
+          </Panel>
+          <Separator className="code-side-resize" />
+          <Panel id="changes" minSize="15%" className="code-side-part" style={partStyle}>
+            <ChangesView />
+          </Panel>
+        </Group>
+      )}
     </div>
   )
 })
