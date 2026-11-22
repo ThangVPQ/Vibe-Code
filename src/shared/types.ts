@@ -343,6 +343,8 @@ export type ChatItem =
       /** lines a Write / Edit added and removed */
       added: number
       removed: number
+      /** a Write / Edit's change as unified-diff lines ("@@ -a,b +c,d @@" hunk heads, then " ", "+", "-" lines) */
+      diff?: string[]
       at: number
     }
   /** a turn ended (ms = how long it worked), or was interrupted (ms = 0) */

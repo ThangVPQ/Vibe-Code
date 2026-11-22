@@ -289,6 +289,8 @@ export const api = {
     setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> => invoke('app_set_settings', { patch }),
     pickFolder: (): Promise<string | null> => invoke('app_pick_folder'),
     pickFiles: (defaultPath?: string): Promise<string[]> => invoke('app_pick_files', { defaultPath }),
+    /** Windows voice typing (Win+H) into the focused field */
+    voiceTyping: (): Promise<void> => invoke('app_voice_typing'),
     fileInfo: (paths: string[]): Promise<{ path: string; size: number; dir: boolean; preview?: string }[]> => invoke('app_file_info', { paths }),
     openExternal: (url: string): Promise<void> => invoke('app_open_external', { url }),
     clearBrowserCache: (): Promise<void> => invoke('app_clear_browser_cache'),

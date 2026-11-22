@@ -1305,6 +1305,9 @@ pub enum ChatItem {
         /// lines a Write / Edit added and removed
         added: u32,
         removed: u32,
+        /// a Write / Edit's change as unified-diff lines ("@@ -a,b +c,d @@" hunk heads, then " ", "+", "-" lines)
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        diff: Vec<String>,
         at: i64,
     },
     /// a turn ended ("Worked for 33s"), or was interrupted (ms = 0)
@@ -1346,6 +1349,8 @@ struct LogScan {
 /// the Chat view gets the last this many items, and this much of each tool's output
 const LOG_KEEP: usize = 400;
 const OUTPUT_KEEP: usize = 2000;
+/// lines of a Write / Edit's diff kept for the Chat view
+const DIFF_KEEP: usize = 400;
 
 fn clip(s: &str, n: usize) -> String {
     match s.char_indices().nth(n) {
@@ -1417,6 +1422,25 @@ fn diff_size(r: Option<&Value>) -> (u32, u32) {
         }
     }
     (add, del)
+}
+
+/// A Write / Edit's change as unified-diff lines, from its toolUseResult (a new file: all "+").
+fn diff_lines(r: Option<&Value>) -> Vec<String> {
+    let Some(r) = r else { return Vec::new() };
+    let mut out = Vec::new();
+    if r.get("type").and_then(Value::as_str) == Some("create") {
+        let content = r.get("content").and_then(Value::as_str).unwrap_or("");
+        out.push(format!("@@ -0,0 +1,{} @@", content.lines().count()));
+        out.extend(content.lines().map(|l| format!("+{l}")));
+    } else {
+        for hunk in r.get("structuredPatch").and_then(Value::as_array).into_iter().flatten() {
+            let n = |k: &str| hunk.get(k).and_then(Value::as_u64).unwrap_or(0);
+            out.push(format!("@@ -{},{} +{},{} @@", n("oldStart"), n("oldLines"), n("newStart"), n("newLines")));
+            out.extend(hunk.get("lines").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned));
+        }
+    }
+    out.truncate(DIFF_KEEP);
+    out
 }
 
 /// A prompt you typed, as written (None for injected rows: reminders, command output, notifications…).
@@ -1498,11 +1522,12 @@ impl LogScan {
                         continue;
                     }
                     let Some(&i) = self.tools.get(id) else { continue };
-                    if let ChatItem::Tool { output, error, added, removed, .. } = &mut self.items[i] {
+                    if let ChatItem::Tool { output, error, added, removed, diff, .. } = &mut self.items[i] {
                         let out = result_text(b.get("content"));
                         *output = Some(clip(&ANSI_RE.replace_all(&out, ""), OUTPUT_KEEP));
                         *error = truthy(b.get("is_error"));
                         (*added, *removed) = diff_size(result);
+                        *diff = diff_lines(result);
                     }
                 }
                 continue;
@@ -1576,6 +1601,7 @@ impl LogScan {
                     error: false,
                     added: 0,
                     removed: 0,
+                    diff: Vec::new(),
                     at,
                 });
             }
@@ -1673,6 +1699,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn dates() {
@@ -1687,6 +1714,14 @@ mod tests {
         assert_eq!(decode_dir_name("E--softek-core2"), "E:\\softek\\core2");
         assert_eq!(project_root("E:\\x\\repo\\.claude\\worktrees\\a"), "E:\\x\\repo");
         assert_eq!(natural_cmp("a10", "A9"), Ordering::Greater);
+    }
+
+    #[test]
+    fn diffs() {
+        let edit = json!({"structuredPatch": [{"oldStart": 3, "oldLines": 2, "newStart": 3, "newLines": 2, "lines": [" a", "-b", "+c"]}]});
+        assert_eq!(diff_lines(Some(&edit)), ["@@ -3,2 +3,2 @@", " a", "-b", "+c"]);
+        let create = json!({"type": "create", "content": "x\ny"});
+        assert_eq!(diff_lines(Some(&create)), ["@@ -0,0 +1,2 @@", "+x", "+y"]);
     }
 }
 

@@ -19,7 +19,7 @@ export interface Attachment {
 
 export const useAttachments = create<{ byChat: Record<string, Attachment[]> }>(() => ({ byChat: {} }))
 
-const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif)$/i
+export const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif)$/i
 const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 let seq = 0
 
@@ -118,6 +118,28 @@ export async function pickAttachments(chatId: string, cwd?: string): Promise<voi
   if (typeof window.api.app.pickFiles !== 'function') return
   const paths = await window.api.app.pickFiles(cwd).catch(() => [] as string[])
   await attachPaths(chatId, paths)
+}
+
+const previews = new Map<string, Promise<string | undefined>>()
+
+/** A picture on disk as a data: URL (undefined when missing or over 15 MB); the last few are kept. */
+export function imagePreview(path: string): Promise<string | undefined> {
+  const key = path.toLowerCase()
+  let p = previews.get(key)
+  if (!p) {
+    p = window.api.app
+      .fileInfo([path])
+      .then((r) => r[0]?.preview)
+      .catch(() => undefined)
+      // not there (yet): ask again next time
+      .then((src) => {
+        if (!src) previews.delete(key)
+        return src
+      })
+    previews.set(key, p)
+    if (previews.size > 40) previews.delete(previews.keys().next().value!)
+  }
+  return p
 }
 
 export function formatSize(n: number): string {

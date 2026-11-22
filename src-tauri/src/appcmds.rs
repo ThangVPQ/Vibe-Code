@@ -358,3 +358,17 @@ fn clipboard_files() -> Vec<String> {
 fn clipboard_files() -> Vec<String> {
     Vec::new()
 }
+
+/// Windows voice typing (Win+H): it types what you say into the focused field.
+#[tauri::command]
+pub fn app_voice_typing() {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY};
+        let key = |vk: u16, flags: KEYBD_EVENT_FLAGS| INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(vk), wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } } };
+        let none = KEYBD_EVENT_FLAGS(0);
+        let inputs = [key(0x5B, none), key(0x48, none), key(0x48, KEYEVENTF_KEYUP), key(0x5B, KEYEVENTF_KEYUP)];
+        // SAFETY: a slice of fully initialised INPUTs.
+        unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    }
+}

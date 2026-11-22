@@ -8,6 +8,7 @@ import { editorOptions, languageFor, monaco } from '../monaco'
 import { ensureModel, getModel, isDirty, markTab, saveModel } from '../fileModels'
 import { FileIcon } from './icons'
 import { useEditorFont } from './EditorFont'
+import { IMAGE_RE, imagePreview } from '../attachments'
 
 /* Everything that needs Monaco: loaded the first time a file or diff tab opens. */
 
@@ -45,13 +46,15 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
   // and cursor) instead of tearing the whole editor down and building a new one.
   const [loaded, setLoaded] = useState<{ path: string; error?: string } | null>(null)
 
+  const image = IMAGE_RE.test(tab.path)
   useEffect(() => {
+    if (image) return
     let live = true
     ensureModel(tab.path).then((r) => live && setLoaded({ path: tab.path, error: r.error }))
     return () => {
       live = false
     }
-  }, [tab.path])
+  }, [tab.path, image])
 
   const mine = loaded?.path === tab.path ? loaded : null
   // The file on screen: this tab's as soon as its model exists (an already-open file switches in
@@ -106,6 +109,7 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
     editor.focus()
   }
 
+  if (image) return <ImageFile path={tab.path} />
   if (mine?.error) return <div className="editor-message">{mine.error}</div>
   if (!path) return <div className="editor-message" />
   return (
@@ -121,6 +125,29 @@ export function FileEditor({ tab }: { tab: Extract<EditorTab, { kind: 'file' }> 
           onMount={onMount}
         />
       </div>
+    </>
+  )
+}
+
+/** A picture opened as a file: shown instead of "binary file". */
+function ImageFile({ path }: { path: string }): React.JSX.Element {
+  const [src, setSrc] = useState<{ path: string; src?: string } | null>(null)
+  useEffect(() => {
+    let live = true
+    imagePreview(path).then((s) => live && setSrc({ path, src: s }))
+    return () => {
+      live = false
+    }
+  }, [path])
+  const mine = src?.path === path ? src : null
+  return (
+    <>
+      <Breadcrumbs path={path} />
+      {mine && !mine.src ? (
+        <div className="editor-message">This picture cannot be shown (missing, or larger than 15 MB).</div>
+      ) : (
+        <div className="image-file">{mine?.src && <img src={mine.src} alt={path} draggable={false} />}</div>
+      )}
     </>
   )
 }

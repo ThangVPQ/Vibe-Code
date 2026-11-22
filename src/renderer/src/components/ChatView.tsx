@@ -1,8 +1,10 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUp, ChevronRight, CircleCheck, CircleDashed, Loader, MessageSquare, SquareTerminal } from 'lucide-react'
+import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronRight, CircleCheck, CircleDashed, CornerDownLeft, Loader, MessageSquare, Mic, Plus, SquareTerminal } from 'lucide-react'
 import type { ChatItem, ChatLog, ChatTodo } from '../../../shared/types'
 import type { Chat } from '../store'
 import { menuShown, sendPrompt, takeFiles } from '../terminals'
+import { IMAGE_RE, imagePreview, pickAttachments } from '../attachments'
+import { openFile } from '../actions'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
 
@@ -86,14 +88,107 @@ function open(url: string): void {
   void window.api.app.openExternal(url)
 }
 
+/* ---------------- file paths: click to open in Source code ---------------- */
+
+/** the chat's folder: relative paths are read against it */
+const Cwd = createContext('')
+
+/** C:\a\b.ts, \\server\x.png, src/a.ts, ./a.ts — optionally with :line; never the middle of a word or a URL */
+const PATH_RE = /(?<![\w:/.\\-])(?:(?:[A-Za-z]:[\\/]|\\\\)[^\s`'"<>|*?]+|(?:\.{1,2}[\\/]|[\w@-][\w.@-]*[\\/])[\w.@\-\\/]*\.[A-Za-z][A-Za-z0-9]*(?::\d+)?)/g
+
+/** A path as written → the file it names (null when it doesn't end in a file name with an extension). */
+function filePath(raw: string, cwd: string): string | null {
+  const p = raw.replace(/[.,;:)\]}]+$/, '').replace(/(:\d+)+$/, '')
+  if (!/\.[A-Za-z][A-Za-z0-9]*$/.test(p)) return null
+  if (/^([A-Za-z]:[\\/]|\\\\|\/)/.test(p)) return p
+  return cwd.replace(/[\\/]+$/, '') + '\\' + p.replace(/^\.[\\/]/, '').replace(/\//g, '\\')
+}
+
+function PathLink({ raw, children }: { raw: string; children: React.ReactNode }): React.JSX.Element {
+  const abs = filePath(raw, useContext(Cwd))
+  if (!abs) return <>{children}</>
+  return (
+    <a
+      className="cv-path"
+      href="#"
+      title={`Open ${abs} in Source code`}
+      onClick={(e) => {
+        e.preventDefault()
+        openFile(abs)
+      }}
+    >
+      {children}
+    </a>
+  )
+}
+
+/** Plain text with the file paths in it made clickable. */
+function withPaths(text: string, key: number | string = 0): React.ReactNode[] {
+  const out: React.ReactNode[] = []
+  let last = 0
+  for (const m of text.matchAll(PATH_RE)) {
+    // keep a sentence's full stop / closing bracket out of the link
+    const raw = m[0].replace(/[.,;:)\]}]+$/, '')
+    if (m.index > last) out.push(text.slice(last, m.index))
+    out.push(
+      <PathLink key={`${key}-p${m.index}`} raw={raw}>
+        {raw}
+      </PathLink>
+    )
+    last = m.index + raw.length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
+/** The pictures a message names, shown under it; click one to open it in Source code. */
+function Thumbs({ text }: { text: string }): React.JSX.Element | null {
+  const cwd = useContext(Cwd)
+  const paths = [...new Set([...text.matchAll(PATH_RE)].map((m) => filePath(m[0], cwd)).filter((p): p is string => !!p && IMAGE_RE.test(p)))]
+  const sig = paths.join('|')
+  const [srcs, setSrcs] = useState<{ path: string; src: string }[]>([])
+  useEffect(() => {
+    let live = true
+    const list = sig ? sig.split('|') : []
+    Promise.all(list.map((path) => imagePreview(path).then((src) => (src ? { path, src } : null)))).then(
+      (r) => live && setSrcs(r.filter((x): x is { path: string; src: string } => !!x))
+    )
+    return () => {
+      live = false
+    }
+  }, [sig])
+  if (!srcs.length) return null
+  return (
+    <div className="cv-thumbs">
+      {srcs.map((s) => (
+        <button key={s.path} className="cv-thumb" title={`Open ${s.path} in Source code`} onClick={() => openFile(s.path)}>
+          <img src={s.src} alt="" draggable={false} />
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function inline(text: string, key = 0): React.ReactNode[] {
   const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\s][^*\n]*\*)|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))|(https?:\/\/[^\s)<>]+)/g
   const out: React.ReactNode[] = []
   let last = 0
   for (let m = re.exec(text); m; m = re.exec(text)) {
-    if (m.index > last) out.push(text.slice(last, m.index))
+    if (m.index > last) out.push(...withPaths(text.slice(last, m.index), `${key}-${last}`))
     const k = `${key}-${m.index}`
-    if (m[1]) out.push(<code key={k}>{m[1].slice(1, -1)}</code>)
+    if (m[1]) {
+      const code = m[1].slice(1, -1)
+      const whole = code.match(PATH_RE)?.[0] === code.replace(/[.,;:)\]}]+$/, '')
+      out.push(
+        whole ? (
+          <PathLink key={k} raw={code}>
+            <code>{code}</code>
+          </PathLink>
+        ) : (
+          <code key={k}>{code}</code>
+        )
+      )
+    }
     else if (m[2]) out.push(<strong key={k}>{inline(m[2].slice(2, -2), m.index)}</strong>)
     else if (m[3]) out.push(<em key={k}>{m[3].slice(1, -1)}</em>)
     else if (m[4]) {
@@ -113,7 +208,7 @@ function inline(text: string, key = 0): React.ReactNode[] {
     }
     last = m.index + m[0].length
   }
-  if (last < text.length) out.push(text.slice(last))
+  if (last < text.length) out.push(...withPaths(text.slice(last), `${key}-${last}`))
   return out
 }
 
@@ -210,13 +305,29 @@ function Markdown({ text }: { text: string }): React.JSX.Element {
 function ToolRow({ t }: { t: Tool }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const short = t.name.startsWith('mcp__') ? t.name.split('__').slice(2).join('__') : t.name
-  const label = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(t.name) ? base(t.label) : t.label
+  const isFile = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(t.name) && !!t.label
+  const label = isFile ? base(t.label) : t.label
   return (
     <div className={`cv-tool${t.error ? ' err' : ''}`}>
       <button className="cv-tool-head" onClick={() => setOpen(!open)} title={t.label}>
         <ChevronRight size={12} className={open ? 'task-chev open' : 'task-chev'} />
         <span className="cv-tool-name">{short}</span>
-        <span className="cv-tool-label">{label}</span>
+        {isFile ? (
+          <span className="cv-tool-label">
+            <span
+              className="cv-path"
+              title={`Open ${t.label} in Source code`}
+              onClick={(e) => {
+                e.stopPropagation()
+                openFile(t.label)
+              }}
+            >
+              {label}
+            </span>
+          </span>
+        ) : (
+          <span className="cv-tool-label">{label}</span>
+        )}
         {t.added + t.removed > 0 && (
           <span className="cv-diff">
             {t.added > 0 && <span className="add">+{t.added}</span>}
@@ -228,9 +339,42 @@ function ToolRow({ t }: { t: Tool }): React.JSX.Element {
       {open && (
         <div className="cv-tool-body">
           {t.detail && <pre className="task-out">{t.detail}</pre>}
-          {t.output !== undefined && <pre className="task-out">{t.output.trim() || 'No output.'}</pre>}
+          {t.diff?.length && !t.error ? (
+            <Diff lines={t.diff} />
+          ) : (
+            t.output !== undefined && <pre className="task-out">{t.output.trim() || 'No output.'}</pre>
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** A Write / Edit's change: removed lines red, added green, numbered like the file. */
+function Diff({ lines }: { lines: string[] }): React.JSX.Element {
+  let oldN = 0
+  let newN = 0
+  return (
+    <div className="cv-diff-view">
+      {lines.map((l, i) => {
+        const head = l.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)/)
+        if (head) {
+          oldN = +head[1]
+          newN = +head[2]
+          return i ? <div key={i} className="cv-dl gap">⋯</div> : null
+        }
+        const kind = l[0] === '+' ? 'add' : l[0] === '-' ? 'del' : ''
+        const n = kind === 'del' ? oldN : newN
+        if (kind !== 'add') oldN++
+        if (kind !== 'del') newN++
+        return (
+          <div key={i} className={`cv-dl ${kind}`}>
+            <span className="cv-dl-n">{n}</span>
+            <span className="cv-dl-s">{kind === 'add' ? '+' : kind === 'del' ? '−' : ' '}</span>
+            <span className="cv-dl-t">{l.slice(1)}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -338,71 +482,105 @@ export function ChatView({ chat, onTerminal }: { chat: Chat; onTerminal: () => v
   const list = log ? blocks(log) : []
 
   return (
-    <div className="cv">
-      <div
-        className="cv-scroll"
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-        }}
-      >
-        {!list.length && (
-          <div className="chat-images-empty">
-            <MessageSquare size={22} />
-            <p>{log === undefined ? 'Loading…' : 'Send a message to start. Everything Claude does in this chat shows up here; the Terminal tab has the full screen.'}</p>
-          </div>
-        )}
-        {log && log.skipped > 0 && <div className="cv-note">Earlier messages are in the Terminal tab.</div>}
-        {list.map((b, n) => (
-          <Fragment key={b.key}>
-            {b.kind === 'todos' && log && <Todos todos={log.todos} />}
-            {b.kind === 'tools' && <ToolGroup tools={b.tools} live={working && n === list.length - 1} />}
-            {b.kind === 'item' && b.item.kind === 'user' && <div className="cv-user">{b.item.text}</div>}
-            {b.kind === 'item' && b.item.kind === 'text' && <Markdown text={b.item.text} />}
-            {b.kind === 'item' && b.item.kind === 'done' && <div className="cv-note">{b.item.ms ? `Worked for ${dur(b.item.ms)}` : 'Interrupted'}</div>}
-          </Fragment>
-        ))}
-        {working && (
-          <div className="cv-working">
-            <Loader size={13} className="task-spin" />
-            Working{lastUser ? ` · ${dur(Date.now() - lastUser.at)}` : '…'}
-          </div>
-        )}
-        {asking && (
-          <div className="cv-asking">
-            <span>Claude is asking you to choose something.</span>
-            <button className="btn btn-sm" onClick={onTerminal}>
-              <SquareTerminal size={13} /> Answer in Terminal
-            </button>
-          </div>
-        )}
-      </div>
-      <div className="cv-compose">
-        <textarea
-          ref={box}
-          rows={1}
-          value={draft}
-          placeholder={chat.status === 'exited' ? 'This chat has ended' : 'Message Claude (Enter to send, Shift+Enter for a new line)'}
-          disabled={chat.status === 'exited'}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    <Cwd.Provider value={chat.cwd}>
+      <div className="cv">
+        <div
+          className="cv-scroll"
+          ref={scroller}
+          onScroll={(e) => {
+            const el = e.currentTarget
+            stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+          }}
+        >
+          {!list.length && (
+            <div className="chat-images-empty">
+              <MessageSquare size={22} />
+              <p>{log === undefined ? 'Loading…' : 'Send a message to start. Everything Claude does in this chat shows up here; the Terminal tab has the full screen.'}</p>
+            </div>
+          )}
+          {log && log.skipped > 0 && <div className="cv-note">Earlier messages are in the Terminal tab.</div>}
+          {list.map((b, n) => (
+            <Fragment key={b.key}>
+              {b.kind === 'todos' && log && <Todos todos={log.todos} />}
+              {b.kind === 'tools' && <ToolGroup tools={b.tools} live={working && n === list.length - 1} />}
+              {b.kind === 'item' && b.item.kind === 'user' && (
+                <div className="cv-user">
+                  {withPaths(b.item.text)}
+                  <Thumbs text={b.item.text} />
+                </div>
+              )}
+              {b.kind === 'item' && b.item.kind === 'text' && (
+                <>
+                  <Markdown text={b.item.text} />
+                  <Thumbs text={b.item.text} />
+                </>
+              )}
+              {b.kind === 'item' && b.item.kind === 'done' && <div className="cv-note">{b.item.ms ? `Worked for ${dur(b.item.ms)}` : 'Interrupted'}</div>}
+            </Fragment>
+          ))}
+          {working && (
+            <div className="cv-working">
+              <Loader size={13} className="task-spin" />
+              Working{lastUser ? ` · ${dur(Date.now() - lastUser.at)}` : '…'}
+            </div>
+          )}
+          {asking && (
+            <div className="cv-asking">
+              <span>Claude is asking you to choose something.</span>
+              <button className="btn btn-sm" onClick={onTerminal}>
+                <SquareTerminal size={13} /> Answer in Terminal
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="cv-compose">
+          <button
+            className="cv-icon"
+            title="Attach files — they go with your next message"
+            disabled={chat.status === 'exited'}
+            onClick={async () => {
+              await pickAttachments(chat.id, chat.cwd)
+              box.current?.focus()
+            }}
+          >
+            <Plus size={17} />
+          </button>
+          <textarea
+            ref={box}
+            rows={1}
+            value={draft}
+            placeholder={chat.status === 'exited' ? 'This chat has ended' : 'Message Claude (Enter to send, Shift+Enter for a new line)'}
+            disabled={chat.status === 'exited'}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                send()
+              }
+            }}
+            onPaste={(e) => {
+              const files = [...e.clipboardData.files]
+              if (!files.length) return
               e.preventDefault()
-              send()
-            }
-          }}
-          onPaste={(e) => {
-            const files = [...e.clipboardData.files]
-            if (!files.length) return
-            e.preventDefault()
-            void takeFiles(chat.id, 'claude', files)
-          }}
-        />
-        <button className="cv-send" title="Send (Enter)" disabled={!draft.trim() || chat.status === 'exited' || chat.status === 'starting'} onClick={send}>
-          <ArrowUp size={15} />
-        </button>
+              void takeFiles(chat.id, 'claude', files)
+            }}
+          />
+          <button className="cv-icon cv-send" title="Send (Enter)" disabled={!draft.trim() || chat.status === 'exited' || chat.status === 'starting'} onClick={send}>
+            <CornerDownLeft size={16} />
+          </button>
+          <button
+            className="cv-icon"
+            title="Voice typing (Windows, Win+H)"
+            disabled={chat.status === 'exited'}
+            onClick={() => {
+              box.current?.focus()
+              void window.api.app.voiceTyping?.()
+            }}
+          >
+            <Mic size={16} />
+          </button>
+        </div>
       </div>
-    </div>
+    </Cwd.Provider>
   )
 }

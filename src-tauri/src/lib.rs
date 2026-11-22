@@ -184,6 +184,7 @@ pub fn run() {
             capture::capture_done,
             appcmds::app_save_image,
             appcmds::app_clipboard_files,
+            appcmds::app_voice_typing,
         ])
         .setup(|app| {
             core::init(app.handle());
