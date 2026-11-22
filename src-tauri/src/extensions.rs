@@ -13,6 +13,7 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::core::{Res, command, err, user_data};
+use crate::settings::tr;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,7 +78,13 @@ async fn download(id: &str) -> anyhow::Result<PathBuf> {
     let crx = reqwest::Client::new().get(url).header("User-Agent", "vibe-code").send().await?.error_for_status()?.bytes().await?;
     // CRX = "Cr24", version, then (v3) a header of `len` bytes or (v2) a key and a signature; the zip follows
     if crx.len() < 16 || &crx[..4] != b"Cr24" {
-        bail!("the Web Store did not send an extension (is the id right, and is it a Chrome extension?)");
+        bail!(
+            "{}",
+            tr(
+                "the Web Store did not send an extension (is the id right, and is it a Chrome extension?)",
+                "Web Store không gửi về tiện ích nào (id có đúng không, và đó có phải tiện ích Chrome không?)"
+            )
+        );
     }
     let n = |at: usize| u32::from_le_bytes(crx[at..at + 4].try_into().unwrap()) as usize;
     let start = match n(4) {
@@ -100,7 +107,7 @@ async fn download(id: &str) -> anyhow::Result<PathBuf> {
     let _ = tokio::fs::remove_file(&file).await;
     if !out.status.success() || !part.join("manifest.json").is_file() {
         let _ = tokio::fs::remove_dir_all(&part).await;
-        bail!("could not unpack the extension: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!("{} {}", tr("could not unpack the extension:", "không giải nén được tiện ích:"), String::from_utf8_lossy(&out.stderr).trim());
     }
     // the store's signature folder: names starting with "_" are refused when loading unpacked
     let _ = tokio::fs::remove_dir_all(part.join("_metadata")).await;
@@ -160,7 +167,10 @@ pub async fn web_extension_add(source: String) -> Res<ExtInfo> {
     } else if let Some(id) = store_id(source) {
         download(&id).await?
     } else {
-        return Err(err("Paste a Chrome Web Store link (or the extension's id), or pick a folder that has a manifest.json."));
+        return Err(err(tr(
+            "Paste a Chrome Web Store link (or the extension's id), or pick a folder that has a manifest.json.",
+            "Dán link Chrome Web Store (hoặc id của tiện ích), hoặc chọn một thư mục có manifest.json.",
+        )));
     };
     let (id, name, on) = crate::browser::add_extension(&dir).await?;
     let mut map = index();

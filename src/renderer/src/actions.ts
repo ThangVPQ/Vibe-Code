@@ -140,13 +140,19 @@ export async function toggleProjectBypass(chatId: string): Promise<void> {
   const key = folderKey(chat.cwd)
   const on = !st().projectBypass[key]
   const msg = on
-    ? `Bypass permissions for the whole project?\n\n${chat.cwd}\n\nClaude will run commands and edit files here without asking. The trust-folder and bypass warnings are answered "Yes" for you. Saved in .claude/settings.local.json, so it also applies when you run claude from a terminal.\n\nOpen chats in this project restart.`
-    : `Turn off bypass for ${chat.cwd}?\n\nClaude asks for permission again. Open chats in this project restart.`
+    ? tr(
+        `Bypass permissions for the whole project?\n\n${chat.cwd}\n\nClaude will run commands and edit files here without asking. The trust-folder and bypass warnings are answered "Yes" for you. Saved in .claude/settings.local.json, so it also applies when you run claude from a terminal.\n\nOpen chats in this project restart.`,
+        `Bỏ qua quyền cho toàn bộ dự án?\n\n${chat.cwd}\n\nClaude sẽ chạy lệnh và sửa tệp ở đây mà không hỏi. Cảnh báo tin cậy thư mục và cảnh báo bypass được tự động trả lời "Yes". Lưu trong .claude/settings.local.json, nên cũng áp dụng khi bạn chạy claude từ terminal.\n\nCác chat đang mở trong dự án này sẽ khởi động lại.`
+      )
+    : tr(
+        `Turn off bypass for ${chat.cwd}?\n\nClaude asks for permission again. Open chats in this project restart.`,
+        `Tắt bypass cho ${chat.cwd}?\n\nClaude sẽ lại hỏi quyền. Các chat đang mở trong dự án này sẽ khởi động lại.`
+      )
   if (!(await window.api.ask(msg))) return
   try {
     await window.api.claude.setProjectBypass(chat.cwd, on)
   } catch (e) {
-    window.alert(`Couldn't update .claude/settings.local.json in this project:\n${(e as Error).message}`)
+    window.alert(tr(`Couldn't update .claude/settings.local.json in this project:\n${(e as Error).message}`, `Không cập nhật được .claude/settings.local.json trong dự án này:\n${(e as Error).message}`))
     return
   }
   useStore.setState((s) => ({ projectBypass: { ...s.projectBypass, [key]: on } }))
@@ -355,7 +361,7 @@ export async function openSession(s: SessionInfo): Promise<void> {
   const live = st().chats.find((c) => c.sessionId === s.id)
   if (live) return selectChat(live.id)
   if (!s.cwdExists) {
-    window.alert(`The folder for this chat no longer exists:\n${s.cwd}`)
+    window.alert(tr(`The folder for this chat no longer exists:\n${s.cwd}`, `Thư mục của chat này không còn tồn tại:\n${s.cwd}`))
     return
   }
   if (!st().root || !samePath(st().root!, s.projectCwd)) await openFolder(s.projectCwd, { autoChat: false })
@@ -619,7 +625,7 @@ export function disabledTools(): string[] {
 /** Save which tools are off, then restart the chat so it starts without them (same conversation). */
 export async function setDisabledTools(id: string, tools: string[]): Promise<void> {
   const c = st().chats.find((x) => x.id === id)
-  if (c?.status === 'working' && !(await window.api.ask('Claude is still working. Restart this chat with the new tool set?'))) return
+  if (c?.status === 'working' && !(await window.api.ask(tr('Claude is still working. Restart this chat with the new tool set?', 'Claude vẫn đang làm việc. Khởi động lại chat này với bộ công cụ mới?')))) return
   remember(DISABLED_TOOLS_KEY, tools.join(','))
   if (c) restartChat(id)
 }
@@ -629,7 +635,7 @@ export async function toggleDesktop(id: string): Promise<void> {
   const c = st().chats.find((x) => x.id === id)
   if (!c) return
   const on = !c.desktop
-  if (c.status === 'working' && !(await window.api.ask('Claude is still working. Restart this chat to switch desktop control?'))) return
+  if (c.status === 'working' && !(await window.api.ask(tr('Claude is still working. Restart this chat to switch desktop control?', 'Claude vẫn đang làm việc. Khởi động lại chat này để bật/tắt điều khiển desktop?')))) return
   await window.api.desktop.set(id, on)
   st().patchChat(id, { desktop: on || undefined })
   remember(DESKTOP_KEY, on ? '1' : '')
@@ -658,7 +664,7 @@ export function setChatEffort(id: string, effort: string): void {
 export async function setChatPermission(id: string, mode: string): Promise<void> {
   const c = st().chats.find((x) => x.id === id)
   if (!c) return
-  if (c.status === 'working' && !(await window.api.ask(`${agentDef(c.agent).label} is still working. Restart this chat with the new permission mode?`))) return
+  if (c.status === 'working' && !(await window.api.ask(tr(`${agentDef(c.agent).label} is still working. Restart this chat with the new permission mode?`, `${agentDef(c.agent).label} vẫn đang làm việc. Khởi động lại chat này với chế độ quyền mới?`)))) return
   st().patchChat(id, { permissionMode: mode || undefined })
   remember(PERMISSION_KEY, mode)
   restartChat(id)
@@ -685,19 +691,28 @@ export async function newChatFromZaloTask(taskId: string, title: string, project
   const cwd = projectCwd ?? (await window.api.app.pickFolder())
   if (!cwd) return
   if (!st().claude?.found) {
-    window.alert('Chưa cài Claude Code trên máy này.')
+    window.alert(tr('Claude Code is not installed on this machine.', 'Chưa cài Claude Code trên máy này.'))
     return
   }
   const ctx = await window.api.zalo.taskContext(taskId)
   if (!st().root || !samePath(st().root!, cwd)) await openFolder(cwd, { autoChat: false })
-  const extra = ctx.images.length || ctx.files.length ? ` (${ctx.images.length} images, ${ctx.files.length} files attached)` : ''
+  const extra =
+    ctx.images.length || ctx.files.length
+      ? tr(
+          ` (${ctx.images.length} image${ctx.images.length === 1 ? '' : 's'}, ${ctx.files.length} file${ctx.files.length === 1 ? '' : 's'} attached)`,
+          ` (kèm ${ctx.images.length} ảnh, ${ctx.files.length} tệp)`
+        )
+      : ''
   newChat({
     cwd,
     agent: 'claude',
     title: title.slice(0, 60),
     pinnedTitle: true,
     // typed into the input box, not sent: you add your own notes and press Enter yourself
-    draft: `Read the Zalo task context file ${ctx.file}${extra} and follow the instructions at its top. `
+    draft: tr(
+      `Read the Zalo task context file ${ctx.file}${extra} and follow the instructions at its top. `,
+      `Đọc tệp ngữ cảnh công việc Zalo ${ctx.file}${extra} và làm theo hướng dẫn ở đầu tệp. `
+    )
   })
 }
 
@@ -706,18 +721,21 @@ export async function newChatFromMail(uid: number, subject: string, projectCwd?:
   const cwd = projectCwd ?? (await window.api.app.pickFolder())
   if (!cwd) return
   if (!st().claude?.found) {
-    window.alert('Chưa cài Claude Code trên máy này.')
+    window.alert(tr('Claude Code is not installed on this machine.', 'Chưa cài Claude Code trên máy này.'))
     return
   }
   const ctx = await window.api.gmail.taskContext(uid)
   if (!st().root || !samePath(st().root!, cwd)) await openFolder(cwd, { autoChat: false })
-  const extra = ctx.files.length ? ` (${ctx.files.length} files attached)` : ''
+  const extra = ctx.files.length ? tr(` (${ctx.files.length} file${ctx.files.length === 1 ? '' : 's'} attached)`, ` (kèm ${ctx.files.length} tệp)`) : ''
   newChat({
     cwd,
     agent: 'claude',
     title: (subject || 'Email').slice(0, 60),
     pinnedTitle: true,
-    draft: `Read the email task context file ${ctx.file}${extra} and follow the instructions at its top. `
+    draft: tr(
+      `Read the email task context file ${ctx.file}${extra} and follow the instructions at its top. `,
+      `Đọc tệp ngữ cảnh email ${ctx.file}${extra} và làm theo hướng dẫn ở đầu tệp. `
+    )
   })
 }
 
@@ -726,7 +744,7 @@ export async function newChatFromOfficeFile(path: string): Promise<void> {
   const cwd = st().root ?? (await window.api.app.pickFolder())
   if (!cwd) return
   if (!st().claude?.found) {
-    window.alert('Chưa cài Claude Code trên máy này.')
+    window.alert(tr('Claude Code is not installed on this machine.', 'Chưa cài Claude Code trên máy này.'))
     return
   }
   const name = path.split(/[\\/]/).pop() ?? path
@@ -735,7 +753,10 @@ export async function newChatFromOfficeFile(path: string): Promise<void> {
     agent: 'claude',
     title: name.slice(0, 60),
     pinnedTitle: true,
-    draft: `Use the vibe-office tools to work with the file open in the Office tab (${path}). `
+    draft: tr(
+      `Use the vibe-office tools to work with the file open in the Office tab (${path}). `,
+      `Dùng các công cụ vibe-office để làm việc với tệp đang mở trong tab Office (${path}). `
+    )
   })
 }
 
@@ -1004,7 +1025,7 @@ const closedTabs: EditorTab[] = []
 export async function closeTab(id: string): Promise<void> {
   const tab = st().tabs.find((t) => t.id === id)
   if (tab?.kind === 'file') {
-    if (hasUnsaved(tab.path) && !(await window.api.ask(`Discard unsaved changes to ${tab.title}?`))) return
+    if (hasUnsaved(tab.path) && !(await window.api.ask(tr(`Discard unsaved changes to ${tab.title}?`, `Bỏ các thay đổi chưa lưu trong ${tab.title}?`)))) return
     disposeModel(tab.path)
   }
   tabUsed.delete(id)

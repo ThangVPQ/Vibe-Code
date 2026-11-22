@@ -52,9 +52,9 @@ async fn fetch_usage() -> anyhow::Result<Vec<UsageLimit>> {
         .map(|l| {
             let kind = l["kind"].as_str().unwrap_or_default().to_owned();
             let label = match kind.as_str() {
-                "session" => settings::tr("5-hour", "5 giờ").to_owned(),
-                "weekly_all" => settings::tr("Weekly", "Tuần").to_owned(),
-                _ => format!("{} · {}", settings::tr("Weekly", "Tuần"), l.pointer("/scope/model/display_name").and_then(Value::as_str).unwrap_or("model")),
+                "session" => "5-hour".to_owned(),
+                "weekly_all" => "Weekly".to_owned(),
+                _ => format!("Weekly · {}", l.pointer("/scope/model/display_name").and_then(Value::as_str).unwrap_or("model")),
             };
             UsageLimit {
                 kind,

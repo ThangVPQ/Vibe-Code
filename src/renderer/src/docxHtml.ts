@@ -24,6 +24,7 @@ import {
   type IRunOptions,
   type ParagraphChild
 } from 'docx'
+import { tr } from './i18n'
 
 /* ================================ .docx → HTML ================================ */
 
@@ -202,7 +203,7 @@ export async function docxToHtml(bytes: ArrayBuffer): Promise<string> {
     return f ? parseXml(await f.async('string')) : null
   }
   const doc = await read('word/document.xml')
-  if (!doc) throw new Error('File không phải tài liệu Word (.docx)')
+  if (!doc) throw new Error(tr('The file is not a Word document (.docx)', 'File không phải tài liệu Word (.docx)'))
   const rels: Record<string, string> = {}
   for (const r of Array.from((await read('word/_rels/document.xml.rels'))?.getElementsByTagName('Relationship') ?? [])) rels[r.getAttribute('Id') ?? ''] = r.getAttribute('Target') ?? ''
   // lists: numId → abstractNum → per level, bullet or not

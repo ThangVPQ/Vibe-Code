@@ -23,7 +23,7 @@ import {
   toggleDesktop
 } from '../actions'
 import { attachTerm, detachTerm, fitTerm, focusTerm, writeToTerm } from '../terminals'
-import { Logo, StatusDot, statusLabel } from './icons'
+import { Logo, StatusDot, statusText } from './icons'
 import { ChatImages, useChatImages } from './ChatImages'
 import { ChatTasks, useChatTasks } from './ChatTasks'
 import { ChatView } from './ChatView'
@@ -188,7 +188,7 @@ export function ClaudePanel(): React.JSX.Element {
                 </span>
               )}
               {agentDef(active.agent).id !== 'claude' && <span className="chat-agent">{agentDef(active.agent).label}</span>}
-              <span className={`chat-state s-${active.status}`}>{statusLabel[active.status]}</span>
+              <span className={`chat-state s-${active.status}`}>{statusText(active.status, t)}</span>
             </div>
             <div className="chat-titlebar-actions">
               {active.status === 'exited' && (
@@ -623,28 +623,28 @@ interface Opt {
   hint?: string
 }
 
-const MODELS: Opt[] = [
-  { value: '', label: 'Default', hint: "Claude Code's choice" },
-  { value: 'claude-opus-5-5', label: 'Opus 5.5', hint: 'Most capable' },
-  { value: 'claude-sonnet-5-5', label: 'Sonnet 5.5', hint: 'Fast, strong' },
-  { value: 'claude-haiku-5-5', label: 'Haiku 5.5', hint: 'Fastest' },
+const MODELS = (t: T): Opt[] => [
+  { value: '', label: t('Default', 'Mặc định'), hint: t("Claude Code's choice", 'Claude Code tự chọn') },
+  { value: 'claude-opus-5-5', label: 'Opus 5.5', hint: t('Most capable', 'Mạnh nhất') },
+  { value: 'claude-sonnet-5-5', label: 'Sonnet 5.5', hint: t('Fast, strong', 'Nhanh, mạnh') },
+  { value: 'claude-haiku-5-5', label: 'Haiku 5.5', hint: t('Fastest', 'Nhanh nhất') },
   { value: 'claude-fable-5-2', label: 'Fable 5.2' }
 ]
 
-const EFFORTS: Opt[] = [
-  { value: '', label: 'Auto' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-  { value: 'max', label: 'Max' }
+const EFFORTS = (t: T): Opt[] => [
+  { value: '', label: t('Auto', 'Tự động') },
+  { value: 'low', label: t('Low', 'Thấp') },
+  { value: 'medium', label: t('Medium', 'Vừa') },
+  { value: 'high', label: t('High', 'Cao') },
+  { value: 'xhigh', label: t('Extra high', 'Rất cao') },
+  { value: 'max', label: t('Max', 'Tối đa') }
 ]
 
-const MODES: Opt[] = [
-  { value: '', label: 'Ask permissions', hint: 'Default' },
-  { value: 'acceptEdits', label: 'Accept edits', hint: 'Auto-approve file edits' },
-  { value: 'plan', label: 'Plan mode', hint: 'Read-only planning' },
-  { value: 'bypassPermissions', label: 'Bypass permissions', hint: 'No prompts at all' }
+const MODES = (t: T): Opt[] => [
+  { value: '', label: t('Ask permissions', 'Hỏi quyền'), hint: t('Default', 'Mặc định') },
+  { value: 'acceptEdits', label: t('Accept edits', 'Chấp nhận sửa'), hint: t('Auto-approve file edits', 'Tự duyệt sửa tệp') },
+  { value: 'plan', label: t('Plan mode', 'Chế độ Plan'), hint: t('Read-only planning', 'Lập kế hoạch, chỉ đọc') },
+  { value: 'bypassPermissions', label: t('Bypass permissions', 'Bỏ qua quyền'), hint: t('No prompts at all', 'Không hỏi gì cả') }
 ]
 
 /** Typed into the chat's prompt, then Enter on its own so it isn't read as part of a pasted block. */
@@ -655,17 +655,18 @@ function sendPrompt(id: string, text: string): void {
 
 /** Model / effort / permission mode, at the right of the bar under the chat. */
 function ChatPickers({ chat }: { chat: Chat }): React.JSX.Element {
+  const t = useT()
   const agent = agentDef(chat.agent)
   const isClaude = agent.id === 'claude'
   // other agents: only "ask" vs their own never-ask flag (Codex --dangerously-bypass…, Gemini --yolo…)
-  const modes = isClaude ? MODES : agent.yolo.length ? MODES.filter((m) => !m.value || m.value === 'bypassPermissions') : []
+  const modes = isClaude ? MODES(t) : agent.yolo.length ? MODES(t).filter((m) => !m.value || m.value === 'bypassPermissions') : []
   return (
     <div className="sb-pickers">
-      {isClaude && <Picker title="Model" options={MODELS} value={chat.model ?? ''} onPick={(v) => setChatModel(chat.id, v)} />}
-      {isClaude && <Picker title="Effort" options={EFFORTS} value={chat.effort ?? ''} onPick={(v) => setChatEffort(chat.id, v)} />}
+      {isClaude && <Picker title="Model" options={MODELS(t)} value={chat.model ?? ''} onPick={(v) => setChatModel(chat.id, v)} />}
+      {isClaude && <Picker title={t('Effort', 'Mức suy nghĩ')} options={EFFORTS(t)} value={chat.effort ?? ''} onPick={(v) => setChatEffort(chat.id, v)} />}
       {modes.length > 0 && (
         <Picker
-          title="Permission mode (restarts the chat)"
+          title={t('Permission mode (restarts the chat)', 'Chế độ quyền (khởi động lại chat)')}
           options={modes}
           value={chat.permissionMode ?? ''}
           warn={chat.permissionMode === 'bypassPermissions'}
@@ -684,19 +685,20 @@ function ChatPickers({ chat }: { chat: Chat }): React.JSX.Element {
 const SMALL_WINDOW = /-(opus|sonnet|haiku)-4(-[0-5])?(-\d{8})?$|claude-[23]/i
 
 /** What the context is made of (keys as sessions.rs sends them), in the bar's order. */
-const CTX_PARTS: { key: string; label: string; hint: string }[] = [
-  { key: 'system', label: 'System prompt', hint: "Claude Code's instructions, environment, date" },
-  { key: 'tools', label: 'Built-in tools', hint: 'Bash, Read, Edit… and the deferred-tool list' },
-  { key: 'mcp', label: 'MCP servers', hint: 'Tools and instructions of MCP servers' },
-  { key: 'plugins', label: 'Plugins', hint: "Plugins' skills, agents and MCP tools" },
-  { key: 'skills', label: 'Skills', hint: 'Skill list, plus skills Claude loaded' },
-  { key: 'agents', label: 'Agents', hint: 'Subagent types for the Agent tool' },
-  { key: 'memory', label: 'Memory files', hint: 'CLAUDE.md, MEMORY.md' },
-  { key: 'messages', label: 'Messages', hint: 'Your messages, replies, tool calls and results' }
+const CTX_PARTS = (t: T): { key: string; label: string; hint: string }[] => [
+  { key: 'system', label: 'System prompt', hint: t("Claude Code's instructions, environment, date", 'Hướng dẫn, môi trường, ngày giờ của Claude Code') },
+  { key: 'tools', label: t('Built-in tools', 'Tool có sẵn'), hint: t('Bash, Read, Edit… and the deferred-tool list', 'Bash, Read, Edit… và danh sách tool tải sau') },
+  { key: 'mcp', label: t('MCP servers', 'MCP server'), hint: t('Tools and instructions of MCP servers', 'Tool và hướng dẫn của các MCP server') },
+  { key: 'plugins', label: 'Plugins', hint: t("Plugins' skills, agents and MCP tools", 'Skill, agent và tool MCP của plugin') },
+  { key: 'skills', label: 'Skills', hint: t('Skill list, plus skills Claude loaded', 'Danh sách skill, cùng các skill Claude đã nạp') },
+  { key: 'agents', label: 'Agents', hint: t('Subagent types for the Agent tool', 'Các loại subagent cho tool Agent') },
+  { key: 'memory', label: t('Memory files', 'Tệp memory'), hint: 'CLAUDE.md, MEMORY.md' },
+  { key: 'messages', label: t('Messages', 'Tin nhắn'), hint: t('Your messages, replies, tool calls and results', 'Tin nhắn của bạn, câu trả lời, lệnh gọi tool và kết quả') }
 ]
 
 /** How full this chat's context window is, from the last reply in its session file. */
 function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
+  const t = useT()
   const sessionId = chat.sessionId
   const [ctx, setCtx] = useState<{ used: number; model: string; parts: { key: string; tokens: number }[] } | null>(null)
   const [hover, setHover] = useState(false)
@@ -738,15 +740,15 @@ function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
     return p > 0 && p < 0.1 ? '<0.1%' : `${p.toFixed(p < 10 ? 1 : 0)}%`
   }
   const tokens = new Map(ctx?.parts?.map((p) => [p.key, p.tokens]))
-  const parts = CTX_PARTS.map((p) => ({ ...p, tokens: tokens.get(p.key) ?? 0 }))
+  const parts = CTX_PARTS(t).map((p) => ({ ...p, tokens: tokens.get(p.key) ?? 0 }))
   return (
     <div
       className="ctx-bar"
-      title={ctx ? undefined : 'No reply yet'}
+      title={ctx ? undefined : t('No reply yet', 'Chưa có câu trả lời')}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <span className="ctx-label">Context</span>
+      <span className="ctx-label">{t('Context', 'Ngữ cảnh')}</span>
       <div className="ctx-track">
         {parts.map(
           (p) => p.tokens > 0 && <div key={p.key} className={`ctx-seg ctx-${p.key}`} style={{ width: `${(p.tokens / max) * 100}%` }} />
@@ -756,9 +758,9 @@ function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
       {hover && ctx && (
         <div className="ctx-pop">
           <div className="ctx-pop-head">
-            <span>Context window</span>
+            <span>{t('Context window', 'Cửa sổ ngữ cảnh')}</span>
             <span>
-              {used.toLocaleString()} / {max.toLocaleString()} · {Math.round(pct)}%
+              {used.toLocaleString(t('en-US', 'vi-VN'))} / {max.toLocaleString(t('en-US', 'vi-VN'))} · {Math.round(pct)}%
             </span>
           </div>
           {parts.map((p) => (
@@ -771,11 +773,11 @@ function ContextBar({ chat }: { chat: Chat }): React.JSX.Element {
           ))}
           <div className="ctx-row free">
             <i className="ctx-dot" />
-            <span className="ctx-row-label">Free space</span>
+            <span className="ctx-row-label">{t('Free space', 'Còn trống')}</span>
             <span className="ctx-row-num">{kk(Math.max(0, max - used))}</span>
             <span className="ctx-row-pct">{pc(Math.max(0, max - used))}</span>
           </div>
-          <div className="ctx-pop-note">Estimated from the session file · total is exact</div>
+          <div className="ctx-pop-note">{t('Estimated from the session file · total is exact', 'Ước tính từ file session · tổng là chính xác')}</div>
         </div>
       )}
     </div>
@@ -833,6 +835,7 @@ function Picker(props: { title: string; options: Opt[]; value: string; warn?: bo
 }
 
 function NoChat(): React.JSX.Element {
+  const t = useT()
   const agents = useStore((s) => s.agents)
   const claudeFound = useStore((s) => !!s.claude?.found)
   useStore((s) => s.preferredAgent)
@@ -843,19 +846,25 @@ function NoChat(): React.JSX.Element {
       <div className="glow-orb">
         <Logo size={56} />
       </div>
-      <h3>What should we build?</h3>
-      <p>Each chat runs its own {def.label} session in this folder. Run several in parallel and hop between them.</p>
+      <h3>{t('What should we build?', 'Hôm nay mình build gì?')}</h3>
+      <p>
+        {t(
+          `Each chat runs its own ${def.label} session in this folder. Run several in parallel and hop between them.`,
+          `Mỗi chat chạy một phiên ${def.label} riêng trong thư mục này. Chạy nhiều chat song song và chuyển qua lại giữa chúng.`
+        )}
+      </p>
       <div className="no-chat-actions">
         <button className="btn btn-primary btn-lg" onClick={() => newChat()}>
-          <Sparkles size={16} /> New chat{def.id !== 'claude' ? ` · ${def.label}` : ''}
+          <Sparkles size={16} /> {t('New chat', 'Chat mới')}
+          {def.id !== 'claude' ? ` · ${def.label}` : ''}
         </button>
         {claudeFound && (
           <>
-            <button className="btn btn-ghost" onClick={() => newChat({ args: ['--continue'], title: 'Continued chat' })}>
-              <RotateCcw size={14} /> Continue last
+            <button className="btn btn-ghost" onClick={() => newChat({ args: ['--continue'], title: t('Continued chat', 'Chat tiếp tục') })}>
+              <RotateCcw size={14} /> {t('Continue last', 'Tiếp tục chat trước')}
             </button>
-            <button className="btn btn-ghost" onClick={() => newChat({ args: ['--resume'], title: 'Resume…' })}>
-              <History size={14} /> Resume…
+            <button className="btn btn-ghost" onClick={() => newChat({ args: ['--resume'], title: t('Resume…', 'Mở lại…') })}>
+              <History size={14} /> {t('Resume…', 'Mở lại…')}
             </button>
           </>
         )}
@@ -874,17 +883,21 @@ function NoChat(): React.JSX.Element {
 }
 
 function InstallCard(): React.JSX.Element {
+  const t = useT()
   const cmd = 'npm install -g @anthropic-ai/claude-code'
   return (
     <div className="no-chat">
       <div className="glow-orb dim">
         <Logo size={56} />
       </div>
-      <h3>Claude Code isn't installed</h3>
-      <p>VIBE CODE runs the <code>claude</code> command-line tool. Install it, then sign in once from a terminal.</p>
+      <h3>{t("Claude Code isn't installed", 'Chưa cài Claude Code')}</h3>
+      <p>
+        {t('VIBE CODE runs the', 'VIBE CODE chạy công cụ dòng lệnh')} <code>claude</code>
+        {t(' command-line tool. Install it, then sign in once from a terminal.', '. Hãy cài nó, rồi đăng nhập một lần từ terminal.')}
+      </p>
       <div className="code-line">
         <code>{cmd}</code>
-        <button className="icon-btn" title="Copy" onClick={() => navigator.clipboard.writeText(cmd)}>
+        <button className="icon-btn" title={t('Copy', 'Sao chép')} onClick={() => navigator.clipboard.writeText(cmd)}>
           <Copy size={14} />
         </button>
       </div>
@@ -899,13 +912,13 @@ function InstallCard(): React.JSX.Element {
             }, 900)
           }}
         >
-          <SquareTerminal size={15} /> Install in terminal
+          <SquareTerminal size={15} /> {t('Install in terminal', 'Cài trong terminal')}
         </button>
         <button className="btn btn-ghost" onClick={() => detectClaude()}>
-          <RefreshCw size={14} /> I've installed it
+          <RefreshCw size={14} /> {t("I've installed it", 'Tôi đã cài xong')}
         </button>
         <button className="btn btn-ghost" onClick={() => window.api.app.openExternal('https://docs.claude.com/en/docs/claude-code/setup')}>
-          <ExternalLink size={14} /> Docs
+          <ExternalLink size={14} /> {t('Docs', 'Tài liệu')}
         </button>
       </div>
     </div>
@@ -915,6 +928,7 @@ function InstallCard(): React.JSX.Element {
 /* ================================ Bottom terminal panel ================================ */
 
 export function BottomPanel(): React.JSX.Element {
+  const t = useT()
   const shells = useStore((s) => s.shells)
   const activeId = useStore((s) => s.activeShellId)
   return (
@@ -943,15 +957,15 @@ export function BottomPanel(): React.JSX.Element {
           ))}
         </div>
         <div className="section-actions">
-          <button className="icon-btn" title="New terminal" onClick={() => newShell()}>
+          <button className="icon-btn" title={t('New terminal', 'Terminal mới')} onClick={() => newShell()}>
             <Plus size={15} />
           </button>
           {activeId && (
-            <button className="icon-btn" title="Kill terminal" onClick={() => closeShell(activeId)}>
+            <button className="icon-btn" title={t('Kill terminal', 'Tắt terminal')} onClick={() => closeShell(activeId)}>
               <Trash2 size={14} />
             </button>
           )}
-          <button className="icon-btn" title="Hide panel (Ctrl+`)" onClick={() => useStore.setState({ bottomOpen: false })}>
+          <button className="icon-btn" title={t('Hide panel (Ctrl+`)', 'Ẩn bảng (Ctrl+`)')} onClick={() => useStore.setState({ bottomOpen: false })}>
             <ChevronDown size={15} />
           </button>
         </div>

@@ -353,11 +353,15 @@ pub async fn fs_open_path(path: String) -> Res<String> {
     })
 }
 
+fn already_exists(path: &str) -> String {
+    if crate::settings::vi() { format!("{path} đã tồn tại") } else { format!("{path} already exists") }
+}
+
 /// Rename or move; refuses to overwrite.
 #[tauri::command]
 pub async fn fs_rename(from: String, to: String) -> Res<()> {
     if tokio::fs::try_exists(&to).await? {
-        return Err(crate::core::err(format!("{to} already exists")));
+        return Err(crate::core::err(already_exists(&to)));
     }
     tokio::fs::rename(from, to).await?;
     Ok(())
@@ -381,7 +385,7 @@ pub async fn fs_copy(from: String, dir: String) -> Res<String> {
             n += 1;
         }
         if dst.starts_with(src) {
-            return Err(crate::core::err("can't copy a folder into itself"));
+            return Err(crate::core::err(crate::settings::tr("can't copy a folder into itself", "không thể sao chép thư mục vào chính nó")));
         }
         copy_tree(src, &dst)?;
         Ok(dst.to_string_lossy().into_owned())
@@ -432,7 +436,7 @@ pub async fn fs_trash(path: String) -> Res<()> {
 #[tauri::command]
 pub async fn fs_create(path: String, dir: bool) -> Res<()> {
     if tokio::fs::try_exists(&path).await? {
-        return Err(crate::core::err(format!("{path} already exists")));
+        return Err(crate::core::err(already_exists(&path)));
     }
     if dir {
         tokio::fs::create_dir(&path).await?;

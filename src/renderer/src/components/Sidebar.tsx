@@ -57,7 +57,7 @@ import {
 import { hasUnsaved } from '../fileModelsLite'
 import { RenameInput, startRename, useRenaming } from './InlineRename'
 import { openMenu } from './ContextMenu'
-import { FileIcon, FolderIcon, StatusDot, statusLabel } from './icons'
+import { FileIcon, FolderIcon, StatusDot } from './icons'
 import type { DirEntry, GitBranch as GitBranchInfo, GitCommit, GitCommitFile, GitFile, ProjectGroup, SessionInfo } from '../../../shared/types'
 import { agentDef } from '../../../shared/agents'
 import { NewChatMenu } from './AgentMenu'

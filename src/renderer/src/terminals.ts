@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import type { PtySpawnOptions } from '../../shared/types'
 import { attachBlob, attachPaths, attachmentsOf, takeAttachments, type Attachment } from './attachments'
+import { tr } from './i18n'
 
 export const termTheme: ITheme = {
   // macOS dark: the system palette on a graphite background (same as --bg-term in styles.css)
@@ -233,7 +234,7 @@ function wire(): void {
   window.api.pty.onExit((id, code) => {
     const e = entries.get(id)
     // -1 = found dead on a keystroke; the chat restarts right away, so no note
-    if (e && code !== -1) e.term.write(`\r\n\x1b[90m[process exited with code ${code}]\x1b[0m\r\n`)
+    if (e && code !== -1) e.term.write(`\r\n\x1b[90m[${tr(`process exited with code ${code}`, `tiến trình đã thoát với mã ${code}`)}]\x1b[0m\r\n`)
     handlers.exit?.(id, code)
   })
 }

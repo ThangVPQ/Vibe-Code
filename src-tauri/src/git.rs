@@ -169,7 +169,7 @@ pub async fn git_push(root: String) -> Res<()> {
         return git_remote(&root, &["push"]).await;
     }
     let remotes = git(&root, &["remote"]).await?;
-    let remote = remotes.lines().find(|r| *r == "origin").or_else(|| remotes.lines().next()).ok_or_else(|| err("This repository has no remote to push to."))?;
+    let remote = remotes.lines().find(|r| *r == "origin").or_else(|| remotes.lines().next()).ok_or_else(|| err(crate::settings::tr("This repository has no remote to push to.", "Repository này không có remote để push lên.")))?;
     git_remote(&root, &["push", "-u", remote, "HEAD"]).await
 }
 

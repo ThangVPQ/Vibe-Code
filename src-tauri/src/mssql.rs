@@ -33,6 +33,7 @@ use tokio::{
 use crate::{
     core::{Res, command, user_data},
     secure,
+    settings::tr,
 };
 
 const BRIDGE_PS1: &str = include_str!("mssql_bridge.ps1");
@@ -110,7 +111,7 @@ async fn start() -> Result<Arc<Bridge>> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .context("could not start PowerShell")?;
+        .context(tr("could not start PowerShell", "không chạy được PowerShell"))?;
     let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
         bail!("PowerShell has no stdio");
     };
@@ -121,8 +122,12 @@ async fn start() -> Result<Arc<Bridge>> {
     match ready_rx.await {
         Ok(Ok(())) => Ok(bridge),
         Ok(Err(e)) => Err(anyhow!(e)),
-        Err(_) => bail!("Query stopped."),
+        Err(_) => bail!("{}", query_stopped()),
     }
+}
+
+fn query_stopped() -> &'static str {
+    tr("Query stopped.", "Truy vấn đã dừng.")
 }
 
 /// Routes replies to their callers; when the process ends, fails everything still waiting.
@@ -177,8 +182,8 @@ async fn read_loop(bridge: Arc<Bridge>, stdout: ChildStdout, mut stderr: ChildSt
     let _ = tokio::time::timeout(Duration::from_millis(500), err_task).await;
     let stderr = err_buf.lock().trim().to_owned();
     let err = match stderr.lines().next() {
-        Some(first) if !stderr.is_empty() => format!("SQL runner stopped: {}", first.trim()),
-        _ => "Query stopped.".to_owned(),
+        Some(first) if !stderr.is_empty() => format!("{} {}", tr("SQL runner stopped:", "Trình chạy SQL đã dừng:"), first.trim()),
+        _ => query_stopped().to_owned(),
     };
     {
         let mut p = bridge.pending.lock();
@@ -230,14 +235,14 @@ async fn bridge(mut req: Value) -> Result<Value> {
             Ok(r) => r,
             Err(_) => {
                 b.pending.lock().waiting.remove(&id);
-                return Err(anyhow!(e).context("SQL runner is not responding"));
+                return Err(anyhow!(e).context(tr("SQL runner is not responding", "Trình chạy SQL không phản hồi")));
             }
         },
     };
     match reply {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(e)) => Err(anyhow!(e)),
-        Err(_) => bail!("Query stopped."),
+        Err(_) => bail!("{}", query_stopped()),
     }
 }
 
@@ -663,7 +668,7 @@ async fn run_on(conn: &str, sql: &str, o: RunOpts<'_>) -> Result<DbQueryResult> 
         if !r.ok {
             result.ok = false;
             // server line numbers are per batch: shift them to the editor's
-            let err = r.error.unwrap_or_else(|| "Query failed".into());
+            let err = r.error.unwrap_or_else(|| tr("Query failed", "Truy vấn thất bại").into());
             let shifted = LINE.replace_all(&err, |c: &regex::Captures| {
                 let n: usize = c[1].parse().unwrap_or(0);
                 format!("Line {}:", n + b.line - 1)
@@ -721,7 +726,7 @@ fn first_rows(r: &DbQueryResult) -> &[Vec<Value>] {
 }
 
 fn ok_or_err(r: DbQueryResult) -> Result<DbQueryResult> {
-    if r.ok { Ok(r) } else { Err(anyhow!(r.error.unwrap_or_else(|| "Query failed".into()))) }
+    if r.ok { Ok(r) } else { Err(anyhow!(r.error.unwrap_or_else(|| tr("Query failed", "Truy vấn thất bại").into()))) }
 }
 
 async fn test_connection(conn: &str) -> Result<TestResult> {
@@ -735,7 +740,7 @@ async fn test_connection(conn: &str) -> Result<TestResult> {
         return Ok(TestResult { ok: false, error: r.error, version: None });
     }
     let row = first_rows(&r).first().map(Vec::as_slice).unwrap_or_default();
-    Ok(TestResult { ok: true, error: None, version: Some(format!("SQL Server {} · database {}", js_str(row.first()), js_str(row.get(1)))) })
+    Ok(TestResult { ok: true, error: None, version: Some(format!("SQL Server {} · {} {}", js_str(row.first()), tr("database", "cơ sở dữ liệu"), js_str(row.get(1)))) })
 }
 
 async fn list_databases(id: &str) -> Result<Vec<String>> {

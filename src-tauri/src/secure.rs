@@ -70,7 +70,10 @@ pub fn open(sealed: &[u8]) -> Result<Vec<u8>> {
     let (nonce, body) = rest.split_at(12);
     let cipher = Aes256Gcm::new(key()?.into());
     let nonce: [u8; 12] = nonce.try_into()?;
-    cipher.decrypt(&Nonce::from(nonce), body).map_err(|_| anyhow!("could not decrypt (was it saved by another Windows user?)"))
+    cipher.decrypt(&Nonce::from(nonce), body).map_err(|_| anyhow!(crate::settings::tr(
+        "could not decrypt (was it saved by another Windows user?)",
+        "không giải mã được (có phải nó được lưu bởi một người dùng Windows khác?)"
+    )))
 }
 
 pub fn seal_str(s: &str) -> Result<String> {

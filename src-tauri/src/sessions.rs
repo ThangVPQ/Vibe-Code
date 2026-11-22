@@ -1831,7 +1831,7 @@ pub async fn sessions_delete(session_id: String) -> Res<()> {
         }
     }
     if !found {
-        return Err(crate::core::err("this chat has no saved history"));
+        return Err(crate::core::err(crate::settings::tr("this chat has no saved history", "chat này không có lịch sử đã lưu")));
     }
     Ok(())
 }

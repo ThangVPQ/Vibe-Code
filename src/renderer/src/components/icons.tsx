@@ -105,14 +105,6 @@ export function Logo({ size = 22 }: { size?: number }): React.JSX.Element {
   )
 }
 
-/** @deprecated English only: use statusText(status, t). Kept until every caller has moved over. */
-export const statusLabel: Record<ChatStatus, string> = {
-  starting: 'Starting…',
-  working: 'Working',
-  idle: 'Waiting for you',
-  exited: 'Ended'
-}
-
 export function statusText(status: ChatStatus, t: T): string {
   switch (status) {
     case 'starting':

@@ -28,6 +28,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::core::{Res, emit, user_data};
+use crate::settings::{self, tr};
 
 /// ghcr.io/ranuts/document:0.0.9 (linux/amd64): its third layer is the site, under `public/`.
 const IMAGE: &str = "ranuts/document";
@@ -69,7 +70,7 @@ pub async fn onlyoffice_install() -> Res<String> {
     static ONE_AT_A_TIME: Mutex<()> = Mutex::const_new(());
     let _guard = ONE_AT_A_TIME.lock().await;
     if !installed() {
-        install().await.context("không tải được ONLYOFFICE")?;
+        install().await.context(tr("could not download ONLYOFFICE", "không tải được ONLYOFFICE"))?;
     }
     Ok(origin().await?)
 }
@@ -140,7 +141,10 @@ async fn download(to: &Path, progress: impl Fn(u64)) -> Result<()> {
     let got: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
     if done != LAYER_SIZE || format!("sha256:{got}") != LAYER {
         let _ = std::fs::remove_file(to);
-        bail!("bản tải về bị hỏng ({done} / {LAYER_SIZE} byte), hãy thử lại");
+        if settings::vi() {
+            bail!("bản tải về bị hỏng ({done} / {LAYER_SIZE} byte), hãy thử lại");
+        }
+        bail!("the download is damaged ({done} / {LAYER_SIZE} bytes), try again");
     }
     Ok(())
 }
@@ -170,7 +174,7 @@ fn unpack(tgz: &Path, to: &Path) -> Result<()> {
         }
     }
     if !to.join("editor.html").is_file() {
-        bail!("bản tải về không có editor.html");
+        bail!("{}", tr("the download has no editor.html", "bản tải về không có editor.html"));
     }
     Ok(())
 }
@@ -183,13 +187,13 @@ fn unpack(tgz: &Path, to: &Path) -> Result<()> {
 ///   English text, as the project does for the languages its site offers.
 fn prepare(dir: &Path) -> Result<()> {
     let x2t = dir.join("sdkjs/common/wasm/x2t/x2t.wasm.br");
-    let bytes = std::fs::read(&x2t).context("thiếu bộ chuyển đổi x2t")?;
+    let bytes = std::fs::read(&x2t).context(tr("the x2t converter is missing", "thiếu bộ chuyển đổi x2t"))?;
     if bytes.starts_with(&[0x1f, 0x8b]) {
         let mut wasm = Vec::new();
         flate2::read::GzDecoder::new(&bytes[..]).read_to_end(&mut wasm)?;
         std::fs::write(&x2t, wasm)?;
     } else if !bytes.starts_with(b"\0asm") {
-        bail!("bộ chuyển đổi x2t không đúng định dạng");
+        bail!("{}", tr("the x2t converter has the wrong format", "bộ chuyển đổi x2t không đúng định dạng"));
     }
     for app in std::fs::read_dir(dir.join("web-apps/apps"))?.flatten() {
         let locale = app.path().join("main/locale");
