@@ -139,7 +139,7 @@ export async function toggleProjectBypass(chatId: string): Promise<void> {
   const msg = on
     ? `Bypass permissions for the whole project?\n\n${chat.cwd}\n\nClaude will run commands and edit files here without asking. The trust-folder and bypass warnings are answered "Yes" for you. Saved in .claude/settings.local.json, so it also applies when you run claude from a terminal.\n\nOpen chats in this project restart.`
     : `Turn off bypass for ${chat.cwd}?\n\nClaude asks for permission again. Open chats in this project restart.`
-  if (!window.confirm(msg)) return
+  if (!(await window.api.ask(msg))) return
   try {
     await window.api.claude.setProjectBypass(chat.cwd, on)
   } catch (e) {
@@ -607,9 +607,9 @@ export function disabledTools(): string[] {
 }
 
 /** Save which tools are off, then restart the chat so it starts without them (same conversation). */
-export function setDisabledTools(id: string, tools: string[]): void {
+export async function setDisabledTools(id: string, tools: string[]): Promise<void> {
   const c = st().chats.find((x) => x.id === id)
-  if (c?.status === 'working' && !window.confirm('Claude is still working. Restart this chat with the new tool set?')) return
+  if (c?.status === 'working' && !(await window.api.ask('Claude is still working. Restart this chat with the new tool set?'))) return
   remember(DISABLED_TOOLS_KEY, tools.join(','))
   if (c) restartChat(id)
 }
@@ -622,7 +622,7 @@ export async function toggleDesktop(id: string): Promise<void> {
   const msg = on
     ? 'Let Claude control the other apps on this computer in this chat?\n\nIt can read their windows and use your real mouse and keyboard: click, type and press keys in them. It asks first before sending, deleting, paying or changing settings.\n\nThe chat restarts (same conversation). Off again when VIBE CODE restarts.'
     : 'Turn off desktop control for this chat? The chat restarts (same conversation).'
-  if (!window.confirm(msg)) return
+  if (!(await window.api.ask(msg))) return
   await window.api.desktop.set(id, on)
   st().patchChat(id, { desktop: on || undefined })
   restartChat(id)
@@ -647,10 +647,10 @@ export function setChatEffort(id: string, effort: string): void {
 }
 
 /** Permission mode is a launch flag: resume the same conversation with the new mode. */
-export function setChatPermission(id: string, mode: string): void {
+export async function setChatPermission(id: string, mode: string): Promise<void> {
   const c = st().chats.find((x) => x.id === id)
   if (!c) return
-  if (c.status === 'working' && !window.confirm(`${agentDef(c.agent).label} is still working. Restart this chat with the new permission mode?`)) return
+  if (c.status === 'working' && !(await window.api.ask(`${agentDef(c.agent).label} is still working. Restart this chat with the new permission mode?`))) return
   st().patchChat(id, { permissionMode: mode || undefined })
   remember(PERMISSION_KEY, mode)
   restartChat(id)
@@ -924,10 +924,10 @@ export function openCommitDiff(gitRoot: string, commit: { hash: string; short: s
 /** recently closed editor tabs, newest last (Ctrl+Shift+T brings them back) */
 const closedTabs: EditorTab[] = []
 
-export function closeTab(id: string): void {
+export async function closeTab(id: string): Promise<void> {
   const tab = st().tabs.find((t) => t.id === id)
   if (tab?.kind === 'file') {
-    if (hasUnsaved(tab.path) && !window.confirm(`Discard unsaved changes to ${tab.title}?`)) return
+    if (hasUnsaved(tab.path) && !(await window.api.ask(`Discard unsaved changes to ${tab.title}?`))) return
     disposeModel(tab.path)
   }
   if (tab) {

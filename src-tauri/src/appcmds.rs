@@ -149,9 +149,13 @@ pub async fn app_set_settings(patch: Map<String, Value>) -> Res<AppSettings> {
     const ALLOWED: [&str; 9] = ["theme", "dropOpacity", "dropHeight", "hideOnBlur", "model", "effort", "permissionMode", "seeThrough", "adBlock"];
     let clean: Map<String, Value> = patch.into_iter().filter(|(k, _)| ALLOWED.contains(&k.as_str())).collect();
     let drop_prefs = ["dropOpacity", "dropHeight", "hideOnBlur"].iter().any(|k| clean.contains_key(*k));
+    let ad_block = clean.contains_key("adBlock");
     let s = settings::update(clean).await;
     if drop_prefs {
         crate::windowing::apply_drop_prefs();
+    }
+    if ad_block {
+        crate::browser::sync_adblock();
     }
     Ok(s)
 }

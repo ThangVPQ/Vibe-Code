@@ -133,7 +133,7 @@ function ZaloConnected({ state }: { state: ZaloState }): React.JSX.Element {
           className="zl-icon danger"
           title="Đăng xuất"
           onClick={() => {
-            if (window.confirm('Đăng xuất Zalo và xoá toàn bộ tin nhắn đã đồng bộ trên máy này?')) void window.api.zalo.logout()
+            void window.api.ask('Đăng xuất Zalo và xoá toàn bộ tin nhắn đã đồng bộ trên máy này?').then((ok) => (ok ? window.api.zalo.logout() : undefined))
           }}
         >
           <LogOut size={17} />

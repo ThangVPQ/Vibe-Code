@@ -256,8 +256,11 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
   }
 
   const adBlock = useStore((s) => s.settings?.adBlock ?? true)
-  const [blocked, setBlocked] = useState(0)
-  useEffect(() => window.api.browser.onBlocked((l, n) => l === label && setBlocked(n)), [label])
+  const [blocker, setBlocker] = useState('')
+  useEffect(() => {
+    void window.api.browser.adblockStatus().then(setBlocker)
+    return window.api.browser.onAdblockStatus(setBlocker)
+  }, [])
   const toggleAdBlock = async (): Promise<void> => {
     const settings = await window.api.app.setSettings({ adBlock: !adBlock }).catch(() => null)
     if (settings) useStore.setState({ settings })
@@ -364,12 +367,11 @@ export function BrowserTab({ chatKey, tabId, active, onScreen }: { chatKey: stri
         {box && <span className="device-zoom" title="Zoomed out to fit">{Math.round(box.zoom * 100)}%</span>}
         {window.api.platform === 'win32' && (
           <button
-            className={`icon-btn adblock-btn${adBlock ? ' on' : ''}`}
-            title={adBlock ? `Ad blocking on — ${blocked} blocked on this page. Click to turn off (reloads)` : 'Ad blocking off. Click to turn on (reloads)'}
+            className={`icon-btn${adBlock ? ' adblock-on' : ''}`}
+            title={`Ad blocking ${adBlock ? 'on' : 'off'} — ${blocker}. Click to turn it ${adBlock ? 'off' : 'on'} (reloads)`}
             onClick={() => void toggleAdBlock()}
           >
             {adBlock ? <ShieldCheck size={14} /> : <ShieldOff size={14} />}
-            {adBlock && blocked > 0 && <span className="adblock-count">{blocked > 99 ? '99+' : blocked}</span>}
           </button>
         )}
         <button className="icon-btn" title="Clear cache & reload (keeps logins)" disabled={clearing} onClick={clearCache}>

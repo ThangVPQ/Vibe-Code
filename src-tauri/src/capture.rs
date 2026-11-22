@@ -87,6 +87,8 @@ pub async fn capture_start(hide: bool) -> Res<()> {
 
     let url = "capture://localhost/".parse().map_err(|_| err("bad url"))?;
     let built = WebviewWindowBuilder::new(app(), LABEL, WebviewUrl::CustomProtocol(url))
+        // same WebView2 environment options as the main window (see windowing.rs)
+        .browser_extensions_enabled(true)
         .title("VIBE CODE capture")
         .visible(false)
         .decorations(false)

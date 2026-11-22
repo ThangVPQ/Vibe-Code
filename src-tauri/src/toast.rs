@@ -94,6 +94,8 @@ pub fn show(cards: Vec<ToastCard>) {
     }
     let Ok(url) = "toast://localhost/".parse() else { return };
     let built = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::CustomProtocol(url))
+        // same WebView2 environment options as the main window (see windowing.rs)
+        .browser_extensions_enabled(true)
         .title("VIBE CODE")
         .inner_size(WIDTH, 10.0)
         .visible(false)

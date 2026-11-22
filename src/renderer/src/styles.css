@@ -3017,24 +3017,7 @@ button.sb-item.sb-update:hover {
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
 }
-.adblock-btn { position: relative; }
-.adblock-btn.on { color: var(--green); }
-.adblock-count {
-  position: absolute;
-  right: -3px;
-  bottom: -2px;
-  min-width: 14px;
-  height: 13px;
-  padding: 0 3px;
-  border-radius: 7px;
-  background: var(--green);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 13px;
-  text-align: center;
-  pointer-events: none;
-}
+.icon-btn.adblock-on { color: var(--green); }
 .browser-address {
   flex: 1;
   height: 28px;

@@ -145,7 +145,7 @@ function GmailInbox({ email, onLogout }: { email: string; onLogout: () => void }
             className="gm-icon"
             title="Đăng xuất"
             onClick={() => {
-              if (window.confirm('Đăng xuất Gmail và xoá mật khẩu ứng dụng đã lưu trên máy này?')) void window.api.gmail.logout().then(onLogout)
+              void window.api.ask('Đăng xuất Gmail và xoá mật khẩu ứng dụng đã lưu trên máy này?').then((ok) => (ok ? window.api.gmail.logout().then(onLogout) : undefined))
             }}
           >
             <LogOut size={15} />

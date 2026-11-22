@@ -488,8 +488,8 @@ function ChatStatusBar({ chat }: { chat: Chat }): React.JSX.Element {
             title={exited ? 'This chat has ended — restart it first' : `${a.label} — ${a.title}`}
             aria-label={a.label}
             disabled={exited}
-            onClick={() => {
-              if (a.confirm && !window.confirm(a.confirm)) return
+            onClick={async () => {
+              if (a.confirm && !(await window.api.ask(a.confirm))) return
               sendPrompt(chat.id, a.prompt)
             }}
           >

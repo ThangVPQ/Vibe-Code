@@ -86,6 +86,12 @@ const platform: 'win32' | 'darwin' | 'linux' = navigator.userAgent.includes('Win
 
 export const api = {
   platform,
+  /**
+   * OK / Cancel question in a native box; true = OK. Use this, not window.confirm: tauri-plugin-dialog
+   * swaps that for an async stand-in whose Promise is always truthy.
+   */
+  ask: async (message: string): Promise<boolean> =>
+    (await invoke<string>('plugin:dialog|message', { message, title: 'VIBE CODE', buttons: 'OkCancel' })) === 'Ok',
   pty: {
     spawn: (o: PtySpawnOptions): Promise<void> => {
       const ch = new Channel<PtyMsg>()
@@ -126,8 +132,9 @@ export const api = {
     setUserAgent: (label: string, userAgent: string | null): Promise<void> => invoke('web_set_user_agent', { label, userAgent }),
     close: (label: string): void => void invoke('web_close', { label }),
     onNav: (cb: (label: string, nav: WebNav) => void): Off => on('web:nav', cb),
-    /** ad requests blocked on the page now loaded in a tab */
-    onBlocked: (cb: (label: string, count: number) => void): Off => on('web:blocked', cb),
+    /** uBlock Origin in the Web tabs: its version, "Downloading…", or what went wrong */
+    adblockStatus: (): Promise<string> => invoke('web_adblock_status'),
+    onAdblockStatus: (cb: (status: string) => void): Off => on('web:adblock', cb),
     /** a chat's browser tools were used: make sure its Web tab exists (and show it) */
     onOpen: (cb: (chatId: string) => void): Off => on('browser:open', cb),
     data: (): Promise<WebData> => invoke('web_data'),

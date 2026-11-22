@@ -208,7 +208,7 @@ function OpacityControl(): React.JSX.Element {
               const msg = next
                 ? 'See-through: the background turns transparent and text stays sharp, like a Linux overlay terminal.\n\nVIBE CODE has to restart. Open chats close; reopen them from Chats.'
                 : 'Turn off see-through? VIBE CODE has to restart. Open chats close; reopen them from Chats.'
-              if (!window.confirm(msg)) return
+              if (!(await window.api.ask(msg))) return
               const settings = await window.api.app.setSettings({ seeThrough: next }).catch(() => null)
               if (settings) useStore.setState({ settings })
               if (!(await window.api.app.relaunch())) setPending(true)

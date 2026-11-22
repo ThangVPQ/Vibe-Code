@@ -57,7 +57,7 @@ impl Default for AppSettings {
     }
 }
 
-/// Cheap read for every request a Web tab makes.
+/// The Web tabs run uBlock Origin.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn ad_block() -> bool {
     CACHE.read().ad_block

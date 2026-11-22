@@ -273,7 +273,7 @@ export function DatabasePane(): React.JSX.Element {
   }
 
   const remove = async (c: DbConnection): Promise<void> => {
-    if (!window.confirm(`Remove the connection "${c.name}"?`)) return
+    if (!(await window.api.ask(`Remove the connection "${c.name}"?`))) return
     const list = await window.api.db.remove(c.id)
     setConns(list)
     if (activeId === c.id) setActiveId(list[0]?.id ?? null)

@@ -1,114 +1,100 @@
-//! Ad blocking for the Web tabs: requests to known ad / tracking servers are answered locally
-//! (empty 403) and never leave the machine. A domain also covers its subdomains.
+//! Ad blocking for the Web tabs: uBlock Origin (github.com/gorhill/uBlock), loaded into WebView2 as a
+//! browser extension. Its newest release is downloaded on first launch and again whenever a newer
+//! one is out; browser.rs adds it to the Web tabs' profile and turns it on / off with the setting.
 
-use std::{collections::HashSet, sync::LazyLock};
+use std::path::{Path, PathBuf};
 
-const DOMAINS: &[&str] = &[
-    // Google ads
-    "doubleclick.net",
-    "googlesyndication.com",
-    "googleadservices.com",
-    "googletagservices.com",
-    "adservice.google.com",
-    "google-analytics.com",
-    // ad exchanges, networks, measurement
-    "adnxs.com",
-    "adsrvr.org",
-    "criteo.com",
-    "criteo.net",
-    "taboola.com",
-    "outbrain.com",
-    "pubmatic.com",
-    "rubiconproject.com",
-    "openx.net",
-    "casalemedia.com",
-    "indexww.com",
-    "amazon-adsystem.com",
-    "advertising.com",
-    "adform.net",
-    "smartadserver.com",
-    "yieldmo.com",
-    "teads.tv",
-    "sharethrough.com",
-    "33across.com",
-    "bidswitch.net",
-    "contextweb.com",
-    "lijit.com",
-    "sovrn.com",
-    "media.net",
-    "adroll.com",
-    "moatads.com",
-    "adsafeprotected.com",
-    "doubleverify.com",
-    "scorecardresearch.com",
-    "quantserve.com",
-    "zedo.com",
-    "revcontent.com",
-    "mgid.com",
-    "bidvertiser.com",
-    "ads-twitter.com",
-    "ads.linkedin.com",
-    "an.facebook.com",
-    "an.yandex.ru",
-    "mc.yandex.ru",
-    // pop-ups / pop-unders
-    "propellerads.com",
-    "popads.net",
-    "popcash.net",
-    "adsterra.com",
-    "exoclick.com",
-    "juicyads.com",
-    "trafficjunky.net",
-    "hilltopads.net",
-    "onclickads.net",
-    "adcash.com",
-    "yllix.com",
-    // Vietnamese ad networks
-    "admicro.vn",
-    "adtima.vn",
-    "adtimaserver.vn",
-    "eclick.vn",
-    "ambientplatform.vn",
-    "yomedia.vn",
-    "ants.vn",
-    "aiactiv.io",
-];
+use anyhow::{Context, bail};
+use serde_json::Value;
 
-static SET: LazyLock<HashSet<&'static str>> = LazyLock::new(|| DOMAINS.iter().copied().collect());
+use crate::core::{command, user_data};
 
-/// The URL's host, or one of its parent domains, serves ads.
-#[cfg_attr(not(windows), allow(dead_code))]
-pub fn is_ad(url: &str) -> bool {
-    let rest = url.split_once("://").map_or(url, |(_, r)| r);
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
-    let host = host.split(':').next().unwrap_or_default().trim_end_matches('.').to_ascii_lowercase();
-    let mut h = host.as_str();
-    loop {
-        if SET.contains(h) {
-            return true;
-        }
-        match h.split_once('.') {
-            Some((_, parent)) if parent.contains('.') => h = parent,
-            _ => return false,
-        }
-    }
+const REPO: &str = "gorhill/uBlock";
+/// Extension name in its manifest: how it is found again among the profile's extensions.
+pub const NAME: &str = "uBlock Origin";
+
+fn root() -> PathBuf {
+    user_data().join("ublock")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::is_ad;
-
-    #[test]
-    fn matches_domain_and_subdomains_only() {
-        assert!(is_ad("https://securepubads.g.doubleclick.net/tag/js/gpt.js"));
-        assert!(is_ad("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=x"));
-        assert!(is_ad("https://media1.admicro.vn/core/admcore.js"));
-        assert!(is_ad("https://ADSERVICE.google.com:443/x"));
-        assert!(!is_ad("https://www.google.com/search?q=doubleclick.net"));
-        assert!(!is_ad("https://notdoubleclick.net/"));
-        assert!(!is_ad("https://www.facebook.com/"));
-        assert!(!is_ad("https://vnexpress.net/"));
-        assert!(!is_ad("about:blank"));
+/// The release now on disk: (tag, unpacked extension folder).
+pub fn installed() -> Option<(String, PathBuf)> {
+    let dirs = std::fs::read_dir(root()).ok()?;
+    for d in dirs.flatten() {
+        let tag = d.file_name().to_string_lossy().into_owned();
+        if tag.ends_with(".part") || !d.path().is_dir() {
+            continue;
+        }
+        if let Some(ext) = manifest_dir(&d.path()) {
+            return Some((tag, ext));
+        }
     }
+    None
+}
+
+/// The folder holding manifest.json: the archive's root or its only subfolder.
+fn manifest_dir(dir: &Path) -> Option<PathBuf> {
+    if dir.join("manifest.json").is_file() {
+        return Some(dir.to_owned());
+    }
+    std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.join("manifest.json").is_file())
+}
+
+/// Downloads the newest release unless it is already on disk; true when a new one was installed.
+pub async fn update() -> anyhow::Result<bool> {
+    let http = reqwest::Client::new();
+    let rel: Value = http
+        .get(format!("https://api.github.com/repos/{REPO}/releases/latest"))
+        .header("User-Agent", "vibe-code")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let tag = rel["tag_name"].as_str().context("release without a tag")?.to_owned();
+    if installed().is_some_and(|(t, _)| t == tag) {
+        return Ok(false);
+    }
+    let url = rel["assets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|a| a["name"].as_str().is_some_and(|n| n.ends_with(".chromium.zip")))
+        .and_then(|a| a["browser_download_url"].as_str())
+        .context("no Chromium build in the release")?;
+    let zip = http.get(url).header("User-Agent", "vibe-code").send().await?.error_for_status()?.bytes().await?;
+
+    let root = root();
+    tokio::fs::create_dir_all(&root).await?;
+    let (file, part, done) = (root.join(format!("{tag}.zip")), root.join(format!("{tag}.part")), root.join(&tag));
+    tokio::fs::write(&file, &zip).await?;
+    let _ = tokio::fs::remove_dir_all(&part).await;
+    let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "''"));
+    let out = command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &format!("Expand-Archive -LiteralPath {} -DestinationPath {} -Force", quote(&file), quote(&part))])
+        .output()
+        .await?;
+    let _ = tokio::fs::remove_file(&file).await;
+    if !out.status.success() || manifest_dir(&part).is_none() {
+        let _ = tokio::fs::remove_dir_all(&part).await;
+        bail!("could not unpack uBlock Origin {tag}: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    tokio::fs::rename(&part, &done).await?;
+    // older releases: the profile may still have one loaded until the next launch, so a failed
+    // delete is retried then
+    for d in std::fs::read_dir(&root)?.flatten() {
+        if d.path().is_dir() && d.file_name().to_string_lossy() != tag.as_str() {
+            let _ = std::fs::remove_dir_all(d.path());
+        }
+    }
+    Ok(true)
+}
+
+/// Tag of the release last added to the Web tabs' profile (a newer one replaces it).
+pub fn loaded_tag() -> Option<String> {
+    std::fs::read_to_string(root().join("loaded.txt")).ok().map(|s| s.trim().to_owned())
+}
+
+pub fn set_loaded_tag(tag: &str) {
+    let _ = std::fs::write(root().join("loaded.txt"), tag);
 }

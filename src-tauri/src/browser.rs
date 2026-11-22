@@ -44,20 +44,6 @@ type LogLine = (Instant, String);
 /// chatId → label of the tab that chat's browser tools drive
 static ACTIVE: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
 static WAITERS: LazyLock<Mutex<HashMap<String, Vec<oneshot::Sender<String>>>>> = LazyLock::new(Default::default);
-/// label → ad requests blocked on the page now loaded
-static BLOCKED: LazyLock<Mutex<HashMap<String, u32>>> = LazyLock::new(Default::default);
-
-/// One more blocked request (or back to 0 for a new page); the tab's shield button shows it.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn count_blocked(label: &str, new_page: bool) {
-    let n = {
-        let mut b = BLOCKED.lock();
-        let n = b.entry(label.to_owned()).or_default();
-        *n = if new_page { 0 } else { *n + 1 };
-        *n
-    };
-    emit("web:blocked", (label, n));
-}
 
 fn webview(label: &str) -> Option<Webview> {
     TABS.lock().get(label).map(|t| t.webview.clone())
@@ -105,6 +91,8 @@ async fn open_tab(label: String, chat_id: String, url: String, user_agent: Optio
     let popup_label = label.clone();
     #[allow(unused_mut)]
     let mut b = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
+        // uBlock Origin runs in the tabs (adblock.rs)
+        .browser_extensions_enabled(true)
         // popups open in the same tab
         .on_new_window(move |url, _features| {
             if matches!(url.scheme(), "http" | "https")
@@ -238,7 +226,6 @@ pub fn web_close(label: String) {
     if let Some(t) = tab {
         ACTIVE.lock().retain(|_, l| *l != label);
         LOGS.lock().remove(&label);
-        BLOCKED.lock().remove(&label);
         let _ = t.webview.close();
     }
 }
@@ -281,6 +268,45 @@ pub async fn clear_cache() -> Res<()> {
     #[cfg(not(windows))]
     let _ = w;
     Ok(())
+}
+
+/* ---------------- ad blocking (uBlock Origin) ---------------- */
+
+/// What the shield button says: "uBlock Origin 1.76.6", "Downloading uBlock Origin…", an error.
+static ADBLOCK_STATUS: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new("Downloading uBlock Origin…".into()));
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn set_adblock_status(s: String) {
+    *ADBLOCK_STATUS.lock() = s.clone();
+    emit("web:adblock", (s,));
+}
+
+#[tauri::command]
+pub fn web_adblock_status() -> String {
+    ADBLOCK_STATUS.lock().clone()
+}
+
+/// Startup: fetch uBlock Origin (first launch, or a newer release) and load it into the Web tabs.
+pub async fn start_adblock() {
+    #[cfg(windows)]
+    {
+        if let Err(e) = crate::adblock::update().await
+            && crate::adblock::installed().is_none()
+        {
+            set_adblock_status(format!("Couldn't download uBlock Origin: {e:#}"));
+            return;
+        }
+        sync_adblock();
+    }
+}
+
+/// Puts the Web tabs' uBlock Origin in line with the setting (and the release on disk). The tabs
+/// share the main window's profile, so its webview is enough.
+pub fn sync_adblock() {
+    #[cfg(windows)]
+    if let Some(w) = app().get_webview(crate::core::MAIN) {
+        win::sync_ublock(&w);
+    }
 }
 
 /* ---------------- for Claude's tools (mcp.rs) ---------------- */
@@ -467,8 +493,9 @@ fn key_info(key: &str) -> (String, String, u32, Option<String>) {
 mod win {
     use super::*;
     use webview2_com::{
-        CallDevToolsProtocolMethodCompletedHandler, ClearBrowsingDataCompletedHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, HistoryChangedEventHandler,
-        Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler, NavigationStartingEventHandler, TrySuspendCompletedHandler, WebResourceRequestedEventHandler,
+        BrowserExtensionEnableCompletedHandler, BrowserExtensionRemoveCompletedHandler, CallDevToolsProtocolMethodCompletedHandler, ClearBrowsingDataCompletedHandler,
+        DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, HistoryChangedEventHandler, Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler,
+        NavigationStartingEventHandler, ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler, TrySuspendCompletedHandler,
     };
     use windows::core::{BOOL, HSTRING, Interface, PWSTR};
 
@@ -515,36 +542,6 @@ mod win {
                     &NavigationStartingEventHandler::create(Box::new(move |s, _| {
                         if let Some(s) = s {
                             emit_nav(&l, nav_state(&s, true));
-                        }
-                        count_blocked(&l, true);
-                        Ok(())
-                    })),
-                    &mut token,
-                );
-                // ad blocking: every request (iframes and workers too, where the runtime allows it) is
-                // checked against the list; a blocked one gets an empty 403 without touching the network
-                let any = HSTRING::from("*");
-                match core.cast::<ICoreWebView2_22>() {
-                    Ok(c22) => {
-                        let _ = c22.AddWebResourceRequestedFilterWithRequestSourceKinds(&any, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL, COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
-                    }
-                    Err(_) => {
-                        let _ = core.AddWebResourceRequestedFilter(&any, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-                    }
-                }
-                let env = pw.environment();
-                let l = label.clone();
-                let _ = core.add_WebResourceRequested(
-                    &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
-                        let Some(args) = args else { return Ok(()) };
-                        if !crate::settings::ad_block() {
-                            return Ok(());
-                        }
-                        let mut uri = PWSTR::null();
-                        args.Request()?.Uri(&mut uri)?;
-                        if crate::adblock::is_ad(&take_pwstr(uri)) {
-                            args.SetResponse(&env.CreateWebResourceResponse(None, 403, &HSTRING::from("Blocked"), &HSTRING::new())?)?;
-                            count_blocked(&l, false);
                         }
                         Ok(())
                     })),
@@ -670,6 +667,71 @@ mod win {
         })?;
         let json = tokio::time::timeout(Duration::from_secs(60), rx).await.map_err(|_| anyhow!("the page did not answer within 60s"))?.map_err(|_| anyhow!("the page is not ready"))??;
         Ok(serde_json::from_str(&json).unwrap_or(Value::Null))
+    }
+
+    /// uBlock Origin in the profile: added (or swapped for the release on disk when that is newer),
+    /// then turned on or off as the setting says.
+    pub fn sync_ublock(w: &Webview) {
+        let _ = w.with_webview(|pw| unsafe {
+            let Ok(profile) = pw.controller().CoreWebView2().and_then(|c| c.cast::<ICoreWebView2_13>()).and_then(|c| c.Profile()).and_then(|p| p.cast::<ICoreWebView2Profile7>()) else {
+                set_adblock_status("Ad blocking needs a newer WebView2 runtime.".into());
+                return;
+            };
+            let on = crate::settings::ad_block();
+            let disk = crate::adblock::installed();
+            let p = profile.clone();
+            let _ = profile.GetBrowserExtensions(&ProfileGetBrowserExtensionsCompletedHandler::create(Box::new(move |_, list| {
+                let mut ours = None;
+                if let Some(list) = list {
+                    let mut n = 0;
+                    let _ = list.Count(&mut n);
+                    for i in 0..n {
+                        let Ok(ext) = list.GetValueAtIndex(i) else { continue };
+                        let mut name = PWSTR::null();
+                        let _ = ext.Name(&mut name);
+                        if take_pwstr(name).starts_with(crate::adblock::NAME) {
+                            ours = Some(ext);
+                            break;
+                        }
+                    }
+                }
+                let Some((tag, dir)) = disk else {
+                    // nothing downloaded (yet): keep whatever the profile has
+                    if let Some(ext) = ours {
+                        let _ = ext.Enable(on, &BrowserExtensionEnableCompletedHandler::create(Box::new(|_| Ok(()))));
+                    }
+                    return Ok(());
+                };
+                let label = format!("{} {tag}", crate::adblock::NAME);
+                if let Some(ext) = &ours
+                    && crate::adblock::loaded_tag().as_deref() == Some(tag.as_str())
+                {
+                    let _ = ext.Enable(on, &BrowserExtensionEnableCompletedHandler::create(Box::new(|_| Ok(()))));
+                    set_adblock_status(label);
+                    return Ok(());
+                }
+                if let Some(ext) = ours {
+                    let _ = ext.Remove(&BrowserExtensionRemoveCompletedHandler::create(Box::new(|_| Ok(()))));
+                }
+                let _ = p.AddBrowserExtension(
+                    &HSTRING::from(dir.as_path()),
+                    &ProfileAddBrowserExtensionCompletedHandler::create(Box::new(move |hr, ext| {
+                        match (hr, ext) {
+                            (Ok(()), Some(ext)) => {
+                                crate::adblock::set_loaded_tag(&tag);
+                                if !on {
+                                    let _ = ext.Enable(false, &BrowserExtensionEnableCompletedHandler::create(Box::new(|_| Ok(()))));
+                                }
+                                set_adblock_status(label);
+                            }
+                            (hr, _) => set_adblock_status(format!("WebView2 refused {label}: {:?}", hr.err())),
+                        }
+                        Ok(())
+                    })),
+                );
+                Ok(())
+            })));
+        });
     }
 
     pub async fn clear_cache(w: &Webview) -> Result<()> {

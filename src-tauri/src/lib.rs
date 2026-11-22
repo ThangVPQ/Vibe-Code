@@ -4,6 +4,7 @@
 pub mod core;
 pub mod secure;
 
+#[cfg(windows)]
 mod adblock;
 mod appcmds;
 mod browser;
@@ -61,6 +62,7 @@ pub fn run() {
             browser::web_stop,
             browser::web_set_user_agent,
             browser::web_close,
+            browser::web_adblock_status,
             webdata::web_data,
             webdata::web_import_chrome,
             webdata::web_suggest,
@@ -183,6 +185,7 @@ pub fn run() {
             // before any chat starts: chats get the MCP server's address at launch
             tauri::async_runtime::block_on(mcp::start())?;
             windowing::init(app)?;
+            tauri::async_runtime::spawn(browser::start_adblock());
             zalo::init();
             zalo_tasks::init();
             Ok(())

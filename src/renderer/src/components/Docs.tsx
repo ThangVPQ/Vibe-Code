@@ -165,7 +165,7 @@ export const DocsWorkspace = forwardRef<Workspace, WorkspaceProps>(function Docs
       try {
         await auto.saveNow(path)
       } catch (err) {
-        if (!window.confirm(`Không lưu được "${fileName(path)}":\n${errText(err)}\n\nVẫn đóng và bỏ các thay đổi chưa lưu?`)) return
+        if (!(await window.api.ask(`Không lưu được "${fileName(path)}":\n${errText(err)}\n\nVẫn đóng và bỏ các thay đổi chưa lưu?`))) return
       }
       drop()
     })

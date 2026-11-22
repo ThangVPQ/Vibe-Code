@@ -410,7 +410,7 @@ export function chatMenu(e: React.MouseEvent, ref: { chatId?: string; session?: 
       hint: 'to Recycle Bin',
       action: async () => {
         const working = chat?.status === 'working' ? `\n\n${agentDef(chat.agent).label} is still working — it will be stopped.` : ''
-        if (!window.confirm(`Delete chat "${title}"?\nIts history goes to the Recycle Bin.${working}`)) return
+        if (!(await window.api.ask(`Delete chat "${title}"?\nIts history goes to the Recycle Bin.${working}`))) return
         if (chat) {
           closeChat(chat.id)
           // let the process exit first, or its last write would bring the transcript back
@@ -583,7 +583,7 @@ function tabsUnder(path: string): EditorTab[] {
 /** Rename a file / folder in place; its open editor tabs follow it. */
 async function renamePath(path: string, next: string): Promise<void> {
   const open = tabsUnder(path)
-  if (open.some((t) => hasUnsaved(t.path)) && !window.confirm('Unsaved changes in the open file will be lost. Rename anyway?')) return
+  if (open.some((t) => hasUnsaved(t.path)) && !(await window.api.ask('Unsaved changes in the open file will be lost. Rename anyway?'))) return
   const to = dirOf(path) + sepOf(path) + next
   await window.api.fs.rename(path, to)
   for (const t of open) closeTab(t.id)
@@ -629,7 +629,7 @@ function explorerMenu(e: React.MouseEvent, path: string, isDir: boolean, root: s
       icon: <Trash2 size={14} />,
       hint: 'to Recycle Bin',
       action: fsOp(async () => {
-        if (!window.confirm(`Move ${isDir ? 'folder' : 'file'} "${name}" to the Recycle Bin?`)) return
+        if (!(await window.api.ask(`Move ${isDir ? 'folder' : 'file'} "${name}" to the Recycle Bin?`))) return
         await window.api.fs.trash(path)
         for (const t of tabsUnder(path)) closeTab(t.id)
       })
@@ -747,8 +747,8 @@ const TreeNode = memo(function TreeNode({ item, depth, deco, openCtx }: { item: 
 async function discard(files: GitFile[], root: string): Promise<void> {
   const what = files.length === 1 ? `"${files[0].rel}"` : `all ${files.length} changed files`
   const gone = files.some((f) => f.status === '?' || f.status === 'A')
-  if (!window.confirm(`Discard changes to ${what}?${gone ? '\nNew files will be deleted.' : ''}\nThis can't be undone.`)) return
-  if (files.some((f) => hasUnsaved(f.abs)) && !window.confirm('A file with unsaved edits in the editor is included. Discard anyway?')) return
+  if (!(await window.api.ask(`Discard changes to ${what}?${gone ? '\nNew files will be deleted.' : ''}\nThis can't be undone.`))) return
+  if (files.some((f) => hasUnsaved(f.abs)) && !(await window.api.ask('A file with unsaved edits in the editor is included. Discard anyway?'))) return
   const failed: string[] = []
   for (const f of files) await window.api.git.discard(root, f.rel, f.status).catch((err) => failed.push(`${f.rel}: ${err}`))
   refreshGit()
