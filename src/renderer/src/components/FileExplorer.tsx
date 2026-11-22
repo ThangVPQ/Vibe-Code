@@ -6,6 +6,7 @@ import {
   ArrowUp,
   ChevronRight,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
@@ -14,14 +15,20 @@ import {
   FileSpreadsheet,
   FolderOpen,
   FolderPlus,
+  HardDrive,
+  Home,
+  Image as ImageIcon,
   Monitor,
+  Music,
   PanelRight,
   Paperclip,
   Pencil,
   RotateCw,
   Search,
   Trash2,
-  X
+  Video,
+  X,
+  FileText
 } from 'lucide-react'
 import type { ExEntry, ExPlace } from '../../../shared/types'
 import { useStore } from '../store'
@@ -30,11 +37,12 @@ import { IMAGE_RE, attachPaths, imagePreview } from '../attachments'
 import { openMenu } from './ContextMenu'
 import { FileIcon, FolderIcon } from './icons'
 import { RenameInput, startRename, useRenaming } from './InlineRename'
-import { THIS_PC, loadPlaces, placeIcon, sizeText, useFx } from './places'
 import './explorer.css'
 
 /* ================================ paths ================================ */
 
+/** '' is "This PC": the folders and drives page */
+const THIS_PC = ''
 const ROW = 28
 
 const keyOf = (p: string): string => p.toLowerCase()
@@ -120,6 +128,39 @@ const DATE = new Intl.DateTimeFormat(undefined, { day: '2-digit', month: '2-digi
 const dateText = (ms: number): string => (ms ? DATE.format(ms) : '')
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
+function sizeText(n: number): string {
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let v = n / 1024
+  let u = 0
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024
+    u++
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString()} ${units[u]}`
+}
+
+function placeIcon(kind: ExPlace['kind'], size = 15): React.ReactNode {
+  switch (kind) {
+    case 'home':
+      return <Home size={size} className="fx-ic home" />
+    case 'desktop':
+      return <Monitor size={size} className="fx-ic desktop" />
+    case 'documents':
+      return <FileText size={size} className="fx-ic docs" />
+    case 'downloads':
+      return <Download size={size} className="fx-ic downloads" />
+    case 'pictures':
+      return <ImageIcon size={size} className="fx-ic pictures" />
+    case 'videos':
+      return <Video size={size} className="fx-ic videos" />
+    case 'music':
+      return <Music size={size} className="fx-ic music" />
+    default:
+      return <HardDrive size={size} className="fx-ic drive" />
+  }
+}
+
 /* ================================ small stores ================================ */
 
 const LS = {
@@ -169,13 +210,13 @@ export function FileExplorerPane(): React.JSX.Element {
   const projectRoot = useStore((s) => s.root)
   const activeChatId = useStore((s) => s.activeChatId)
 
-  const [hist, setHist] = useState<{ list: string[]; i: number }>(() => ({ list: [useFx.getState().path], i: 0 }))
+  const [hist, setHist] = useState<{ list: string[]; i: number }>(() => ({ list: [LS.get('vibe.fx.path') ?? THIS_PC], i: 0 }))
   const path = hist.list[hist.i]
   const [entries, setEntries] = useState<ExEntry[] | null>(() => listings.get(keyOf(path)) ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
-  const places = useFx((s) => s.places)
+  const [places, setPlaces] = useState<ExPlace[]>([])
   const [sort, setSortState] = useState<Sort>(() => {
     try {
       return JSON.parse(LS.get('vibe.fx.sort') ?? '') as Sort
@@ -231,8 +272,10 @@ export function FileExplorerPane(): React.JSX.Element {
   useEffect(() => {
     void load(path)
     LS.set('vibe.fx.path', path)
-    useFx.setState({ path })
   }, [path, load])
+
+  const loadPlaces = useCallback(() => void window.api.fs.places().then(setPlaces, () => {}), [])
+  useEffect(loadPlaces, [loadPlaces])
 
   // things change while you're elsewhere: refresh when the tab or the window comes back
   useEffect(() => {
@@ -263,8 +306,6 @@ export function FileExplorerPane(): React.JSX.Element {
     },
     [path, load]
   )
-  // the This PC section of the Source code column navigates through it
-  useEffect(() => useFx.setState({ go }), [go])
   const step = (d: 1 | -1): void => {
     if (listRef.current) scrollPos.current.set(keyOf(path), listRef.current.scrollTop)
     // going up / back: the folder we came from is selected again
@@ -670,6 +711,40 @@ export function FileExplorerPane(): React.JSX.Element {
         if (e.button === 4 && canFwd) step(1)
       }}
     >
+      <nav className="fx-nav">
+        <div className="fx-places">
+          <button className={`fx-place${path === THIS_PC ? ' on' : ''}`} onClick={() => go(THIS_PC)}>
+            <Monitor size={15} className="fx-ic pc" />
+            <span>This PC</span>
+          </button>
+          {projectRoot && (
+            <button className={`fx-place${keyOf(path) === keyOf(projectRoot) ? ' on' : ''}`} title={projectRoot} onClick={() => go(projectRoot)}>
+              <FolderIcon open={false} size={15} />
+              <span>{nameOf(projectRoot)}</span>
+              <span className="fx-place-tag">project</span>
+            </button>
+          )}
+          <div className="fx-nav-head">Quick access</div>
+          {places
+            .filter((p) => p.kind !== 'drive')
+            .map((p) => (
+              <button key={p.path} className={`fx-place${keyOf(path) === keyOf(p.path) ? ' on' : ''}`} title={p.path} onClick={() => go(p.path)}>
+                {placeIcon(p.kind)}
+                <span>{p.name}</span>
+              </button>
+            ))}
+          <div className="fx-nav-head">Drives</div>
+          {places
+            .filter((p) => p.kind === 'drive')
+            .map((p) => (
+              <button key={p.path} className={`fx-place${keyOf(path) === keyOf(p.path) ? ' on' : ''}`} title={p.total ? `${sizeText(p.free)} free of ${sizeText(p.total)}` : p.path} onClick={() => go(p.path)}>
+                {placeIcon(p.kind)}
+                <span>{p.name}</span>
+              </button>
+            ))}
+        </div>
+      </nav>
+
       <div className="fx-right">
       <div className="fx-bar">
         <button className="icon-btn" title="Back (Alt+Left)" disabled={!canBack} onClick={() => step(-1)}>

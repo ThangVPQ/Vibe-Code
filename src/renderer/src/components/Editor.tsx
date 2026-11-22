@@ -1,12 +1,13 @@
 import { Suspense, lazy, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import { Code2, Columns2, Copy, Database, ExternalLink, FileDiff, FileSpreadsheet, FolderOpen, Rows2, X, Command, GitCompare, Globe, Mail, MessageCircle, MessageSquarePlus, Monitor, Plus, Search } from 'lucide-react'
 import { fileUri, useStore, type EditorTab } from '../store'
 import { HOME_URL, browserKey, closeBrowserTab, closeTab, newBrowserTab, openBrowser, openFile, selectBrowserTab } from '../actions'
 import { BrowserTab } from './Browser'
 import { SlidePill } from './motion'
 import { openMenu } from './ContextMenu'
+import { ChangesView, ExplorerView } from './Sidebar'
 import { FileIcon, Logo } from './icons'
-import { SourceSide } from './SourceSide'
+import { SourceSwitch } from './SourceSwitch'
 import { EditorFontButton } from './EditorFont'
 // heavy parts load on first use: Monaco (~4 MB) only when a file or diff opens
 const FileEditor = lazy(() => import('./MonacoViews').then((m) => ({ default: m.FileEditor })))
@@ -19,7 +20,7 @@ const OfficePane = lazy(() => import('./Office').then((m) => ({ default: m.Offic
 import type { ZaloTasksState } from '../../../shared/types'
 import { revealIn } from '../scroll'
 
-/** Middle area: fixed tabs — Source code (project files, diffs, This PC), Web (built-in browser), Database, … */
+/** Middle area: fixed tabs — Source code (project files, diffs), This PC (any file on the computer), Web (built-in browser), Database, … */
 export function EditorArea(): React.JSX.Element {
   const view = useStore((s) => s.centerView)
   const fileCount = useStore((s) => s.tabs.length)
@@ -40,10 +41,6 @@ export function EditorArea(): React.JSX.Element {
   }, [view])
   // Claude's sheet tools run in the Office tab: mount it (it picks the waiting call up) without showing it
   useEffect(() => window.api.office.onRequest(() => setOfficeSeen(true)), [])
-  // Source code holds two views (project / This PC): coming back to the tab reopens the one last used
-  const source = view === 'code' || view === 'files'
-  const lastSource = useRef<'code' | 'files'>('code')
-  if (source) lastSource.current = view
   const zaloBadge = useZaloBadge(view === 'zalo')
   // switching chats while on Web: give that chat its own browser (before paint: no empty frame)
   useLayoutEffect(() => {
@@ -53,9 +50,12 @@ export function EditorArea(): React.JSX.Element {
     <div className="center-area">
       <div className="center-switch" role="tablist">
         <SlidePill />
-        <button role="tab" aria-selected={source} className={source ? 'on' : ''} title="Project files, Git changes and This PC" onClick={() => !source && useStore.setState({ centerView: lastSource.current })}>
+        <button role="tab" aria-selected={view === 'code'} className={view === 'code' ? 'on' : ''} title="Project files and Git changes" onClick={() => useStore.setState({ centerView: 'code' })}>
           <Code2 size={14} /> <span className="center-label">Source code</span>
           {fileCount > 0 && <span className="center-count">{fileCount}</span>}
+        </button>
+        <button role="tab" aria-selected={view === 'files'} className={view === 'files' ? 'on' : ''} title="Browse and read any file on this computer" onClick={() => useStore.setState({ centerView: 'files' })}>
+          <Monitor size={14} /> <span className="center-label">This PC</span>
         </button>
         <button role="tab" aria-selected={view === 'web'} className={view === 'web' ? 'on' : ''} onClick={() => openBrowser()}>
           <Globe size={14} /> <span className="center-label">Web</span>
@@ -82,23 +82,18 @@ export function EditorArea(): React.JSX.Element {
         Panes stay mounted and laid out; only the open one (`on`) is visible. display:none would drop
         their scroll positions, make Monaco re-measure on return and replay every animation inside.
       */}
-      {/* Source code: one left column (This PC, the project's files, its changes); on the right the open files,
-          or This PC (any folder on the computer). */}
-      <div className={`center-pane code-pane${source ? ' on' : ''}`}>
-        <SourceSide />
-        <div className="code-main">
-          <div className={`code-layer${view === 'code' ? ' on' : ''}`} inert={view !== 'code'}>
-            <CodeArea />
-          </div>
-          {filesSeen && (
-            <div className={`code-layer${view === 'files' ? ' on' : ''}`} inert={view !== 'files'}>
-              <Suspense fallback={null}>
-                <FileExplorerPane />
-              </Suspense>
-            </div>
-          )}
-        </div>
+      {/* Source code: the whole project of the open chat — file tree on the left, files on the right */}
+      <div className={`center-pane code-pane${view === 'code' ? ' on' : ''}`}>
+        <CodeSide />
+        <CodeArea />
       </div>
+      {filesSeen && (
+        <div className={`center-pane fx-host${view === 'files' ? ' on' : ''}`}>
+          <Suspense fallback={null}>
+            <FileExplorerPane />
+          </Suspense>
+        </div>
+      )}
       {dbSeen && (
         <div className={`center-pane db-host${view === 'db' ? ' on' : ''}`}>
           <Suspense fallback={null}>
@@ -271,6 +266,20 @@ function WebTabs({ chatKey }: { chatKey: string }): React.JSX.Element | null {
     </>
   )
 }
+
+/** Left column of Source code: the project's files, or its Git changes (click one for the diff). */
+// memo (no props): EditorArea re-renders whenever any web page changes its address or title
+const CodeSide = memo(function CodeSide(): React.JSX.Element {
+  // in the store: Ctrl+Shift+E / Ctrl+Shift+G switch it
+  const side = useStore((s) => s.codeSide)
+  const hasRoot = useStore((s) => !!s.root)
+  return (
+    <div className="sidebar code-tree">
+      <SourceSwitch />
+      {hasRoot && (side === 'files' ? <ExplorerView /> : <ChangesView />)}
+    </div>
+  )
+})
 
 /** Right-click on an editor tab. */
 function tabMenu(e: React.MouseEvent, t: EditorTab): void {

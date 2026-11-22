@@ -1,4 +1,4 @@
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Collapse, SlidePill } from './motion'
 import {
   Check,
@@ -71,21 +71,10 @@ export function Sidebar(): React.JSX.Element {
   )
 }
 
-/** In the Source code column a section's header also folds it (see SourceSide). */
-export const SectionFold = createContext<{ open: boolean; toggle: () => void } | null>(null)
-
-export function SectionHeader({ title, count, children }: { title: string; count?: number; children?: React.ReactNode }): React.JSX.Element {
-  const fold = useContext(SectionFold)
+function SectionHeader({ title, children }: { title: string; children?: React.ReactNode }): React.JSX.Element {
   return (
-    <div
-      className={`section-header${fold ? ' foldable' : ''}`}
-      onClick={fold ? (e) => !(e.target as HTMLElement).closest('.section-actions') && fold.toggle() : undefined}
-    >
-      <span>
-        {fold && <ChevronRight size={13} className={`section-chev${fold.open ? ' open' : ''}`} />}
-        {title}
-        {!!count && <span className="center-count">{count}</span>}
-      </span>
+    <div className="section-header">
+      <span>{title}</span>
       <div className="section-actions">{children}</div>
     </div>
   )
@@ -520,7 +509,7 @@ function ExplorerTree(props: { root: string; collapseKey: number; setCollapseKey
   const openCtx = useCallback<OpenCtx>((e, path, isDir) => explorerMenu(e, path, isDir, root), [root])
   return (
     <>
-      <SectionHeader title="Files">
+      <SectionHeader title="Explorer">
         <button className="icon-btn" title="New file" onClick={() => createIn(root, false)}>
           <FilePlus size={14} />
         </button>
@@ -823,7 +812,7 @@ export function ChangesView(): React.JSX.Element {
 
   return (
     <>
-      <SectionHeader title="Changes" count={git.files.length}>
+      <SectionHeader title="Changes">
         <button className="icon-btn" title="Refresh" onClick={() => refreshGit()}>
           <RefreshCw size={14} />
         </button>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, FileText, Gauge, Image as ImageIcon, ListChecks, MessageSquare, Monitor, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink, Ellipsis, FlaskConical, ScanSearch, Shrink } from 'lucide-react'
+import { Check, ChevronDown, FileText, Gauge, Image as ImageIcon, ListChecks, MessageSquare, Monitor, Copy, Download, GitCommitHorizontal, Shield, ShieldOff, History, Plus, RefreshCw, RotateCcw, Sparkles, Play, FastForward, Upload, Paperclip, Square, SquareTerminal, Trash2, X, ExternalLink, Ellipsis, FolderOpen, FlaskConical, ScanSearch, Shrink } from 'lucide-react'
 import { useStore, type Chat } from '../store'
 import { SlidePill, useEnterAnimation } from './motion'
 import {
@@ -157,6 +157,12 @@ export function ClaudePanel(): React.JSX.Element {
             <div className="chat-titlebar-main" onContextMenu={(e) => chatMenu(e, { chatId: active.id }, 'title')}>
               <StatusDot status={active.status} attention={active.attention} />
               <ChatTitle place="title" chatId={active.id} title={active.title} className="chat-titlebar-title" />
+              {active.cwd && (
+                <span className="chat-project" title={`Project: ${active.cwd}`}>
+                  <FolderOpen size={12} />
+                  <span>{active.cwd.split(/[\\/]/).filter(Boolean).pop()}</span>
+                </span>
+              )}
               {agentDef(active.agent).id !== 'claude' && <span className="chat-agent">{agentDef(active.agent).label}</span>}
               <span className={`chat-state s-${active.status}`}>{statusLabel[active.status]}</span>
             </div>
