@@ -258,7 +258,7 @@ pub async fn app_relaunch() -> Res<bool> {
 
 /* ---------------- updates (GitHub releases) ---------------- */
 
-const RELEASES: &str = "https://api.github.com/repos/nguyentrantin98/vibecode/releases/latest";
+const RELEASES: &str = "https://api.github.com/repos/ThangVPQ/Vibe-Code/releases/latest";
 
 /// The newest release's version, installer url and notes, when it is newer than this build.
 async fn newer_release() -> anyhow::Result<Option<(String, String, String)>> {
